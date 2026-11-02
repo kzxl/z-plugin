@@ -5,7 +5,7 @@ import readline from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { outline, search } from "./lib/scan.mjs";
+import { outline, search, readSymbol } from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
 import { dietReport } from "./lib/diet.mjs";
 import { runAction } from "./lib/run.mjs";
@@ -230,15 +230,29 @@ const TOOLS = [
   {
     name: "outline",
     description:
-      "List type and method signatures with line numbers for a source file or directory. Call before Read on files over 200 lines.",
+      "List type and method signatures with line numbers for a source file or directory, or extract a complete method body with the 'symbol' parameter. Call before Read on files over 200 lines.",
     inputSchema: {
       type: "object",
       properties: {
         path: { type: "string", description: "File or directory" },
+        symbol: { type: "string", description: "Optional function, method, or class name to extract its complete body in 1 turn (One-Shot Reader)." },
         maxFiles: { type: "number", description: "Directory mode: files to show, default 10" },
         maxPerFile: { type: "number", description: "Symbols per file, default 60" },
       },
       required: ["path"],
+    },
+  },
+  {
+    name: "read_symbol",
+    description:
+      "One-Shot Method Inspection: Read the COMPLETE body of a function, method, or class (including signature, attributes, docstring, and body with safety padding) in 1 turn without two-step outline+read round-trips.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Source file path" },
+        symbol: { type: "string", description: "Function, method, or class name to extract" },
+      },
+      required: ["path", "symbol"],
     },
   },
   {
@@ -322,6 +336,8 @@ async function callTool(name, args) {
   switch (name) {
     case "outline":
       return outline(a.path || ".", { ...a, ...searchOpts });
+    case "read_symbol":
+      return readSymbol(a.path, a.symbol, { ...a, ...searchOpts });
     case "search":
       return search({ ...a, ...searchOpts });
     case "build":

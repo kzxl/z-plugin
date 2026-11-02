@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { outline, search } from "../plugins/z-token/scripts/lib/scan.mjs";
+import { outline, search, readSymbol } from "../plugins/z-token/scripts/lib/scan.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-lang-"));
 const write = (name, text, encoding = "utf8") => {
@@ -65,6 +65,16 @@ for (const [lang, needle] of [
 ]) {
   check(lang, o.includes(needle), needle);
 }
+
+console.log("readSymbol: one-shot method inspection");
+const csMethod = readSymbol(path.join(tmp, "h.cs"), "Get");
+check("readSymbol finds C# method", csMethod.found === true);
+check("readSymbol extracts C# method body", csMethod.text.includes("return \"x\";"));
+check("readSymbol returns line numbers", csMethod.startLine > 0 && csMethod.endLine >= csMethod.startLine);
+
+const pyMethod = outline(path.join(tmp, "a.py"), { symbol: "bar" });
+check("outline with symbol parameter extracts Python def", pyMethod.found === true);
+check("outline with symbol contains Python return statement", pyMethod.text.includes("return 1"));
 
 console.log("search: language and encoding coverage");
 const s = search({ pattern: "NeedleSymbol", path: tmp, maxMatches: 20 }).text;

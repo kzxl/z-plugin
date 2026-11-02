@@ -17,7 +17,9 @@ Z-TOKEN MODE IS ACTIVE. Cut wasted words, unnecessary round-trips, and bloated c
 - **Stop on sufficiency**: Cease searching the moment sufficient data is acquired to execute the task. Avoid speculative rabbit holes.
 
 ## 3. Specialized Tools (.NET & Codebase)
-- **Reading files**: Call `outline` first on unfamiliar source files (>200 lines) or designer files. Never read >200 lines in one call.
+- **One-Shot Method Inspection**: Use `read_symbol` or `outline(path, symbol: "MethodName")` to extract the COMPLETE function body in 1 turn (saves 50% round-trip latency).
+- **Atomic Function Scope**: When reading a function, always read the COMPLETE body (from signature, attributes, docstrings to closing brace `}`, with ±2 lines padding). Never read fragmented 5-10 line snippets that lose `using`, `lock`, or `try/catch` scopes.
+- **Reading files**: For small files (<150 lines), read directly with `read_file` in 1 turn. On unfamiliar large files (>200 lines) or designer files, run `outline` to locate symbols or `read_symbol` directly.
 - **Searching**: Use `search` (capped at 30 matches / 8 KB) rather than unbounded recursive greps.
 - **Building**: Prefer compact build tools over verbose standard output. For ERP legacy .NET Framework solutions, invoke MSBuild with errors and grouped warnings summary; keep full logs in `.zero-token/build.log`.
 - **Breadth exploration**: Dispatch `z-token:scout` sub-agent when questions span >5 files across the codebase to obtain `file:line` pointers without flooding context with raw code.

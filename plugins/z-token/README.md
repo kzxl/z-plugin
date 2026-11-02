@@ -6,7 +6,7 @@ Cuts the tokens a coding session spends on file dumps, unbounded greps and raw b
 
 | Component | What it does |
 |---|---|
-| MCP tools `outline`, `search`, `build`, `run`, `diet` | Structure-only reads, capped search, compact build (MSBuild for legacy .NET Framework, dotnet for SDK-style), build/test/lint for other ecosystems, baseline context report |
+| MCP tools `outline`, `read_symbol`, `search`, `build`, `run`, `diet` | Structure-only reads, One-Shot method inspection (reads complete function body in 1 turn), capped search, compact build, test runner, baseline context report |
 | Agent `z-token:scout` | Read-only subagent that returns `file:line` pointers instead of code |
 | PreToolUse hook | Blocks unbounded `Read`, `cat` of large files, `grep -r` / `rg` without caps, recursive PowerShell tree walks (`Get-ChildItem -Recurse` / `gci -r`), and bare `git diff` |
 | PostToolUse hook | Warns once when the same tool call runs three times with identical input |

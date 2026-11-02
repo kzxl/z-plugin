@@ -73,6 +73,9 @@ function symbolKind(line) {
 }
 
 export function outline(target, opts = {}) {
+  if (opts.symbol) {
+    return readSymbol(target, opts.symbol, opts);
+  }
   const maxFiles = opts.maxFiles ?? 10;
   const maxPerFile = opts.maxPerFile ?? 60;
   const { files, error } = collectFiles(target, CODE_EXT, opts);
@@ -120,6 +123,136 @@ export function outline(target, opts = {}) {
     `Outline: ${selected.length} file(s), ${symbols} symbols` +
     (skipped > 0 ? `, ${skipped} smaller file(s) not shown (raise maxFiles)` : "");
   return { text: `${header}\n\n${body}`, stats: { files: selected.length, symbols } };
+}
+
+// ---------------------------------------------------------------- readSymbol (One-Shot Method Inspection)
+
+export function readSymbol(target, symbolName, opts = {}) {
+  const cleanSym = String(symbolName || "").trim();
+  if (!cleanSym) {
+    return { text: "readSymbol: symbol parameter is required", error: true };
+  }
+
+  const fullPath = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
+  if (!fs.existsSync(fullPath)) {
+    return { text: `Target file not found: ${target}`, error: true };
+  }
+
+  let text = "";
+  try {
+    text = fs.readFileSync(fullPath, "utf8");
+  } catch (e) {
+    return { text: `Failed to read ${target}: ${e.message}`, error: true };
+  }
+
+  const rows = text.split(/\r?\n/);
+  const symRe = new RegExp(`\\b${cleanSym}\\b`);
+
+  let declIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const line = rows[i];
+    if (COMMENT_RE.test(line)) continue;
+    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line))) {
+      declIdx = i;
+      break;
+    }
+  }
+
+  if (declIdx === -1) {
+    for (let i = 0; i < rows.length; i++) {
+      if (COMMENT_RE.test(rows[i])) continue;
+      if (new RegExp(`\\b${cleanSym}\\s*\\(`).test(rows[i])) {
+        declIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (declIdx === -1) {
+    return {
+      text: `Symbol '${cleanSym}' not found in ${path.basename(target)}. Run 'outline' without symbol to view all available declarations in this file.`,
+      found: false
+    };
+  }
+
+  // Scan backwards for decorators, attributes, or doc comments (up to 6 lines)
+  let startIdx = declIdx;
+  while (startIdx > 0) {
+    const prev = rows[startIdx - 1].trim();
+    if (/^\s*(?:\[[^\]]+\]|@\w+|(?:\/\/|#|\*|\/\*\*|\/\/\/))/.test(prev)) {
+      startIdx--;
+    } else {
+      break;
+    }
+  }
+
+  const ext = path.extname(target).toLowerCase();
+  const isPython = ext === ".py";
+
+  let endIdx = declIdx;
+  if (isPython) {
+    const declIndent = rows[declIdx].match(/^\s*/)[0].length;
+    for (let j = declIdx + 1; j < rows.length; j++) {
+      const line = rows[j];
+      if (!line.trim()) continue;
+      const lineIndent = line.match(/^\s*/)[0].length;
+      if (lineIndent <= declIndent) {
+        endIdx = j - 1;
+        break;
+      }
+      endIdx = j;
+    }
+  } else {
+    const declLine = rows[declIdx];
+    if (/=>[^;]+;/.test(declLine)) {
+      endIdx = declIdx;
+    } else {
+      let braceCount = 0;
+      let foundOpen = false;
+      for (let j = declIdx; j < rows.length; j++) {
+        const line = rows[j];
+        for (let c = 0; c < line.length; c++) {
+          const char = line[c];
+          if (char === "{") {
+            braceCount++;
+            foundOpen = true;
+          } else if (char === "}") {
+            braceCount--;
+            if (foundOpen && braceCount === 0) {
+              endIdx = j;
+              break;
+            }
+          }
+        }
+        if (foundOpen && braceCount === 0) {
+          endIdx = j;
+          break;
+        }
+        if (j - declIdx > 350) {
+          endIdx = j;
+          break;
+        }
+      }
+    }
+  }
+
+  const padBefore = Math.max(0, startIdx - 1);
+  const padAfter = Math.min(rows.length - 1, endIdx + 1);
+
+  const extractedLines = [];
+  for (let k = padBefore; k <= padAfter; k++) {
+    extractedLines.push(`${String(k + 1).padStart(5)}  ${rows[k]}`);
+  }
+
+  const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(target)}#L${startIdx + 1}-L${endIdx + 1}, ${endIdx - startIdx + 1} lines)`;
+  return {
+    text: `${header}\n\n${extractedLines.join("\n")}`,
+    found: true,
+    symbol: cleanSym,
+    startLine: startIdx + 1,
+    endLine: endIdx + 1,
+    lineCount: endIdx - startIdx + 1
+  };
 }
 
 // ---------------------------------------------------------------- search
