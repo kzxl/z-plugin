@@ -41,7 +41,7 @@ export function auditDiff({ diff = '', commitMessage = '', cwd = process.cwd(), 
     const matchingClass = parsed.classes.find(c => c.toLowerCase() === expectedClass.toLowerCase());
     if (matchingClass && parsed.interfaces.length > 0) {
       warnings.push(
-        `Potential wrapper hell detected: Interface '${iface}' has only 1 implementation '${matchingClass}'. Apply Deletion Test: If no polymorphic seam or mock seam is needed, inline or delete it (R_NEV, R_CORE).`
+        `Potential wrapper hell detected: Interface '${iface}' has only 1 implementation '${matchingClass}'. Apply Deletion Test: If no polymorphic seam or mock seam is needed, inline or delete it (R_NEV, R_CORE). Hint: Delete '${iface}' and inject '${matchingClass}' directly.`
       );
       checks.push({ check: `Interface Justification: ${iface} (R_CORE)`, passed: false });
     }
@@ -71,6 +71,7 @@ export function auditDiff({ diff = '', commitMessage = '', cwd = process.cwd(), 
   let flaggedBindingSource = false;
   let flaggedSqlConcat = false;
   let flaggedSelfPraise = false;
+  let flaggedAntiSlop = false;
 
   for (const lineObj of parsed.addedLines) {
     const code = lineObj.code;
@@ -94,6 +95,24 @@ export function auditDiff({ diff = '', commitMessage = '', cwd = process.cwd(), 
       warnings.push("Subjective self-praise comment detected ('optimal', 'perfect'). Citing Level 3+ empirical proof required (R_PROOF).");
       checks.push({ check: "Zero-Trust Proof in Code Comments (R_PROOF)", passed: false });
       flaggedSelfPraise = true;
+    }
+
+    // D. UI Software Craftsmanship & Anti-Slop (R_ANTI_SLOP, R_UI)
+    const isUiFile = /\.(tsx|jsx|html|vue|svelte|xaml)$/i.test(lineObj.file);
+    if (!flaggedAntiSlop && isUiFile) {
+      if (/(?:from-(?:purple|violet|fuchsia|pink)-(?:400|500|600)\s+to-(?:indigo|pink|purple|blue)-(?:400|500|600)|bg-gradient-to-(?:r|br|tr)\s+from-(?:violet|purple))/i.test(code)) {
+        warnings.push(`AI-Slop detected (AS-2): Gratuitous neon gradient in UI. Use solid/subtle enterprise surfaces (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: No Neon Gradients (R_ANTI_SLOP)", passed: false });
+        flaggedAntiSlop = true;
+      } else if (/(?:onClick=\{\s*\(\)\s*=>\s*\{\}\s*\}|href=["']#["']|href=["']javascript:void\(0\)["'])/i.test(code)) {
+        warnings.push(`AI-Slop detected (AS-5): Dead click handler in UI. Wire up a real handler or loading state (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: No Dead Interactions (R_ANTI_SLOP)", passed: false });
+        flaggedAntiSlop = true;
+      } else if (/#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/i.test(code) && !/(?:tailwind\.config|tokens\.|theme\.)/i.test(lineObj.file)) {
+        warnings.push(`AI-Slop detected (AS-1): Arbitrary hex color in UI. Map to Design System tokens (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: Design Token Discipline (R_ANTI_SLOP)", passed: false });
+        flaggedAntiSlop = true;
+      }
     }
   }
 

@@ -1,10 +1,81 @@
 /**
- * Anti-Slop AST & Heuristic Linter
+ * Anti-Slop AST & Heuristic Linter with Design Token Bridge
  * Enforces production software craftsmanship and eliminates generic AI-generated slop.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+
+/**
+ * Scan workspace for Design Tokens (tokens.md, tokens.json, tailwind.config.*)
+ */
+export function loadWorkspaceTokens(cwd = process.cwd()) {
+  const tokenCandidates = [
+    path.join(cwd, "tokens.json"),
+    path.join(cwd, "tokens.md"),
+    path.join(cwd, "skills", "ui-design-system", "references", "tokens.md"),
+    path.join(cwd, "theme.json")
+  ];
+
+  const availableTokens = new Set([
+    "bg-background", "text-foreground", "bg-surface", "bg-card",
+    "border-border", "bg-primary", "text-primary-foreground",
+    "text-muted-foreground", "bg-muted", "text-accent", "bg-accent"
+  ]);
+
+  for (const p of tokenCandidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const text = fs.readFileSync(p, "utf8");
+        // Extract token names matching --color-xxx, token names, or css vars
+        const matches = text.match(/(?:--color-[a-z0-9-]+|var\(--[a-z0-9-]+\)|[a-z0-9-]+-(?:foreground|background|surface|primary|border|muted))/gi) || [];
+        for (const m of matches) availableTokens.add(m);
+      } catch {}
+    }
+  }
+
+  return Array.from(availableTokens);
+}
+
+/**
+ * Map hex colors to nearest semantic design tokens
+ */
+function suggestTokenForHex(hex) {
+  const cleanHex = hex.toLowerCase().replace('#', '');
+  // Extract RGB
+  let r = 0, g = 0, b = 0;
+  if (cleanHex.length === 3) {
+    r = parseInt(cleanHex[0] + cleanHex[0], 16);
+    g = parseInt(cleanHex[1] + cleanHex[1], 16);
+    b = parseInt(cleanHex[2] + cleanHex[2], 16);
+  } else if (cleanHex.length >= 6) {
+    r = parseInt(cleanHex.slice(0, 2), 16);
+    g = parseInt(cleanHex.slice(2, 4), 16);
+    b = parseInt(cleanHex.slice(4, 6), 16);
+  }
+
+  // Hue categorization
+  if (r > 100 && b > 140 && g < 100) {
+    // Purple / Indigo
+    return { token: "bg-primary / text-accent", var: "var(--color-primary)" };
+  } else if (b > 160 && r < 120) {
+    // Blue / Cyan
+    return { token: "bg-primary / text-info", var: "var(--color-info)" };
+  } else if (g > 150 && r < 120) {
+    // Green
+    return { token: "bg-success / text-success", var: "var(--color-success)" };
+  } else if (r > 180 && g < 100 && b < 100) {
+    // Red / Destructive
+    return { token: "bg-destructive / text-destructive", var: "var(--color-destructive)" };
+  } else if (r === g && g === b) {
+    // Grayscale
+    if (r > 200) return { token: "bg-surface / bg-background", var: "var(--color-surface)" };
+    if (r < 60) return { token: "bg-card / text-foreground", var: "var(--color-foreground)" };
+    return { token: "border-border / text-muted-foreground", var: "var(--color-border)" };
+  }
+
+  return { token: "bg-surface / text-foreground", var: "var(--color-surface)" };
+}
 
 export const SLOP_RULES = [
   {
@@ -14,7 +85,10 @@ export const SLOP_RULES = [
     description: "Hardcoded arbitrary hex colors detected. Map colors to Design System tokens (e.g. text-foreground, bg-surface, var(--color-primary)).",
     pattern: /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/g,
     excludeFiles: [/tailwind\.config\./, /tokens\./, /theme\./, /colors\./],
-    fixHint: "Replace with semantic design token class (e.g., bg-primary, text-muted-foreground) or CSS variable."
+    fixHint: (matched) => {
+      const suggestion = suggestTokenForHex(matched);
+      return `Replace '${matched}' with semantic design token '${suggestion.token}' or '${suggestion.var}'.`;
+    }
   },
   {
     id: "AS-2",
@@ -69,7 +143,7 @@ export const SLOP_RULES = [
 /**
  * Lint string content for anti-slop violations.
  */
-export function lintUiContent(content, filename = "snippet.tsx") {
+export function lintUiContent(content, filename = "snippet.tsx", cwd = process.cwd()) {
   const violations = [];
   const lines = content.split(/\r?\n/);
 
@@ -86,6 +160,7 @@ export function lintUiContent(content, filename = "snippet.tsx") {
       const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
       let match;
       while ((match = regex.exec(lineText)) !== null) {
+        const hint = typeof rule.fixHint === "function" ? rule.fixHint(match[0]) : rule.fixHint;
         violations.push({
           ruleId: rule.id,
           name: rule.name,
@@ -93,7 +168,7 @@ export function lintUiContent(content, filename = "snippet.tsx") {
           line: i + 1,
           matched: match[0],
           message: rule.description,
-          fixHint: rule.fixHint
+          fixHint: hint
         });
         if (!rule.pattern.global) break;
       }
@@ -125,7 +200,7 @@ export function lintUiFiles(filePaths, cwd = process.cwd()) {
     const fullPath = path.isAbsolute(f) ? f : path.join(cwd, f);
     if (!fs.existsSync(fullPath)) continue;
     const content = fs.readFileSync(fullPath, "utf8");
-    const report = lintUiContent(content, path.basename(fullPath));
+    const report = lintUiContent(content, path.basename(fullPath), cwd);
     results.push({
       file: path.relative(cwd, fullPath).replace(/\\/g, "/"),
       ...report

@@ -1,10 +1,27 @@
 /**
- * UX Micro-Contract & State Matrix Generator
- * Translates natural language vibes into disciplined, verifiable UI specifications.
+ * UX Micro-Contract & State Matrix Generator with Inter-Plugin Mesh
+ * Connects to z-gate (Helper Discovery) and z-brain (Episodic Gotchas).
  */
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Lazy load inter-plugin peers gracefully
+let findHelpers = null;
+try {
+  const m = await import('../../../z-gate/scripts/lib/helper-discovery.mjs');
+  findHelpers = m.findHelpers;
+} catch {}
+
+let searchKnowledge = null;
+try {
+  const m = await import('../../../z-brain/scripts/lib/search.mjs');
+  searchKnowledge = m.searchKnowledge;
+} catch {}
 
 export function generateMicroSpec(prompt, options = {}) {
   const cleanPrompt = (prompt || "").trim();
+  const cwd = options.cwd || process.cwd();
   
   // Extract domain keywords
   const isInventory = /kho|tồn\s*kho|stock|inventory|vật\s*tư/i.test(cleanPrompt);
@@ -31,6 +48,38 @@ export function generateMicroSpec(prompt, options = {}) {
     domain = "Executive Dashboard";
     sampleEntity = "Chỉ số KPI";
     sampleId = "KPI-REV-Q1";
+  }
+
+  // 1. Inter-Plugin Mesh: Query z-gate for reusable helpers
+  let reusableAssets = [];
+  if (typeof findHelpers === 'function') {
+    try {
+      const helperResults = findHelpers({ query: cleanPrompt, directory: cwd, maxMatches: 4 });
+      if (Array.isArray(helperResults)) {
+        reusableAssets = helperResults.map(h => ({
+          method: h.method,
+          class: h.class,
+          file: h.file,
+          isExtension: h.isExtension,
+          hint: h.doc || `Reuse ${h.class}.${h.method}() instead of hand-rolling custom logic (R_REUSE).`
+        }));
+      }
+    } catch {}
+  }
+
+  // 2. Inter-Plugin Mesh: Query z-brain for historical gotchas
+  let historicalGotchas = [];
+  if (typeof searchKnowledge === 'function') {
+    try {
+      const atoms = searchKnowledge({ query: cleanPrompt, limit: 3 });
+      if (Array.isArray(atoms)) {
+        historicalGotchas = atoms.map(a => ({
+          id: a.id,
+          problem: a.question,
+          fix: a.gotcha_fix || a.answer
+        }));
+      }
+    } catch {}
   }
 
   const spec = {
@@ -85,6 +134,8 @@ export function generateMicroSpec(prompt, options = {}) {
         mitigation: "Collapse wide table into structured key-value list cards."
       }
     ],
+    reusableAssets,
+    historicalGotchas,
     antiSlopChecklist: [
       "[ ] No arbitrary neon gradients (solid surface or subtle borders only)",
       "[ ] Colors strictly mapped to design tokens (bg-background, text-foreground, border-border)",
@@ -92,6 +143,10 @@ export function generateMicroSpec(prompt, options = {}) {
       `[ ] Sample data uses realistic domain identifiers (e.g. ${sampleId}) instead of 'Lorem Ipsum'`
     ]
   };
+
+  if (reusableAssets.length > 0) {
+    spec.antiSlopChecklist.push(`[ ] Reused existing codebase helper(s): ${reusableAssets.map(a => a.method).join(', ')}`);
+  }
 
   if (options.format === "markdown") {
     return formatSpecAsMarkdown(spec);
@@ -101,7 +156,7 @@ export function generateMicroSpec(prompt, options = {}) {
 }
 
 function formatSpecAsMarkdown(spec) {
-  return `# ${spec.title}
+  let md = `# ${spec.title}
 **Domain:** ${spec.domain}  
 **Vibe Prompt:** *"${spec.prompt}"*
 
@@ -120,10 +175,39 @@ function formatSpecAsMarkdown(spec) {
 
 ### 2. Edge Case Defenses
 ${spec.edgeCases.map(e => `- **${e.scenario}**: ${e.mitigation}`).join("\n")}
+`;
 
----
+  // Inter-plugin: Add z-gate helpers section if any found
+  if (spec.reusableAssets && spec.reusableAssets.length > 0) {
+    md += `\n---
 
-### 3. Software Craftsmanship Checklist
+### 3. Reusable Codebase Assets (R_REUSE • z-gate)
+> [!TIP]
+> The following helpers already exist in the codebase. **Reuse them** rather than writing redundant hand-rolled logic:
+
+| Method | Class | Location | Hint |
+| :--- | :--- | :--- | :--- |
+${spec.reusableAssets.map(a => `| \`${a.method}\` | \`${a.class}\` | \`${a.file}\` | ${a.hint} |`).join("\n")}
+`;
+  }
+
+  // Inter-plugin: Add z-brain historical gotchas if any found
+  if (spec.historicalGotchas && spec.historicalGotchas.length > 0) {
+    md += `\n---
+
+### 4. Historical Failure Modes & Gotchas (z-brain)
+> [!WARNING]
+> Historical lessons recorded for this domain. Avoid repeating these past regressions:
+
+${spec.historicalGotchas.map(g => `- **[#${g.id}] ${g.problem}** › Fix: *${g.fix}*`).join("\n")}
+`;
+  }
+
+  md += `\n---
+
+### ${spec.reusableAssets.length > 0 || spec.historicalGotchas.length > 0 ? "5" : "3"}. Software Craftsmanship Checklist
 ${spec.antiSlopChecklist.join("\n")}
 `;
+
+  return md;
 }

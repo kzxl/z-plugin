@@ -153,6 +153,25 @@ ok(audit3.warnings.some(w => w.includes("BindingSource")), "caught BindingSource
 ok(audit3.warnings.some(w => w.includes("SQL concatenation") || w.includes("SQL injection")), "caught SQL concat (R_DB)");
 ok(audit3.warnings.some(w => w.includes("self-praise") || w.includes("optimal")), "caught subjective word in commit (R_PROOF)");
 
+console.log("z-gate: software craftsmanship & anti-slop audit (R_ANTI_SLOP)");
+const slopUiDiff = `
+diff --git a/src/components/Dashboard.tsx b/src/components/Dashboard.tsx
+--- a/src/components/Dashboard.tsx
++++ b/src/components/Dashboard.tsx
+@@ -5,2 +5,4 @@
++    <div className="bg-gradient-to-r from-purple-500 to-indigo-500">
++      <button onClick={() => {}}>Do nothing</button>
++    </div>
+`;
+const auditSlop = auditDiff({
+  diff: slopUiDiff,
+  commitMessage: "feat(ui): add dashboard header",
+  cwd: tempRepo
+});
+ok(!auditSlop.passed, "audit fails on UI anti-slop violations");
+ok(auditSlop.warnings.some(w => w.includes("AI-Slop detected") && w.includes("neon gradient")), "caught neon gradient in UI diff (R_ANTI_SLOP)");
+ok(auditSlop.checks.some(c => c.check.includes("R_ANTI_SLOP") && !c.passed), "anti-slop check marked as failed");
+
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });
 

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectEcosystem, planAction, compactCommandLog, runAction } from "../plugins/z-token/scripts/lib/run.mjs";
+import { compactStreamOutput } from "../plugins/z-token/scripts/lib/sampler.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-run-"));
 function mk(name, files) {
@@ -106,6 +107,15 @@ check("gradle failed task detected", /errors: 1/.test(gradle), gradle.split("\n"
 
 const clean = compactCommandLog(["All tests passed", "0 errors, 0 warnings"].join("\n"));
 check("clean output has no ERRORS block", !/ERRORS/.test(clean), clean);
+
+console.log("streaming output sampler");
+const bigNoise = Array.from({ length: 100 }, (_, i) => `log line ${i}: normal background worker tick`);
+bigNoise[50] = "CRITICAL: Exception in background thread at App.Worker:42";
+const sampled = compactStreamOutput(bigNoise.join("\n"), { maxHead: 5, maxTail: 5 });
+check("streaming sampler folds noise", /Folded \d+ lines of repetitive stdout noise/.test(sampled));
+check("streaming sampler preserves critical error", /Exception in background thread/.test(sampled));
+check("streaming sampler keeps head", /log line 0/.test(sampled));
+check("streaming sampler keeps tail", /log line 99/.test(sampled));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nall runner tests passed" : `\n${failures} test(s) failed`);
