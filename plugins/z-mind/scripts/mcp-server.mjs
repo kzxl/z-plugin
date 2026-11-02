@@ -7,6 +7,7 @@
 import readline from "node:readline";
 import { queryRules, auditPlan } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
+import { runDoctor } from "./lib/doctor.mjs";
 
 const TOOLS = [
   {
@@ -51,6 +52,16 @@ const TOOLS = [
         }
       },
       required: ["content"]
+    }
+  },
+  {
+    name: "zmind_doctor",
+    description: "Inspect workspace health, .project-rule.md compliance, and scan for architecture invariant anti-patterns.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        directory: { type: "string", description: "Target directory (defaults to current working directory)" }
+      }
     }
   },
   {
@@ -152,6 +163,15 @@ function handleToolCall(id, name, args) {
       ].join("\n");
       sendResponse(id, {
         content: [{ type: "text", text }]
+      });
+      break;
+    }
+
+    case "zmind_doctor": {
+      const dir = args?.directory || process.cwd();
+      const report = runDoctor(dir);
+      sendResponse(id, {
+        content: [{ type: "text", text: JSON.stringify(report, null, 2) }]
       });
       break;
     }

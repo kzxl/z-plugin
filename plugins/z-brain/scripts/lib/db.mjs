@@ -144,6 +144,46 @@ export function getAtomById(db, id) {
   };
 }
 
+export function updateAtom(db, id, updates) {
+  const existing = getAtomById(db, id);
+  if (!existing) return false;
+
+  const now = new Date().toISOString();
+  let trustLevel = updates.trust_level || existing.trust_level;
+  if (updates.trust_level === 'verified_fact' || existing.trust_level === 'verified_fact') {
+    trustLevel = 'verified_fact';
+  }
+
+  const existingTags = existing.tags || [];
+  const newTags = Array.isArray(updates.tags) ? updates.tags : (updates.tags ? [updates.tags] : []);
+  const mergedTags = [...new Set([...existingTags, ...newTags])];
+
+  const existingEvidence = existing.evidence || [];
+  const newEvidence = Array.isArray(updates.evidence) ? updates.evidence : (updates.evidence ? [updates.evidence] : []);
+  const mergedEvidence = [...new Set([...existingEvidence, ...newEvidence])];
+
+  const stmt = db.prepare(`
+    UPDATE knowledge_atoms
+    SET trust_level = ?,
+        tags = ?,
+        evidence = ?,
+        gotcha_fix = COALESCE(?, gotcha_fix),
+        updated_at = ?
+    WHERE id = ?
+  `);
+
+  stmt.run(
+    trustLevel,
+    JSON.stringify(mergedTags),
+    JSON.stringify(mergedEvidence),
+    updates.gotcha_fix || null,
+    now,
+    id
+  );
+
+  return true;
+}
+
 export function countAtoms(db, projectId = null) {
   if (projectId) {
     const res = db.prepare('SELECT count(*) as count FROM knowledge_atoms WHERE project_id = ?').get(projectId);

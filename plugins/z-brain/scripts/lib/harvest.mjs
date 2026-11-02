@@ -1,4 +1,17 @@
-import { getDb, insertAtom } from './db.mjs';
+import { getDb, insertAtom, updateAtom } from './db.mjs';
+
+function findSimilarAtom(db, question, projectId) {
+  const cleanQ = question.trim().toLowerCase();
+  const exact = db.prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) = ?').get(projectId, cleanQ);
+  if (exact) return exact;
+
+  const prefix = cleanQ.slice(0, 45);
+  if (prefix.length >= 25) {
+    const near = db.prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) LIKE ?').get(projectId, `${prefix}%`);
+    if (near) return near;
+  }
+  return null;
+}
 
 /**
  * Harvest an atomic lesson into Z-Brain SQLite
@@ -87,9 +100,31 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
   // Normalize evidence
   const evidenceList = Array.isArray(evidence) ? evidence : (evidence ? [String(evidence)] : []);
 
+  const normProject = (project || 'global').toLowerCase();
+
+  // Smart Deduplication check
+  const existing = findSimilarAtom(db, question, normProject);
+  if (existing) {
+    updateAtom(db, existing.id, {
+      trust_level,
+      gotcha_fix: gotchaFix,
+      tags: tagList,
+      evidence: evidenceList
+    });
+    return {
+      success: true,
+      id: existing.id,
+      deduplicated: true,
+      project: normProject,
+      trust_level: (trust_level === 'verified_fact' || existing.trust_level === 'verified_fact') ? 'verified_fact' : (trust_level || existing.trust_level),
+      tags: tagList,
+      message: `Updated existing atom #${existing.id} with new evidence and tags (deduplicated).`
+    };
+  }
+
   const atom = {
-    project_id: (project || 'global').toLowerCase(),
-    scope: (project || 'global').toLowerCase() === 'global' ? 'global' : 'project',
+    project_id: normProject,
+    scope: normProject === 'global' ? 'global' : 'project',
     trust_level: trust_level || 'observation',
     question,
     answer,

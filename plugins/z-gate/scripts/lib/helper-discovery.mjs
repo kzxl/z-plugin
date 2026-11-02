@@ -1,6 +1,7 @@
 /**
  * Asset-First Helper Discovery Engine for Z-Gate (R_REUSE)
  * Scans codebase helpers and utility directories to prevent redundant hand-rolled code.
+ * Includes local caching (.zero-gate/helpers-cache.json) for sub-millisecond retrieval.
  */
 
 import fs from 'node:fs';
@@ -18,8 +19,25 @@ const VALID_EXTENSIONS = new Set([
 ]);
 
 const IGNORED_DIRS = new Set([
-  'node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.idea', 'target', 'vendor'
+  'node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.idea', 'target', 'vendor', '.zero-gate', '.zero-token'
 ]);
+
+function loadHelperCache(cwd) {
+  const cacheFile = path.join(cwd, '.zero-gate', 'helpers-cache.json');
+  try {
+    return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  } catch {
+    return { files: {} };
+  }
+}
+
+function saveHelperCache(cwd, cache) {
+  const cacheDir = path.join(cwd, '.zero-gate');
+  try {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'helpers-cache.json'), JSON.stringify(cache));
+  } catch {}
+}
 
 /**
  * Scan directory recursively for helper files
@@ -37,7 +55,6 @@ function findHelperFiles(dir, maxDepth = 4, currentDepth = 0) {
 
         const subDir = path.join(dir, ent.name);
         if (HELPER_DIR_NAMES.has(lower)) {
-          // All files in this directory are helper candidates
           collectFiles(subDir, helperFiles);
         } else {
           helperFiles.push(...findHelperFiles(subDir, maxDepth, currentDepth + 1));
@@ -90,18 +107,19 @@ function extractMethods(filePath) {
     const line = lines[i].trim();
 
     if (ext === '.cs') {
-      // C# static / extension method: public static [returnType] MethodName(...)
       const match = line.match(/public\s+(?:static\s+)?(?:async\s+)?([a-zA-Z0-9_<>?, ]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
       if (match && !/^(class|interface|struct|enum|namespace)\b/.test(match[1])) {
+        const params = match[3].trim();
+        const isExtension = params.startsWith('this ');
         methods.push({
           line: i + 1,
           methodName: match[2],
-          signature: `${match[1]} ${match[2]}(${match[3]})`,
+          signature: `${match[1]} ${match[2]}(${params})${isExtension ? ' [Extension]' : ''}`,
+          isExtension,
           summary: lines[i - 1]?.includes('///') ? lines[i - 1].replace(/\/\/\/\s*/, '').trim() : ''
         });
       }
     } else if (ext === '.ts' || ext === '.js') {
-      // TS/JS export function or static method
       const match = line.match(/(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/) ||
                     line.match(/(?:export\s+const\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>)/);
       if (match) {
@@ -113,7 +131,6 @@ function extractMethods(filePath) {
         });
       }
     } else if (ext === '.py') {
-      // Python def
       const match = line.match(/^def\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\):/);
       if (match && !match[1].startsWith('_')) {
         methods.push({
@@ -130,7 +147,7 @@ function extractMethods(filePath) {
 }
 
 /**
- * Search helpers in repository matching query
+ * Search helpers in repository matching query with cache
  */
 export function findHelpers({ query = '', cwd = process.cwd(), language = null, maxMatches = 15 }) {
   const helperFiles = findHelperFiles(cwd);
@@ -141,6 +158,8 @@ export function findHelpers({ query = '', cwd = process.cwd(), language = null, 
     .split(/\s+/)
     .filter(t => t.length > 1);
 
+  const cache = loadHelperCache(cwd);
+  let cacheModified = false;
   const results = [];
 
   for (const file of helperFiles) {
@@ -149,12 +168,24 @@ export function findHelpers({ query = '', cwd = process.cwd(), language = null, 
     }
 
     const relPath = path.relative(cwd, file).replace(/\\/g, '/');
-    const methods = extractMethods(file);
+    let mtime = 0;
+    try {
+      mtime = fs.statSync(file).mtimeMs;
+    } catch {}
+
+    let methods;
+    if (cache.files && cache.files[file] && cache.files[file].mtime === mtime) {
+      methods = cache.files[file].methods;
+    } else {
+      methods = extractMethods(file);
+      cache.files = cache.files || {};
+      cache.files[file] = { mtime, methods };
+      cacheModified = true;
+    }
 
     for (const m of methods) {
       const targetText = `${path.basename(file)} ${m.methodName} ${m.signature} ${m.summary}`.toLowerCase();
 
-      // Check if all query terms match or any match
       const matchedCount = queryTerms.filter(t => targetText.includes(t)).length;
       if (queryTerms.length === 0 || matchedCount > 0) {
         results.push({
@@ -162,11 +193,16 @@ export function findHelpers({ query = '', cwd = process.cwd(), language = null, 
           line: m.line,
           methodName: m.methodName,
           signature: m.signature,
+          isExtension: m.isExtension || false,
           summary: m.summary,
           score: matchedCount
         });
       }
     }
+  }
+
+  if (cacheModified) {
+    saveHelperCache(cwd, cache);
   }
 
   results.sort((a, b) => b.score - a.score);

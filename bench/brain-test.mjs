@@ -74,6 +74,18 @@ const deep = formatDeepView(searchRes[0]);
 ok(deep.includes("QUESTION / PROBLEM:"), "deep view formatted correctly");
 ok(deep.includes("Added composite index"), "deep view contains fix");
 
+console.log("z-brain: smart deduplication on harvest");
+const hDup = harvestKnowledge({
+  input: "Database Deadlock | Missing index on RefId | Added composite index",
+  project: "erp",
+  tags: ["inventory", "db", "verified"],
+  trust_level: "verified_fact",
+  evidence: "test:passed"
+});
+ok(hDup.deduplicated === true, "atom with identical question was deduplicated");
+ok(hDup.id === 1, "deduplicated atom retained existing ID #1");
+ok(countAtoms(db) === 3, "total atom count did not inflate (still 3)");
+
 console.log("z-brain: rich stats & tag aggregation");
 const stats = getDbStats(db);
 ok(stats.total === 3, "getDbStats total matches count");

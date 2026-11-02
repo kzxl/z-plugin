@@ -68,6 +68,10 @@ check("rg -> deny", run(guard, bash('rg "OrderStatus" .')).out.includes("deny"))
 check("rg -m 5 -> allow", run(guard, bash('rg -m 5 "OrderStatus" .')).out === "");
 check("git log -p -> deny", run(guard, bash("git log -p")).out.includes("deny"));
 check("git log -p -n 20 -> allow", run(guard, bash("git log -p -n 20")).out === "");
+check("git diff bare -> deny", run(guard, bash("git diff")).out.includes("deny"));
+check("git diff --stat -> allow", run(guard, bash("git diff --stat")).out === "");
+check("Get-ChildItem -Recurse -> deny", run(guard, runCommand("Get-ChildItem -Recurse")).out.includes("deny"));
+check("Get-ChildItem -Recurse -Depth 2 -> allow", run(guard, runCommand("Get-ChildItem -Recurse -Depth 2")).out === "");
 check("cat large file -> deny", run(guard, bash(`cat "${big}"`)).out.includes("deny"));
 check("cat small+large (first small) -> deny", run(guard, bash(`cat "${small}" "${big2}"`)).out.includes("deny"));
 check("cat small only -> allow", run(guard, bash(`cat "${small}"`)).out === "");

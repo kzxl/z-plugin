@@ -32,7 +32,20 @@ async function main() {
   const input = ev.tool_input || {};
   const cmd = input.command || input.CommandLine || '';
 
-  // Intercept git commit
+  // 1. Intercept lazy git add -A / git add . (R_GIT)
+  if (/\bgit\s+add\s+(-A|--all|\.)(?:\s+|$)/i.test(cmd)) {
+    const reminder = {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext:
+          "🛡️ [z-gate] Lazy staging detected ('git add -A' / 'git add .'). Invariant R_GIT mandates Targeted Staging: Stage only files strictly in scope (e.g. 'git add <file1> <file2>'). Never bundle unverified files, local rules, or config into staging."
+      }
+    };
+    process.stdout.write(JSON.stringify(reminder));
+    return;
+  }
+
+  // 2. Intercept git commit
   if (!/\bgit\s+commit\b/i.test(cmd)) return;
 
   // Extract commit message from command line if present (-m "...")

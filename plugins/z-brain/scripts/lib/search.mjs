@@ -1,4 +1,18 @@
+import path from 'node:path';
 import { getDb } from './db.mjs';
+
+export function detectCurrentProject(cwd = process.cwd()) {
+  try {
+    const base = path.basename(cwd).toLowerCase().replace(/[^a-z0-9_\-]/g, '_');
+    if (base && !['repos', 'source', 'desktop', 'documents', 'c', 'e'].includes(base)) {
+      if (base.includes('erp')) return 'erp';
+      if (base.includes('zero_universe') || base.includes('zerouniverse')) return 'zero_universe';
+      if (base.includes('z-plugin') || base.includes('zplugin')) return 'z-plugin';
+      return base;
+    }
+  } catch {}
+  return 'global';
+}
 
 /**
  * Clean search query into safe FTS5 terms
@@ -45,7 +59,8 @@ export function searchKnowledge({
 }) {
   const db = getDb();
   const ftsQuery = sanitizeFtsQuery(query);
-  const normalizedProject = project ? String(project).trim().toLowerCase() : null;
+  const effectiveProject = project || detectCurrentProject();
+  const normalizedProject = effectiveProject && effectiveProject !== "global" ? String(effectiveProject).trim().toLowerCase() : null;
 
   let results = [];
 

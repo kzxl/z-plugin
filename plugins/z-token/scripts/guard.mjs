@@ -205,10 +205,23 @@ async function main() {
       }
     }
 
-    if (b.denyPatchLog !== false) {
+        if (b.denyPatchLog !== false) {
       if (/\bgit\s+log\b/.test(execLike) && /(\s-p\b|--patch)/.test(execLike) && !/(-n\s*\d|--max-count)/.test(execLike)) {
         deny(`zero-token blocked "git log --patch" without a limit. Add -n 20, or use --stat for a summary.`, { event: "git-log" });
       }
+      if (/^\s*git\s+diff\s*$/i.test(execLike.trim())) {
+        deny(`zero-token blocked a bare "git diff" without target or limit. Use "git diff --stat" for a summary, or specify a target file: "git diff <file>".`, { event: "git-diff" });
+      }
+    }
+
+    // PowerShell & Windows unbounded directory tree walks
+    const isRecursiveDir = /\b(Get-ChildItem|gci|dir)\b/i.test(execLike) && /(?:^|\s)(?:-r\b|-recurse\b|\/s\b)/i.test(execLike);
+    const isDirBounded = /(?:-depth\s+[1-3]\b|-name\b|-filter\b|-include\b|\|\s*(?:select|sls|head)\b)/i.test(execLike);
+    if (isRecursiveDir && !isDirBounded) {
+      deny(
+        `zero-token blocked an unbounded recursive directory walk ("Get-ChildItem -Recurse" / "dir /s"). Add -Depth 2, or use the zero-token "fsindex" / "search" tool.`,
+        { event: "dir-walk" }
+      );
     }
 
     if (b.denyVerboseBuild === true) {

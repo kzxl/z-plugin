@@ -15,7 +15,7 @@ function ok(cond, msg) {
 
 console.log("z-mind: rules catalog coverage");
 const allRules = queryRules("all");
-ok(allRules.length === 56, `all 56 canonical rules loaded (verified: ${allRules.length})`);
+ok(allRules.length === 58, `all 58 canonical rules loaded (verified: ${allRules.length})`);
 
 // Category queries
 const invariants = queryRules("invariants");
@@ -31,7 +31,7 @@ const cogRules = queryRules("cognition");
 ok(cogRules.length === 10, `cognition category has 10 rules (got: ${cogRules.length})`);
 
 const domainRules = queryRules("domain");
-ok(domainRules.length === 5, `domain category has 5 rules (got: ${domainRules.length})`);
+ok(domainRules.length === 7, `domain category has 7 rules (got: ${domainRules.length})`);
 
 const opsRules = queryRules("ops");
 ok(opsRules.length === 12, `ops category has 12 rules (got: ${opsRules.length})`);

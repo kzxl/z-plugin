@@ -4,6 +4,34 @@
  */
 
 export const ENGINEERING_RULES = {
+  "R_DOMAIN_FIN": {
+    "title": "ERP Finance & Accounting Invariants",
+    "category": "domain",
+    "tags": [
+        "finance",
+        "accounting",
+        "period-lock",
+        "double-entry",
+        "tax",
+        "rounding",
+        "ledger"
+    ],
+    "summary": "ERP Finance: Strict accounting period lock (strictly no retroactive edits to closed financial periods), double-entry balance verification (Total Debit == Total Credit on all posted vouchers), currency rounding discipline, and immutable posted general ledger transactions."
+},
+  "R_DOMAIN_WMS": {
+    "title": "ERP Warehouse Management & Stock Handover",
+    "category": "domain",
+    "tags": [
+        "wms",
+        "warehouse",
+        "handover",
+        "location",
+        "bin",
+        "transfer",
+        "two-step"
+    ],
+    "summary": "ERP WMS & Handover: Strict 2-step transfer gate (Dispatched -> In-Transit -> Received), bin/location capacity validation before storage assignment, and mandatory physical handover acknowledgment before stock ledger debit/credit."
+},
   "R_CORE": {
     "title": "Universal Core & SOLID",
     "category": "invariants",

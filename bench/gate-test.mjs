@@ -78,6 +78,24 @@ const foundDate = findHelpers({ query: "format date", cwd: tempRepo });
 ok(foundDate.length > 0, "finds DateTimeHelper by query 'format date'");
 ok(foundDate[0].methodName === "FormatVnDate", `identified FormatVnDate method (got: ${foundDate[0].methodName})`);
 
+// Verify caching
+ok(fs.existsSync(path.join(tempRepo, ".zero-gate", "helpers-cache.json")), "helper cache created on disk");
+const cachedFind = findHelpers({ query: "format date", cwd: tempRepo });
+ok(cachedFind.length > 0, "retrieves helper from cache successfully");
+
+// Test C# extension method detection
+fs.writeFileSync(
+  path.join(helpersDir, "GridExtensions.cs"),
+  `namespace ERP.Extensions {
+    public static class GridExtensions {
+        public static void SetReadonly(this GridControl grid, bool val) {}
+    }
+}`
+);
+const foundExt = findHelpers({ query: "readonly", cwd: tempRepo });
+ok(foundExt.length > 0, "finds extension method in GridExtensions");
+ok(foundExt[0].isExtension === true, "identified C# extension method via 'this' parameter");
+
 const foundTruncate = findHelpers({ query: "truncate", cwd: tempRepo });
 ok(foundTruncate.length > 0, "finds Truncate in StringHelper");
 ok(foundTruncate[0].file.includes("StringHelper.cs"), "correct file path returned");

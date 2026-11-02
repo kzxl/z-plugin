@@ -5,6 +5,7 @@
 
 import { queryRules, auditPlan } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
+import { runDoctor } from "./lib/doctor.mjs";
 
 const [cmd, ...args] = process.argv.slice(2);
 
@@ -53,6 +54,21 @@ switch (cmd) {
       console.log("✅ All invariant checks satisfied.");
     }
     break;
+  }
+
+  case "doctor": {
+    const targetDir = args[0] ? args[0] : process.cwd();
+    const report = runDoctor(targetDir);
+    console.log(`\n🩺 Z-Mind Workspace Health Report: ${report.status} (Score: ${report.score}/100)`);
+    console.log(`  • Stack: ${report.stack.join(", ") || "Unknown"}`);
+    console.log(`\n  Checks:`);
+    report.checks.forEach(c => console.log(`    [${c.status}] ${c.name}: ${c.details}`));
+    if (report.issues.length > 0) {
+      console.log(`\n  ⚠️ Issues & Remediations:`);
+      report.remediations.forEach(r => console.log(`    ${r}`));
+    }
+    console.log("");
+    process.exit(report.score >= 50 ? 0 : 1);
   }
 
   case "status":
