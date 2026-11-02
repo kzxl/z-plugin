@@ -25,7 +25,8 @@ export function harvestKnowledge({
   project = 'global',
   tags = [],
   trust_level = 'observation',
-  evidence = []
+  evidence = [],
+  files_touched = []
 }) {
   const db = getDb();
 
@@ -39,7 +40,8 @@ export function harvestKnowledge({
         project: a.project || project,
         tags: a.tags || tags,
         trust_level: a.trust_level || trust_level,
-        evidence: a.evidence || evidence
+        evidence: a.evidence || evidence,
+        files_touched: a.files_touched || files_touched
       });
       ids.push(res.id);
     }
@@ -51,10 +53,10 @@ export function harvestKnowledge({
     };
   }
 
-  return harvestSingle(db, { input, project, tags, trust_level, evidence });
+  return harvestSingle(db, { input, project, tags, trust_level, evidence, files_touched });
 }
 
-function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
+function harvestSingle(db, { input, project, tags, trust_level, evidence, files_touched }) {
   let question = '';
   let answer = '';
   let gotchaFix = '';
@@ -85,6 +87,7 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
     if (input.tags) tags = input.tags;
     if (input.trust_level) trust_level = input.trust_level;
     if (input.evidence) evidence = input.evidence;
+    if (input.files_touched) files_touched = input.files_touched;
   }
 
   if (!question || !answer) {
@@ -100,6 +103,9 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
   // Normalize evidence
   const evidenceList = Array.isArray(evidence) ? evidence : (evidence ? [String(evidence)] : []);
 
+  // Normalize files_touched
+  const fileList = Array.isArray(files_touched) ? files_touched : (files_touched ? String(files_touched).split(',').map(f => f.trim()).filter(Boolean) : []);
+
   const normProject = (project || 'global').toLowerCase();
 
   // Smart Deduplication check
@@ -109,7 +115,8 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
       trust_level,
       gotcha_fix: gotchaFix,
       tags: tagList,
-      evidence: evidenceList
+      evidence: evidenceList,
+      files_touched: fileList
     });
     return {
       success: true,
@@ -118,6 +125,7 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
       project: normProject,
       trust_level: (trust_level === 'verified_fact' || existing.trust_level === 'verified_fact') ? 'verified_fact' : (trust_level || existing.trust_level),
       tags: tagList,
+      files_touched: fileList,
       message: `Updated existing atom #${existing.id} with new evidence and tags (deduplicated).`
     };
   }
@@ -131,6 +139,7 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
     gotcha_fix: gotchaFix,
     tags: tagList,
     evidence: evidenceList,
+    files_touched: fileList,
     category: 'engineering_lesson',
     confidence: trust_level === 'verified_fact' ? 0.95 : 0.7
   };

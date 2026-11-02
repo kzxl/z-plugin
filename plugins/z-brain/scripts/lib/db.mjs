@@ -45,7 +45,7 @@ export function closeDb() {
   }
 }
 
-function initSchema(db) {
+export function initSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_atoms (
       id INTEGER PRIMARY KEY,
@@ -94,21 +94,46 @@ function initSchema(db) {
       INSERT INTO knowledge_fts(rowid, question, answer, gotcha_fix, tags)
       VALUES (new.id, new.question, new.answer, new.gotcha_fix, new.tags);
     END;
+
+    -- Session Observations Table (Short & Mid-term Activity & Architectural Decisions)
+    CREATE TABLE IF NOT EXISTS session_observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL DEFAULT 'default',
+      project_id TEXT NOT NULL DEFAULT 'global',
+      type TEXT NOT NULL DEFAULT 'observation',
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      files_touched TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_obs_project ON session_observations(project_id);
+    CREATE INDEX IF NOT EXISTS idx_obs_session ON session_observations(session_id);
+    CREATE INDEX IF NOT EXISTS idx_obs_created ON session_observations(created_at);
   `);
+
+  // Non-destructive migration: Ensure files_touched exists on knowledge_atoms
+  try {
+    const cols = db.prepare('PRAGMA table_info(knowledge_atoms);').all().map(c => c.name);
+    if (!cols.includes('files_touched')) {
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN files_touched TEXT DEFAULT '[]';");
+    }
+  } catch {}
 }
 
 export function insertAtom(db, atom) {
   const now = new Date().toISOString();
   const tagsJson = Array.isArray(atom.tags) ? JSON.stringify(atom.tags) : (atom.tags || '[]');
   const evidenceJson = Array.isArray(atom.evidence) ? JSON.stringify(atom.evidence) : (atom.evidence || '[]');
+  const filesJson = Array.isArray(atom.files_touched) ? JSON.stringify(atom.files_touched) : (atom.files_touched || '[]');
 
   const stmt = db.prepare(`
     INSERT INTO knowledge_atoms (
       id, project_id, scope, trust_level, question, answer, gotcha_fix,
-      tags, evidence, category, confidence, pinned, created_at, updated_at
+      tags, evidence, category, confidence, pinned, files_touched, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?
     )
   `);
 
@@ -127,6 +152,7 @@ export function insertAtom(db, atom) {
     atom.category || 'general',
     atom.confidence !== undefined ? atom.confidence : 0.5,
     atom.pinned ? 1 : 0,
+    filesJson,
     atom.created_at || now,
     now
   );
@@ -139,9 +165,105 @@ export function getAtomById(db, id) {
   if (!row) return null;
   return {
     ...row,
-    tags: typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : row.tags,
-    evidence: typeof row.evidence === 'string' ? JSON.parse(row.evidence || '[]') : row.evidence
+    tags: typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : (row.tags || []),
+    evidence: typeof row.evidence === 'string' ? JSON.parse(row.evidence || '[]') : (row.evidence || []),
+    files_touched: typeof row.files_touched === 'string' ? JSON.parse(row.files_touched || '[]') : (row.files_touched || [])
   };
+}
+
+export function insertObservation(db, obs) {
+  const now = new Date().toISOString();
+  const filesJson = Array.isArray(obs.files_touched) ? JSON.stringify(obs.files_touched) : (obs.files_touched || '[]');
+
+  const stmt = db.prepare(`
+    INSERT INTO session_observations (
+      session_id, project_id, type, title, summary, files_touched, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    obs.session_id || 'default',
+    obs.project_id || 'global',
+    obs.type || 'observation',
+    obs.title,
+    obs.summary,
+    filesJson,
+    obs.created_at || now
+  );
+
+  const row = db.prepare('SELECT last_insert_rowid() as id').get();
+  return row ? row.id : 1;
+}
+
+export function getRecentObservations(db, { project = null, limit = 10 } = {}) {
+  let sql = 'SELECT * FROM session_observations';
+  const params = [];
+  if (project && project !== 'global') {
+    sql += " WHERE project_id = ? OR project_id = 'global'";
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY id DESC LIMIT ?';
+  params.push(limit);
+
+  const rows = db.prepare(sql).all(...params);
+  return rows.map(r => ({
+    ...r,
+    files_touched: typeof r.files_touched === 'string' ? JSON.parse(r.files_touched || '[]') : (r.files_touched || [])
+  }));
+}
+
+export function getRecentAtoms(db, { project = null, limit = 10 } = {}) {
+  let sql = 'SELECT * FROM knowledge_atoms';
+  const params = [];
+  if (project && project !== 'global') {
+    sql += " WHERE project_id = ? OR project_id = 'global'";
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY id DESC LIMIT ?';
+  params.push(limit);
+
+  const rows = db.prepare(sql).all(...params);
+  return rows.map(r => ({
+    ...r,
+    tags: typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : (r.tags || []),
+    evidence: typeof r.evidence === 'string' ? JSON.parse(r.evidence || '[]') : (r.evidence || []),
+    files_touched: typeof r.files_touched === 'string' ? JSON.parse(r.files_touched || '[]') : (r.files_touched || [])
+  }));
+}
+
+export function getKnowledgeByFile(db, filePath, { limit = 5 } = {}) {
+  const normFile = path.basename(filePath).toLowerCase();
+  const searchPattern = `%${normFile}%`;
+
+  const atomRows = db.prepare(`
+    SELECT * FROM knowledge_atoms
+    WHERE files_touched LIKE ?
+       OR question LIKE ?
+       OR gotcha_fix LIKE ?
+    ORDER BY id DESC LIMIT ?
+  `).all(searchPattern, searchPattern, searchPattern, limit);
+
+  const atoms = atomRows.map(r => ({
+    ...r,
+    tags: typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : (r.tags || []),
+    evidence: typeof r.evidence === 'string' ? JSON.parse(r.evidence || '[]') : (r.evidence || []),
+    files_touched: typeof r.files_touched === 'string' ? JSON.parse(r.files_touched || '[]') : (r.files_touched || [])
+  }));
+
+  const obsRows = db.prepare(`
+    SELECT * FROM session_observations
+    WHERE files_touched LIKE ?
+       OR title LIKE ?
+       OR summary LIKE ?
+    ORDER BY id DESC LIMIT ?
+  `).all(searchPattern, searchPattern, searchPattern, limit);
+
+  const observations = obsRows.map(r => ({
+    ...r,
+    files_touched: typeof r.files_touched === 'string' ? JSON.parse(r.files_touched || '[]') : (r.files_touched || [])
+  }));
+
+  return { atoms, observations };
 }
 
 export function updateAtom(db, id, updates) {
@@ -162,11 +284,16 @@ export function updateAtom(db, id, updates) {
   const newEvidence = Array.isArray(updates.evidence) ? updates.evidence : (updates.evidence ? [updates.evidence] : []);
   const mergedEvidence = [...new Set([...existingEvidence, ...newEvidence])];
 
+  const existingFiles = existing.files_touched || [];
+  const newFiles = Array.isArray(updates.files_touched) ? updates.files_touched : (updates.files_touched ? [updates.files_touched] : []);
+  const mergedFiles = [...new Set([...existingFiles, ...newFiles])];
+
   const stmt = db.prepare(`
     UPDATE knowledge_atoms
     SET trust_level = ?,
         tags = ?,
         evidence = ?,
+        files_touched = ?,
         gotcha_fix = COALESCE(?, gotcha_fix),
         updated_at = ?
     WHERE id = ?
@@ -176,6 +303,7 @@ export function updateAtom(db, id, updates) {
     trustLevel,
     JSON.stringify(mergedTags),
     JSON.stringify(mergedEvidence),
+    JSON.stringify(mergedFiles),
     updates.gotcha_fix || null,
     now,
     id

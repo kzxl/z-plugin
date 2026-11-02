@@ -55,3 +55,103 @@ export function formatDeepView(item) {
     `============================================================`
   ].filter(Boolean).join('\n');
 }
+
+export function formatTerminalTable(items) {
+  if (!items || items.length === 0) {
+    return '[Z-BRAIN] No knowledge atoms found.';
+  }
+
+  const colWidths = { id: 6, trust: 7, project: 14, question: 48, tags: 18 };
+
+  const pad = (str, len) => {
+    const s = String(str || '').replace(/[\r\n]+/g, ' ');
+    return s.length > len ? s.slice(0, len - 1) + '…' : s.padEnd(len);
+  };
+
+  const sep = `┌${'─'.repeat(colWidths.id + 2)}┬${'─'.repeat(colWidths.trust + 2)}┬${'─'.repeat(colWidths.project + 2)}┬${'─'.repeat(colWidths.question + 2)}┬${'─'.repeat(colWidths.tags + 2)}┐`;
+  const midSep = `├${'─'.repeat(colWidths.id + 2)}┼${'─'.repeat(colWidths.trust + 2)}┼${'─'.repeat(colWidths.project + 2)}┼${'─'.repeat(colWidths.question + 2)}┼${'─'.repeat(colWidths.tags + 2)}┤`;
+  const bottomSep = `└${'─'.repeat(colWidths.id + 2)}┴${'─'.repeat(colWidths.trust + 2)}┴${'─'.repeat(colWidths.project + 2)}┴${'─'.repeat(colWidths.question + 2)}┴${'─'.repeat(colWidths.tags + 2)}┘`;
+
+  const header = `│ ${pad('ID', colWidths.id)} │ ${pad('TRUST', colWidths.trust)} │ ${pad('PROJECT', colWidths.project)} │ ${pad('QUESTION / LESSON', colWidths.question)} │ ${pad('TAGS', colWidths.tags)} │`;
+
+  const rows = items.map(item => {
+    const trust = item.trust_level === 'verified_fact' ? 'FACT' : (item.trust_level === 'observation' ? 'OBS' : 'HYP');
+    const tagStr = (item.tags || []).slice(0, 3).join(',');
+    const q = item.question || item.gotcha_fix || '';
+    return `│ ${pad(item.id, colWidths.id)} │ ${pad(trust, colWidths.trust)} │ ${pad(item.project_id, colWidths.project)} │ ${pad(q, colWidths.question)} │ ${pad(tagStr, colWidths.tags)} │`;
+  });
+
+  return [
+    `🧠 Z-Brain Knowledge Dashboard (${items.length} items):`,
+    sep,
+    header,
+    midSep,
+    ...rows,
+    bottomSep,
+    `💡 Use "z-brain view <id>" to view full code & evidence.`
+  ].join('\n');
+}
+
+export function formatTimeline(observations) {
+  if (!observations || observations.length === 0) {
+    return '[Z-BRAIN] No session observations or milestones recorded.';
+  }
+
+  const lines = [
+    `⏳ Z-Brain Project Timeline (${observations.length} recent events):`,
+    ''
+  ];
+
+  observations.forEach(obs => {
+    const dateStr = (obs.created_at || '').replace('T', ' ').slice(0, 16);
+    const typeTag = `[${obs.type || 'obs'}]`;
+    lines.push(` ● ${dateStr} ${typeTag} ${obs.title} (Project: ${obs.project_id})`);
+    if (obs.summary) {
+      lines.push(`    ├─ Summary: ${obs.summary.replace(/[\r\n]+/g, ' ')}`);
+    }
+    if (obs.files_touched && obs.files_touched.length > 0) {
+      lines.push(`    └─ Files: ${obs.files_touched.join(', ')}`);
+    }
+    lines.push('');
+  });
+
+  return lines.join('\n');
+}
+
+export function formatFileKnowledge(file, atoms, observations) {
+  const lines = [
+    `📂 Z-Brain File Intelligence for: "${file}"`,
+    `════════════════════════════════════════════════════════════`
+  ];
+
+  if (atoms && atoms.length > 0) {
+    lines.push(`🛡️ Knowledge Atoms & Gotchas (${atoms.length}):`);
+    atoms.forEach(a => {
+      const trust = a.trust_level === 'verified_fact' ? 'FACT' : 'OBS';
+      lines.push(` • [#${a.id}] [${trust}] ${a.question}`);
+      if (a.gotcha_fix) {
+        lines.push(`   └─ Gotcha/Fix: ${a.gotcha_fix}`);
+      }
+    });
+    lines.push('');
+  } else {
+    lines.push('🛡️ Knowledge Atoms: (none directly matching)');
+    lines.push('');
+  }
+
+  if (observations && observations.length > 0) {
+    lines.push(`⏳ Past Decisions & Milestones (${observations.length}):`);
+    observations.forEach(o => {
+      lines.push(` • [${o.type || 'obs'}] ${o.title}`);
+      if (o.summary) {
+        lines.push(`   └─ ${o.summary}`);
+      }
+    });
+    lines.push('');
+  } else {
+    lines.push('⏳ Past Decisions: (none directly matching)');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}

@@ -1,13 +1,26 @@
 {
-  "z-brain-advisor": {
-    "PostToolUse": [
+  "hooks": {
+    "SessionStart": [
       {
-        "matcher": "run_command",
         "hooks": [
           {
-            "type": "command",
-            "command": "node ./scripts/harvest-advisor.mjs",
-            "timeout": 5
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs"],
+            "timeoutMs": 3000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|run_command",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/harvest-advisor.mjs"],
+            "timeoutMs": 5000
           }
         ]
       }

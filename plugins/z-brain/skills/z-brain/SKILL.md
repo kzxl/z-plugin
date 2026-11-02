@@ -50,9 +50,37 @@ Call immediately after completing non-trivial tasks, bugfixes, or refactoring:
   - 1 Tech tag: `async`, `refactor`, `bug`, `pattern`, `winforms`, `wpf`.
 - **`trust_level`**: `verified_fact` (backed by green builds/tests), `observation`, or `hypothesis`.
 - **`evidence`**: Verification proof (e.g. `build:ok`, `test:49/49`).
+- **`files`**: Optional array of modified or affected file paths.
 
 ### D. Quick Query (`zbrain_query`)
 Search specific questions or keywords across the local memory base.
 
-### E. Status & Health (`zbrain_status`)
+### E. Project Timeline & Decisions (`zbrain_timeline`)
+Chronological audit of recent architectural decisions, milestones, and discoveries:
+- **`project`**: Project name (defaults to current project).
+- **`limit`**: Max entries (default: 10).
+
+### F. File-Centric Intelligence (`zbrain_file`)
+Look up knowledge atoms and architectural decisions associated with a specific file:
+- **`file`**: Target file path or file name.
+- **`limit`**: Max entries (default: 5).
+
+### G. Record Decision / Milestone (`zbrain_observe`)
+Record technical decisions or milestones into episodic memory:
+- **`title`**: Concise title.
+- **`summary`**: Rationale or summary.
+- **`type`**: `decision`, `milestone`, `discovery`, `refactor`, or `bugfix`.
+- **`files`**: Optional array of associated file paths.
+
+### H. Status & Health (`zbrain_status`)
 Inspect memory stats, total atoms, SQLite database size, and engine health.
+
+---
+
+## 3. Terminal Dashboard CLI
+
+Prefer terminal commands over heavy web dashboards (Zero RAM bloat, zero port collisions, 100% agent & human parity):
+- `z-brain recent [--limit=10] [--project=name]`: Formatted table view of latest knowledge atoms.
+- `z-brain timeline [--limit=10] [--project=name]`: Chronological list of project decisions and milestones.
+- `z-brain file <path>`: Gotchas, bugfixes, and past decisions attached to a file.
+- `z-brain observe "<title> | <summary>" [--project=name] [--type=decision] [--files=f1,f2]`: Record a milestone or decision.

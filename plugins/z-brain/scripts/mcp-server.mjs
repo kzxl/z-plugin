@@ -10,9 +10,24 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { getDb, getAtomById, countAtoms, getDbStats } from './lib/db.mjs';
+import {
+  getDb,
+  getAtomById,
+  countAtoms,
+  getDbStats,
+  getRecentAtoms,
+  getRecentObservations,
+  insertObservation,
+  getKnowledgeByFile
+} from './lib/db.mjs';
 import { searchKnowledge } from './lib/search.mjs';
-import { formatL0Progressive, formatDeepView } from './lib/format.mjs';
+import {
+  formatL0Progressive,
+  formatDeepView,
+  formatTerminalTable,
+  formatTimeline,
+  formatFileKnowledge
+} from './lib/format.mjs';
 import { harvestKnowledge } from './lib/harvest.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +82,8 @@ const TOOLS = [
         project: { type: 'string', description: 'Project name (e.g. agentic-core, erp, ua)' },
         tags: { type: 'array', items: { type: 'string' }, description: 'At least 2 tags: 1 domain, 1 tech tag' },
         trust_level: { type: 'string', enum: ['verified_fact', 'observation', 'hypothesis'], description: 'Trust level (default: observation)' },
-        evidence: { type: 'string', description: 'Verification evidence (e.g. "build:ok", test logs)' }
+        evidence: { type: 'string', description: 'Verification evidence (e.g. "build:ok", test logs)' },
+        files: { type: 'array', items: { type: 'string' }, description: 'Associated files affected by this lesson' }
       },
       required: ['lesson', 'tags']
     }
@@ -84,6 +100,47 @@ const TOOLS = [
         limit: { type: 'number', description: 'Max results (default: 5)' }
       },
       required: ['query']
+    }
+  },
+  {
+    name: 'zbrain_timeline',
+    description:
+      'Inspect recent project decisions, architectural choices, and activity milestones chronologically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project scope' },
+        limit: { type: 'number', description: 'Max items (default: 10)' }
+      }
+    }
+  },
+  {
+    name: 'zbrain_file',
+    description:
+      'Look up knowledge atoms, past gotchas, and architectural decisions associated with a specific file or path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File path or file name to inspect' },
+        limit: { type: 'number', description: 'Max items (default: 5)' }
+      },
+      required: ['file']
+    }
+  },
+  {
+    name: 'zbrain_observe',
+    description:
+      'Record a technical decision, milestone, or architectural discovery for the current project into episodic memory.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Concise title of the decision or discovery' },
+        summary: { type: 'string', description: 'Brief rationale or summary' },
+        project: { type: 'string', description: 'Project name' },
+        type: { type: 'string', enum: ['decision', 'milestone', 'discovery', 'refactor', 'bugfix'], description: 'Category' },
+        files: { type: 'array', items: { type: 'string' }, description: 'Associated file paths' }
+      },
+      required: ['title', 'summary']
     }
   },
   {
@@ -126,10 +183,45 @@ function handleToolCall(name, args) {
         project: args.project || 'global',
         tags: args.tags || [],
         trust_level: args.trust_level || 'observation',
-        evidence: args.evidence
+        evidence: args.evidence,
+        files_touched: args.files || []
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(res, null, 2) }]
+      };
+    }
+
+    case 'zbrain_observe': {
+      const id = insertObservation(db, {
+        project_id: args.project || 'global',
+        type: args.type || 'decision',
+        title: args.title,
+        summary: args.summary,
+        files_touched: args.files || []
+      });
+      return {
+        content: [{ type: 'text', text: `✅ Recorded observation #${id} for project [${args.project || 'global'}].` }]
+      };
+    }
+
+    case 'zbrain_timeline': {
+      const obs = getRecentObservations(db, {
+        project: args.project,
+        limit: args.limit || 10
+      });
+      const text = formatTimeline(obs);
+      return {
+        content: [{ type: 'text', text }]
+      };
+    }
+
+    case 'zbrain_file': {
+      const res = getKnowledgeByFile(db, args.file, {
+        limit: args.limit || 5
+      });
+      const text = formatFileKnowledge(args.file, res.atoms, res.observations);
+      return {
+        content: [{ type: 'text', text }]
       };
     }
 

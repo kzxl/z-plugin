@@ -97,6 +97,34 @@ const compSearch = searchKnowledge({ query: "dead-lock", tags: ["inventory"], pr
 ok(compSearch.length > 0, "finds deadlock with hyphenated dead-lock query");
 ok(compSearch[0].tags.includes("inventory"), "matches inventory tag");
 
+console.log("z-brain: session observations & timeline (claude-mem inspired)");
+const { insertObservation, getRecentObservations, getKnowledgeByFile } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+const { formatTerminalTable, formatTimeline, formatFileKnowledge } = await import("../plugins/z-brain/scripts/lib/format.mjs");
+
+const obsId = insertObservation(db, {
+  session_id: "sess-01",
+  project_id: "erp",
+  type: "decision",
+  title: "Adopted in-terminal dashboard instead of separate Web UI",
+  summary: "Eliminates persistent background daemon overhead and port collisions",
+  files_touched: ["src/OrderService.cs", "scripts/cli.mjs"]
+});
+ok(obsId === 1, "observation inserted with ID #1");
+
+const recentObs = getRecentObservations(db, { project: "erp", limit: 5 });
+ok(recentObs.length === 1, "found 1 recent observation for erp");
+ok(recentObs[0].title.includes("in-terminal dashboard"), "observation title preserved");
+
+const timelineStr = formatTimeline(recentObs);
+ok(timelineStr.includes("[decision]"), "timeline format contains type tag");
+
+console.log("z-brain: file-centric intelligence lookup");
+const fileRes = getKnowledgeByFile(db, "OrderService.cs");
+ok(fileRes.observations.length === 1, "found 1 observation associated with OrderService.cs");
+
+const fileView = formatFileKnowledge("OrderService.cs", fileRes.atoms, fileRes.observations);
+ok(fileView.includes("OrderService.cs"), "file knowledge output contains target file name");
+
 // Cleanup
 closeDb();
 fs.rmSync(tempDir, { recursive: true, force: true });
