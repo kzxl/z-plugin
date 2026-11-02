@@ -17,6 +17,7 @@ Consolidating multiple specialized plugins under a single repository, `z-plugin`
 | :--- | :---: | :--- | :--- |
 | [**`z-token`**](plugins/z-token) | `1.0.0` | **Context Diet & Token Guard** | Code outline, capped search, lean .NET builds, oversized-read blocking gateway, repeated-call loop breaker. |
 | [**`z-brain`**](plugins/z-brain) | `1.2.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), on-demand L2 deep view. |
+| [**`z-mind`**](plugins/z-mind) | `1.0.0` | **Cognitive OS & Engineering Invariants** | Senior engineering disciplines, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, deep module design, multi-agent teamwork. |
 
 ---
 
@@ -41,6 +42,9 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-token
 
 # Install only z-brain
 powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-brain
+
+# Install only z-mind
+powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-mind
 
 # Unlink all plugins
 powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
@@ -68,10 +72,17 @@ flowchart TD
             SQLite[("💾 zbrain.sqlite (FTS5 BM25)")]
             ToolsBrain["🔍 zbrain_fetch | zbrain_view | zbrain_harvest"]
         end
+
+        subgraph ZMind ["z-mind Plugin"]
+            Rules["📜 Invariants (R_CORE, R_TDD, R_NEV, R_PROOF)"]
+            Skills["🎯 Disciplines (bugfix, refactor, architecture, teamwork)"]
+            ToolsMind["⚖️ zmind_rules | zmind_audit | zmind_status"]
+        end
     end
 
     Agent <-->|"Hooks & MCP"| ZToken
     Agent <-->|"MCP stdio"| ZBrain
+    Agent <-->|"Skills & MCP"| ZMind
     ZBrain <--> SQLite
 ```
 
@@ -103,6 +114,20 @@ flowchart TD
   - `zbrain_status`: SQLite database statistics and atom counts.
 - See full documentation: [plugins/z-brain/README.md](plugins/z-brain/README.md)
 
+### 3. `z-mind` (Cognitive OS & Senior Engineering Invariants)
+- **Problem Solved:** Prevents AI agents from producing shallow boilerplate, speculative bug fixes, unnecessary wrapper layers, and uncoordinated multi-agent conflicts.
+- **Cognitive Disciplines:**
+  - **Engineering Invariants:** Enforces strict core rules: `R_CORE` (pragmatic SOLID), `R_TDD` (failing test first), `R_PERF` (measured baselines), `R_NEV` (Net Engineering Value gate), `R_PROOF` (evidence before claiming fixed), `R_REUSE` (zero duplicated abstractions), `R_GIT` (atomic scoped commits), `R_TEAM` (file ownership contracts).
+  - **4-Phase Bug Diagnosis:** Mandatory sequence: Sensory Sweep → Socratic Inquiry → Pre-Mortem Hypothesis → Root Cause Fix.
+  - **Refactor Gate:** Enforces the Net Engineering Value (NEV) formula before refactoring.
+  - **Deep Module Architecture:** Information hiding, interface minimization, and the Deletion Test.
+  - **Multi-Agent Teamwork:** Zero-collision file ownership contracts, independent adversarial review gates, and explicit subagent boundaries.
+- **MCP Tools:**
+  - `zmind_rules`: Query invariant definitions and positive/negative examples by topic.
+  - `zmind_audit`: Audit implementation plans, diffs, or architecture designs against invariants.
+  - `zmind_status`: Summary of active cognitive rules, personas, and specialized workflows.
+- See full documentation: [plugins/z-mind/README.md](plugins/z-mind/README.md)
+
 ---
 
 ## 🧪 Testing & Verification
@@ -113,7 +138,7 @@ Run automated test suites across all plugins and tooling:
 # Run syntax checks
 npm run check
 
-# Run full test suite (guard, language heuristic, build parser, filesystem, runner, panel)
+# Run full test suite across all 8 modules (guard, language heuristic, build parser, filesystem, runner, panel, brain, mind)
 npm test
 ```
 

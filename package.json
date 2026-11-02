@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Monorepo for Antigravity & ZCode plugins: z-token (context guard & token diet) and z-brain (episodic memory & SQLite knowledge engine).",
+  "description": "Unified plugin monorepo for Antigravity & ZCode: z-token (context guard), z-brain (episodic memory), and z-mind (cognitive engineering OS).",
   "license": "MIT",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "install:plugins": "powershell -ExecutionPolicy Bypass -File install.ps1",
-    "check": "node --check plugins/z-token/scripts/guard.mjs && node --check plugins/z-token/scripts/loop-breaker.mjs && node --check plugins/z-token/scripts/mcp-server.mjs && node --check plugins/z-token/scripts/lib/scan.mjs && node --check plugins/z-token/scripts/lib/fsindex.mjs && node --check plugins/z-token/scripts/lib/ledger.mjs && node --check plugins/z-token/scripts/lib/build.mjs && node --check plugins/z-token/scripts/lib/run.mjs && node --check plugins/z-token/scripts/lib/diet.mjs && node --check plugins/z-token/scripts/lib/config.mjs && node --check plugins/z-brain/scripts/mcp-server.mjs && node --check plugins/z-brain/scripts/cli.mjs",
-    "test": "node bench/guard-test.mjs && node bench/lang-test.mjs && node bench/build-test.mjs && node bench/fs-test.mjs && node bench/run-test.mjs && node bench/panel-test.mjs && node bench/brain-test.mjs",
+    "check": "node --check plugins/z-token/scripts/guard.mjs && node --check plugins/z-token/scripts/loop-breaker.mjs && node --check plugins/z-token/scripts/mcp-server.mjs && node --check plugins/z-token/scripts/lib/scan.mjs && node --check plugins/z-token/scripts/lib/fsindex.mjs && node --check plugins/z-token/scripts/lib/ledger.mjs && node --check plugins/z-token/scripts/lib/build.mjs && node --check plugins/z-token/scripts/lib/run.mjs && node --check plugins/z-token/scripts/lib/diet.mjs && node --check plugins/z-token/scripts/lib/config.mjs && node --check plugins/z-brain/scripts/mcp-server.mjs && node --check plugins/z-brain/scripts/cli.mjs && node --check plugins/z-mind/scripts/mcp-server.mjs && node --check plugins/z-mind/scripts/cli.mjs && node --check plugins/z-mind/scripts/lib/rules.mjs",
+    "test": "node bench/guard-test.mjs && node bench/lang-test.mjs && node bench/build-test.mjs && node bench/fs-test.mjs && node bench/run-test.mjs && node bench/panel-test.mjs && node bench/brain-test.mjs && node bench/mind-test.mjs",
     "smoke": "node bench/mcp-smoke.mjs",
     "bench": "node bench/measure.mjs"
   }

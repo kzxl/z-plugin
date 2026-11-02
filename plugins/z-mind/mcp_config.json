@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "z-mind": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
+      "env": {
+        "ZMIND_WORKSPACE": "."
+      }
+    }
+  }
+}

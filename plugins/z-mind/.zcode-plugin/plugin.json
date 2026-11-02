@@ -1,0 +1,23 @@
+{
+  "name": "z-mind",
+  "version": "1.0.0",
+  "description": "Cognitive engineering framework & thinking discipline for AI coding agents: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
+  "author": {
+    "name": "kzxl"
+  },
+  "skills": "skills",
+  "rules": "rules",
+  "agents": "agents",
+  "mcpServers": {
+    "z-mind": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
+      "env": {
+        "ZMIND_WORKSPACE_ROOT": "${ZCODE_PROJECT_DIR}"
+      }
+    }
+  }
+}

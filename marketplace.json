@@ -41,6 +41,26 @@
         "antigravity",
         "zcode"
       ]
+    },
+    {
+      "name": "z-mind",
+      "source": "./plugins/z-mind",
+      "version": "1.0.0",
+      "displayName": "Z-Mind",
+      "description": "Cognitive engineering framework & thinking discipline: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
+      "category": "developer-tools",
+      "keywords": [
+        "z-mind",
+        "cognitive-os",
+        "architecture",
+        "refactor",
+        "bugfix",
+        "tdd",
+        "teamwork",
+        "mcp",
+        "antigravity",
+        "zcode"
+      ]
     }
   ]
 }

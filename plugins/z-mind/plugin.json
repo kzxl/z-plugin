@@ -1,0 +1,13 @@
+{
+  "name": "z-mind",
+  "displayName": "Z-Mind",
+  "description": "Cognitive engineering framework & thinking discipline for AI coding agents: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
+  "version": "1.0.0",
+  "author": "kzxl",
+  "suggestedPrompts": [
+    "/z-mind rules",
+    "/z-mind investigate",
+    "/z-mind refactor",
+    "/z-mind team"
+  ]
+}
