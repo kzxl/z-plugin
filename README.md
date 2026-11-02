@@ -117,7 +117,7 @@ flowchart TD
 ### 3. `z-mind` (Cognitive OS & Senior Engineering Invariants)
 - **Problem Solved:** Prevents AI agents from producing shallow boilerplate, speculative bug fixes, unnecessary wrapper layers, and uncoordinated multi-agent conflicts.
 - **Cognitive Disciplines:**
-  - **Engineering Invariants:** Enforces strict core rules: `R_CORE` (pragmatic SOLID), `R_TDD` (failing test first), `R_PERF` (measured baselines), `R_NEV` (Net Engineering Value gate), `R_PROOF` (evidence before claiming fixed), `R_REUSE` (zero duplicated abstractions), `R_GIT` (atomic scoped commits), `R_TEAM` (file ownership contracts).
+  - **56 Engineering Rules & Invariants:** Enforces complete engineering standards categorized into 6 pillars: Universal Invariants (`R_CORE`, `R_TDD`, `R_PERF`, `R_NEV`, `R_PROOF`, `R_REUSE`, `R_GIT`, `R_TEAM`), Language Stacks (`R_CS`, `R_WPF`, `R_NODE`, `R_REACT`, `R_GO`, `R_RUST`, `R_PY`), Architecture (`R_API`, `R_UNIVERSE`, `R_EVT`, `R_RES`), Cognition & Research (`R_COG_LOOP`, `R_PRE_MORTEM`, `R_EPISTEMIC`), ERP Domains (`R_DOMAIN_INV`, `R_DOMAIN_PROD`, `R_DOMAIN_SALES`, `R_DOMAIN_AUTH`), and Operations (`R_PUB`, `R_PKG`, `R_SEC_STD`, `R_ANTI_SLOP`).
   - **4-Phase Bug Diagnosis:** Mandatory sequence: Sensory Sweep → Socratic Inquiry → Pre-Mortem Hypothesis → Root Cause Fix.
   - **Refactor Gate:** Enforces the Net Engineering Value (NEV) formula before refactoring.
   - **Deep Module Architecture:** Information hiding, interface minimization, and the Deletion Test.

@@ -1,4 +1,4 @@
-// Test suite for z-mind cognitive engineering plugin
+// Comprehensive test suite for z-mind cognitive engineering plugin
 import { queryRules, auditPlan } from "../plugins/z-mind/scripts/lib/rules.mjs";
 
 function ok(cond, msg) {
@@ -9,17 +9,46 @@ function ok(cond, msg) {
   console.log("  ok  ", msg);
 }
 
-console.log("z-mind: rules lookup");
+console.log("z-mind: rules catalog coverage");
 const allRules = queryRules("all");
-ok(allRules.length >= 8, `all rules returned (${allRules.length} rules)`);
+ok(allRules.length === 56, `all 56 canonical rules loaded (verified: ${allRules.length})`);
 
-const tddRule = queryRules("tdd");
-ok(tddRule.length > 0 && tddRule[0].code === "R_TDD", "tdd rule lookup works");
+// Category queries
+const invariants = queryRules("invariants");
+ok(invariants.length === 8, `invariants category has 8 rules (got: ${invariants.length})`);
 
-const perfRule = queryRules("perf");
-ok(perfRule.length > 0 && perfRule[0].code === "R_PERF", "perf rule lookup works");
+const langRules = queryRules("lang");
+ok(langRules.length === 13, `languages category has 13 rules (got: ${langRules.length})`);
 
-console.log("z-mind: invariant audit");
+const archRules = queryRules("arch");
+ok(archRules.length === 8, `architecture category has 8 rules (got: ${archRules.length})`);
+
+const cogRules = queryRules("cognition");
+ok(cogRules.length === 10, `cognition category has 10 rules (got: ${cogRules.length})`);
+
+const domainRules = queryRules("domain");
+ok(domainRules.length === 5, `domain category has 5 rules (got: ${domainRules.length})`);
+
+const opsRules = queryRules("ops");
+ok(opsRules.length === 12, `ops category has 12 rules (got: ${opsRules.length})`);
+
+console.log("z-mind: keyword & tag queries");
+const csRules = queryRules("csharp");
+ok(csRules.some(r => r.code === "R_CS"), "csharp tag matches R_CS");
+
+const wpfRules = queryRules("wpf");
+ok(wpfRules.some(r => r.code === "R_WPF"), "wpf tag matches R_WPF");
+
+const invRules = queryRules("inventory");
+ok(invRules.some(r => r.code === "R_DOMAIN_INV"), "inventory tag matches R_DOMAIN_INV");
+
+const reactRules = queryRules("react");
+ok(reactRules.some(r => r.code === "R_REACT"), "react tag matches R_REACT");
+
+const antiSlopRules = queryRules("anti-slop");
+ok(antiSlopRules.some(r => r.code === "R_ANTI_SLOP"), "anti-slop tag matches R_ANTI_SLOP");
+
+console.log("z-mind: invariant audit checks");
 const passingPlan = auditPlan(`
 feat(auth): add OAuth2 refresh token rotation
 - Write automated reproduction test for expired token in auth_test.go
@@ -40,4 +69,34 @@ feat(cache): implement optimal and perfect caching
 `);
 ok(selfPraise.warnings.some(w => w.includes("R_PROOF")), "subjective self-praise caught by R_PROOF");
 
-console.log("\nall z-mind tests passed");
+const bindingSourcePlan = auditPlan(`
+feat(ui): bind customer grid with BindingSource
+- Write test in CustomerViewTests.cs
+`);
+ok(bindingSourcePlan.warnings.some(w => w.includes("R_WPF")), "BindingSource caught by R_WPF");
+
+const sqlConcatPlan = auditPlan(`
+feat(rep): dynamic query via SELECT * FROM Orders + id
+- Verify test passes
+`);
+ok(sqlConcatPlan.warnings.some(w => w.includes("R_DB")), "SQL concatenation caught by R_DB");
+
+const hardcodedPathPlan = auditPlan(`
+feat(cfg): set asset folder to C:\\Users\\Administrator\\data
+- Test path resolution
+`);
+ok(hardcodedPathPlan.warnings.some(w => w.includes("R_PKG")), "Hardcoded absolute path caught by R_PKG");
+
+const fullPublishPlan = auditPlan(`
+chore(release): dotnet publish with --self-contained true
+- Test release package
+`);
+ok(fullPublishPlan.warnings.some(w => w.includes("R_PUB")), "Self-contained publish caught by R_PUB");
+
+const aggressiveRewritePlan = auditPlan(`
+refactor(legacy): complete rewrite of entire billing subsystem
+- Test new implementation
+`);
+ok(aggressiveRewritePlan.warnings.some(w => w.includes("R_EPISTEMIC")), "Aggressive rewrite caught by R_EPISTEMIC");
+
+console.log("\nall z-mind tests passed (56 rules verified)");

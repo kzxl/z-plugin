@@ -99,7 +99,7 @@ function handleToolCall(id, name, args) {
   switch (name) {
     case "zmind_rules": {
       const rules = queryRules(args.topic || "all");
-      const text = rules.map(r => `[${r.code}] ${r.title} (${r.tag}):\n  ${r.summary}`).join("\n\n");
+      const text = rules.map(r => `[${r.code}] ${r.title} [${r.category || "general"}] (${(r.tags || []).join(", ")}):\n  ${r.summary}`).join("\n\n");
       sendResponse(id, {
         content: [{ type: "text", text: text || "No matching rules found." }]
       });
