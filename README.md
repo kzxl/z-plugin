@@ -19,6 +19,7 @@ Consolidating multiple specialized plugins under a single repository, `z-plugin`
 | [**`z-brain`**](plugins/z-brain) | `1.0.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), smart deduplication/upsert, auto project scoping. |
 | [**`z-mind`**](plugins/z-mind) | `1.0.0` | **Cognitive OS & 58 Invariants** | Senior engineering disciplines, 58 canonical rules, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, project rule bootstrap & doctor. |
 | [**`z-gate`**](plugins/z-gate) | `1.0.0` | **Asset Discovery & NEV Gate** | Codebase helper discovery (`R_REUSE`), pre-commit diff audit against wrapper hell and LOC bloat, Git PreToolUse hook enforcing targeted staging (`R_GIT`). |
+| [**`z-craft`**](plugins/z-craft) | `1.0.0` | **Software Craftsmanship & Vibe Engine** | Disciplined vibe-coding, Anti-Slop AST Linter (`R_ANTI_SLOP`), 4-state UX micro-contract generator, live generative canvas preview, and vibe time-machine. |
 
 ---
 
@@ -49,6 +50,9 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-mind
 
 # Install only z-gate
 powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-gate
+
+# Install only z-craft
+powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-craft
 
 # Unlink all plugins
 powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
@@ -88,14 +92,22 @@ flowchart TD
             Cache[("⚡ .zero-gate/helpers-cache.json")]
             ToolsGate["🔍 zgate_find_helpers | zgate_audit_diff | zgate_status"]
         end
+
+        subgraph ZCraft ["z-craft Plugin"]
+            VibeGuard["✨ PostToolUse Vibe Guard (Anti-Slop Linter)"]
+            TimeMachine[("⏳ .zero-craft/snapshots/")]
+            ToolsCraft["🎨 zcraft_spec | zcraft_lint_ui | zcraft_preview | zcraft_checkpoint"]
+        end
     end
 
     Agent <-->|"Hooks & MCP"| ZToken
     Agent <-->|"MCP stdio"| ZBrain
     Agent <-->|"Skills & MCP"| ZMind
     Agent <-->|"Hooks & MCP"| ZGate
+    Agent <-->|"Hooks & MCP"| ZCraft
     ZBrain <--> SQLite
     ZGate <--> Cache
+    ZCraft <--> TimeMachine
 ```
 
 ---
@@ -164,6 +176,21 @@ flowchart TD
   - `zgate_status`: Show helper index status, cache statistics, and active guard metrics.
 - See full documentation: [plugins/z-gate/README.md](plugins/z-gate/README.md)
 
+### 5. `z-craft` (Software Craftsmanship & Disciplined Vibe-Coding Engine)
+- **Problem Solved:** Bridges natural-language creative vibes and production-grade software. Eliminates amateurish AI-slop (gratuitous gradients, non-token colors, blank screens, dead buttons) and provides instant visual verification.
+- **Core Pillars:**
+  - **Vibe-to-Spec Engine:** Synthesizes casual prompts into a 4-state UX Micro-Contract (`Default`, `Loading` skeleton, `Empty` zero-state, `Error` with retry).
+  - **Mechanical Anti-AI-Slop Linter (`R_ANTI_SLOP`):** AST scanner detecting arbitrary hex codes, neon gradients, floaty drop-shadows, and unhandled states across React, Tailwind, and XAML.
+  - **Interactive Generative Canvas:** Generates self-contained interactive HTML/Tailwind widgets rendering directly in Antigravity chat for live clickable verification.
+  - **Vibe Time-Machine:** Non-destructive shadow checkpoints (`.zero-craft/snapshots/`) for instant 1-click rollbacks during visual experimentation.
+- **MCP Tools:**
+  - `zcraft_spec`: Generate UX micro-contract and state matrix from prompt.
+  - `zcraft_lint_ui`: Run Anti-Slop AST Linter on code snippets or repository files.
+  - `zcraft_preview`: Generate interactive HTML canvas widget.
+  - `zcraft_checkpoint`: Manage shadow micro-checkpoints (create, list, restore).
+  - `zcraft_status`: Show craftsmanship score, active rules, and checkpoint status.
+- See full documentation: [plugins/z-craft/README.md](plugins/z-craft/README.md)
+
 ---
 
 ## 🧪 Testing & Verification
@@ -174,7 +201,7 @@ Run automated test suites across all plugins and tooling:
 # Run syntax checks
 npm run check
 
-# Run full test suite across all 10 benchmark modules (version, guard, language heuristic, build parser, filesystem, runner, panel, brain, mind, gate)
+# Run full test suite across all 11 benchmark modules (version, guard, language heuristic, build parser, filesystem, runner, panel, brain, mind, gate, craft)
 npm test
 ```
 

@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|write_file|edit_file",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/vibe-guard.mjs"],
+            "timeoutMs": 5000,
+            "statusMessage": "z-craft: inspecting UI code for anti-slop compliance"
+          }
+        ]
+      }
+    ]
+  }
+}

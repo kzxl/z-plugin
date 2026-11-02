@@ -1,0 +1,16 @@
+{
+  "z-craft-guard": {
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/vibe-guard.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

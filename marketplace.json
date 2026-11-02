@@ -79,6 +79,25 @@
         "antigravity",
         "zcode"
       ]
+    },
+    {
+      "name": "z-craft",
+      "source": "./plugins/z-craft",
+      "version": "1.0.0",
+      "displayName": "Z-Craft",
+      "description": "Autonomous Software Craftsmanship & Disciplined Vibe-Coding Engine: anti-slop AST linter, UX micro-spec generator, generative UI canvas, and vibe time-machine.",
+      "category": "developer-tools",
+      "keywords": [
+        "z-craft",
+        "craftsmanship",
+        "vibe-coding",
+        "anti-slop",
+        "ui-design-system",
+        "generative-ui",
+        "mcp",
+        "antigravity",
+        "zcode"
+      ]
     }
   ]
 }
