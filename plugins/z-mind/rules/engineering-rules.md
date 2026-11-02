@@ -1,3 +1,8 @@
+---
+trigger: model_decision
+description: Complete catalog of 56 engineering rules and standards across invariants, languages, architecture, cognition, domain ERP, and operations.
+---
+
 # Engineering Rules & Invariants Reference (Z-Mind)
 
 This document contains the complete canonical catalog of **56 engineering rules and standards** enforced by **z-mind**.
