@@ -1,25 +1,25 @@
 ---
-name: zero-token
-description: Slash command and mode controller for Zero Token (compact context, oversized-read guard, capped search, and lean builds). Triggered by /zero-token [on|lite|ultra|off|status].
+name: z-token
+description: Slash command and mode controller for Z-Token (compact context, oversized-read guard, capped search, and lean builds). Triggered by /z-token [on|lite|ultra|off|status].
 ---
 
-# Zero Token Skill
+# Z-Token Skill
 
-Provides operational control and dynamic strictness levels for the Zero Token optimization framework.
+Provides operational control and dynamic strictness levels for the Z-Token optimization framework.
 
 ## Operating Levels
 
-- **`on`** (Default): Activates full zero-token directives across communication, context caching, tool batching, and code generation.
+- **`on`** (Default): Activates full z-token directives across communication, context caching, tool batching, and code generation.
 - **`lite`**: Applies communication and artifact concision only; leaves tool execution and context exploration unconstrained.
 - **`ultra`**: Activates telegraphic mode on low-stakes communication surfaces (~60% token reduction), while preserving full verbatim precision on high-stakes code and commands.
-- **`off`**: Temporarily suspends zero-token rules. Triggered by `/zero-token off` or "verbose mode".
+- **`off`**: Temporarily suspends z-token rules. Triggered by `/z-token off` or "verbose mode".
 - **`status`**: Reports active mode and current token management directives.
 
 ---
 
 ## Ultra Mode Specification (Surface-Scoped)
 
-When `/zero-token ultra` is selected:
+When `/z-token ultra` is selected:
 
 ### Low-Stakes Surfaces (Telegraphic)
 Applies to: Chat responses, progress updates, and conversational status notes.
@@ -40,11 +40,11 @@ Never apply telegraphic fragments to:
 
 ## Command Handling
 
-- `/zero-token on`: Confirms activation of standard Zero Token rules.
-- `/zero-token lite`: Switches to communication-only token savings.
-- `/zero-token ultra`: Switches to aggressive telegraphic output mode for low-stakes text.
-- `/zero-token off`: Pauses zero-token optimizations.
-- `/zero-token status`: Displays current level and operational recommendations.
+- `/z-token on`: Confirms activation of standard Z-Token rules.
+- `/z-token lite`: Switches to communication-only token savings.
+- `/z-token ultra`: Switches to aggressive telegraphic output mode for low-stakes text.
+- `/z-token off`: Pauses z-token optimizations.
+- `/z-token status`: Displays current level and operational recommendations.
 
 ---
 

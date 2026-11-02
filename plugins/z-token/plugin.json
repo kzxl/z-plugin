@@ -1,12 +1,12 @@
 {
-  "name": "zero-token",
-  "displayName": "Zero Token",
+  "name": "z-token",
+  "displayName": "Z-Token",
   "description": "Compact-context tools and guards: code outline, capped search, compact .NET builds, oversized-read blocking, and token budgeting.",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "author": "kzxl",
   "suggestedPrompts": [
-    "/zero-token on",
-    "/zero-token ultra",
-    "/zero-token status"
+    "/z-token on",
+    "/z-token ultra",
+    "/z-token status"
   ]
 }

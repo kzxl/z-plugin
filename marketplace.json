@@ -1,31 +1,43 @@
 {
-  "name": "zero-token",
+  "name": "z-plugin",
   "owner": {
     "name": "kzxl",
     "url": "https://github.com/kzxl"
   },
   "plugins": [
     {
-      "name": "zero-token",
-      "source": "./plugins/zero-token",
-      "version": "0.7.0",
-      "description": "Compact-context tools and guards: code outline, capped search, compact builds, oversized-read blocking, repeated-call detection.",
-      "displayName": "Zero Token",
-      "displayName_i18n": {
-        "zh-CN": "零冗余 Token"
-      },
-      "description_i18n": {
-        "en": "Cuts the tokens a coding session spends on file dumps, unbounded greps and raw build logs.",
-        "zh-CN": "减少编码会话在整文件读取、无界搜索和原始构建日志上消耗的 token。"
-      },
+      "name": "z-token",
+      "source": "./plugins/z-token",
+      "version": "1.0.0",
+      "displayName": "Z-Token",
+      "description": "Compact-context tools & guards: code outline, capped search, compact builds, oversized-read blocking, and token budgeting.",
       "category": "developer-tools",
       "keywords": [
+        "z-token",
         "tokens",
-        "context",
+        "context-diet",
+        "guard",
         "hooks",
         "mcp",
         "build",
-        "performance",
+        "antigravity",
+        "zcode"
+      ]
+    },
+    {
+      "name": "z-brain",
+      "source": "./plugins/z-brain",
+      "version": "1.2.0",
+      "displayName": "Z-Brain",
+      "description": "Zero-overhead local episodic knowledge engine with SQLite FTS5 progressive disclosure (L0 Index / L2 View).",
+      "category": "developer-tools",
+      "keywords": [
+        "z-brain",
+        "memory",
+        "knowledge-base",
+        "sqlite",
+        "fts5",
+        "mcp",
         "antigravity",
         "zcode"
       ]

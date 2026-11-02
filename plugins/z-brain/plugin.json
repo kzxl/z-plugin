@@ -1,0 +1,12 @@
+{
+  "name": "z-brain",
+  "displayName": "Z-Brain",
+  "description": "Zero-overhead local semantic memory & cognitive episodic cache for AI agents. Powered by embedded SQLite FTS5 & progressive disclosure context.",
+  "version": "1.0.0",
+  "author": "kzxl",
+  "suggestedPrompts": [
+    "/z-brain status",
+    "/z-brain fetch",
+    "/z-brain harvest"
+  ]
+}

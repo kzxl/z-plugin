@@ -8,9 +8,9 @@ import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { outline, search } from "../plugins/zero-token/scripts/lib/scan.mjs";
-import { compactBuildLog, runBuild } from "../plugins/zero-token/scripts/lib/build.mjs";
-import { dietReport } from "../plugins/zero-token/scripts/lib/diet.mjs";
+import { outline, search } from "../plugins/z-token/scripts/lib/scan.mjs";
+import { compactBuildLog, runBuild } from "../plugins/z-token/scripts/lib/build.mjs";
+import { dietReport } from "../plugins/z-token/scripts/lib/diet.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");

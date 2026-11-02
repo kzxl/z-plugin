@@ -1,18 +1,18 @@
-# zero-token
+# z-token
 
-Cuts the tokens a coding session spends on file dumps, unbounded greps and raw build logs. It never compresses history or rewrites tool output — ZCode hooks cannot do that. It makes the calls themselves cheap.
+Cuts the tokens a coding session spends on file dumps, unbounded greps and raw build logs. It never compresses history or rewrites tool output — hooks cannot do that. It makes the calls themselves cheap.
 
 ## Components
 
 | Component | What it does |
 |---|---|
 | MCP tools `outline`, `search`, `build`, `run`, `diet` | Structure-only reads, capped search, compact build (MSBuild for legacy .NET Framework, dotnet for SDK-style), build/test/lint for other ecosystems, baseline context report |
-| Agent `zero-token:scout` | Read-only subagent that returns `file:line` pointers instead of code |
+| Agent `z-token:scout` | Read-only subagent that returns `file:line` pointers instead of code |
 | PreToolUse hook | Blocks unbounded `Read`, `cat` of large files, `grep -r` without a cap, `git log -p` without `-n` |
 | PostToolUse hook | Warns once when the same tool call runs three times with identical input |
-| Skill `zero-token` | The behaviour rules that make the model choose the cheap path |
+| Skill `z-token` | The behaviour rules that make the model choose the cheap path |
 | Commands `/build`, `/diet`, `/saved` | Manual entry points: compact build, baseline report, savings ledger |
-| Panel `ui://zero-token/panel.html` | Experimental side-panel dashboard of the ledger (no conversation tokens) |
+| Panel `ui://z-token/panel.html` | Experimental side-panel dashboard of the ledger (no conversation tokens) |
 
 Language coverage: the guard is language-agnostic; `search` scans any text file, decodes UTF-16 (BOM or sniffed) and honours `.gitignore`; `outline` has declaration heuristics for C-family, JS/TS, Python, Ruby, PHP, Go, Rust, Swift/Kotlin, Scala, Dart, shell, Lua, Perl and SQL; `build` is .NET only; `run` covers npm/pnpm/yarn, cargo, go, maven, gradle, make and pytest.
 

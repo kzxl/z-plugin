@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const guard = path.join(root, "plugins", "zero-token", "scripts", "guard.mjs");
-const loopBreaker = path.join(root, "plugins", "zero-token", "scripts", "loop-breaker.mjs");
+const guard = path.join(root, "plugins", "z-token", "scripts", "guard.mjs");
+const loopBreaker = path.join(root, "plugins", "z-token", "scripts", "loop-breaker.mjs");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-test-"));
 const dataDir = path.join(tmp, "data");
@@ -104,7 +104,7 @@ check("workspace config applies -> small file denied", run(guard, wsPayload).out
 console.log("ledger");
 const ledgerFile = path.join(dataDir, "ledger.jsonl");
 check("deny is recorded", fs.existsSync(ledgerFile) && fs.readFileSync(ledgerFile, "utf8").includes('"event":"read"'));
-const { savingsReport } = await import("../plugins/zero-token/scripts/lib/ledger.mjs");
+const { savingsReport } = await import("../plugins/z-token/scripts/lib/ledger.mjs");
 const report = savingsReport(1).text;
 check("savings report counts blocked calls", /Blocked calls: [1-9]/.test(report), report.split("\n")[2]);
 check("savings report mentions blocked bytes", /bytes kept out of context/.test(report));

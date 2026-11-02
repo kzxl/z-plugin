@@ -1,6 +1,6 @@
 {
-  "name": "zero-token",
-  "version": "0.7.0",
+  "name": "z-token",
+  "version": "1.0.0",
   "description": "Compact-context tools and guards: code outline, capped search, compact builds, oversized-read blocking, repeated-call detection.",
   "author": {
     "name": "kzxl"
@@ -10,7 +10,7 @@
   "commands": "commands",
   "hooks": "hooks/hooks.json",
   "mcpServers": {
-    "zero-token": {
+    "z-token": {
       "type": "stdio",
       "command": "node",
       "args": [
@@ -24,14 +24,14 @@
   "ui": {
     "surfaces": [
       {
-        "id": "zero-token",
+        "id": "z-token",
         "title": {
-          "en": "Zero Token",
+          "en": "Z-Token",
           "zh-CN": "零冗余 Token"
         },
         "icon": "gauge",
-        "server": "zero-token",
-        "resourceUri": "ui://zero-token/panel.html",
+        "server": "z-token",
+        "resourceUri": "ui://z-token/panel.html",
         "availability": "session"
       }
     ]

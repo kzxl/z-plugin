@@ -14,7 +14,7 @@ import { appendLedger, readLedger, savingsReport } from "./lib/ledger.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const config = loadConfig(here, process.cwd());
-const PANEL_URI = "ui://zero-token/panel.html";
+const PANEL_URI = "ui://z-token/panel.html";
 let version = "0.1.0";
 try {
   version = JSON.parse(fs.readFileSync(path.join(here, "..", ".zcode-plugin", "plugin.json"), "utf8")).version;
@@ -210,7 +210,7 @@ li b{flex:none;color:var(--accent);font-weight:600;font-variant-numeric:tabular-
     });
   }
   request("ui/initialize", {
-    appInfo: { name: "zero-token", version: "${version}" },
+    appInfo: { name: "z-token", version: "${version}" },
     appCapabilities: {},
     protocolVersion: "2025-11-21"
   }).then(function () {
@@ -361,7 +361,7 @@ rl.on("line", async (line) => {
     result(id, {
       protocolVersion: params?.protocolVersion || "2024-11-05",
       capabilities: { tools: {}, resources: {} },
-      serverInfo: { name: "zero-token", version },
+      serverInfo: { name: "z-token", version },
     });
     return;
   }
@@ -446,7 +446,7 @@ rl.on("line", async (line) => {
       result(id, payload);
     } catch (e) {
       result(id, {
-        content: [{ type: "text", text: `zero-token ${name} failed: ${e.message}` }],
+        content: [{ type: "text", text: `z-token ${name} failed: ${e.message}` }],
         isError: true,
       });
     }

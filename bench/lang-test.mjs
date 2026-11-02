@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { outline, search } from "../plugins/zero-token/scripts/lib/scan.mjs";
+import { outline, search } from "../plugins/z-token/scripts/lib/scan.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-lang-"));
 const write = (name, text, encoding = "utf8") => {

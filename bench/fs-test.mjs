@@ -4,8 +4,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { search, outline } from "../plugins/zero-token/scripts/lib/scan.mjs";
-import { clearCaches } from "../plugins/zero-token/scripts/lib/fsindex.mjs";
+import { search, outline } from "../plugins/z-token/scripts/lib/scan.mjs";
+import { clearCaches } from "../plugins/z-token/scripts/lib/fsindex.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-fs-"));
 const write = (name, text, encoding = "utf8") => {

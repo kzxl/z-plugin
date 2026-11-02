@@ -55,7 +55,7 @@ for (const [name, script, payload] of cases) {
 }
 
 // Ledger append cost without spawn overhead.
-const { appendLedger } = await import("../plugins/zero-token/scripts/lib/ledger.mjs");
+const { appendLedger } = await import("../plugins/z-token/scripts/lib/ledger.mjs");
 process.env.TOKEN_DIET_DATA = data;
 const t0 = process.hrtime.bigint();
 for (let i = 0; i < 1000; i++) appendLedger({ t: "tool", tool: "bench", outChars: 100, ms: 1 });

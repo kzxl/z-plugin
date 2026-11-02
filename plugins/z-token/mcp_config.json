@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "z-token": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
+      "env": {
+        "Z_TOKEN_WORKSPACE": "."
+      }
+    }
+  }
+}

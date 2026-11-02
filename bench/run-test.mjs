@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { detectEcosystem, planAction, compactCommandLog, runAction } from "../plugins/zero-token/scripts/lib/run.mjs";
+import { detectEcosystem, planAction, compactCommandLog, runAction } from "../plugins/z-token/scripts/lib/run.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-run-"));
 function mk(name, files) {

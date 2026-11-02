@@ -1,15 +1,16 @@
 {
-  "name": "zero-token",
-  "version": "0.7.0",
+  "name": "z-plugin",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Universal coding agent plugin (Antigravity, ZCode, Claude Code) that keeps sessions from flooding their context with whole-file reads, unbounded greps and raw build logs.",
+  "description": "Monorepo for Antigravity & ZCode plugins: z-token (context guard & token diet) and z-brain (episodic memory & SQLite knowledge engine).",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
-    "check": "node --check plugins/zero-token/scripts/guard.mjs && node --check plugins/zero-token/scripts/loop-breaker.mjs && node --check plugins/zero-token/scripts/mcp-server.mjs && node --check plugins/zero-token/scripts/lib/scan.mjs && node --check plugins/zero-token/scripts/lib/fsindex.mjs && node --check plugins/zero-token/scripts/lib/ledger.mjs && node --check plugins/zero-token/scripts/lib/build.mjs && node --check plugins/zero-token/scripts/lib/run.mjs && node --check plugins/zero-token/scripts/lib/diet.mjs && node --check plugins/zero-token/scripts/lib/config.mjs && node --check bench/measure.mjs && node --check bench/mcp-smoke.mjs && node --check bench/guard-test.mjs && node --check bench/lang-test.mjs && node --check bench/build-test.mjs && node --check bench/fs-test.mjs && node --check bench/run-test.mjs && node --check bench/repo-bench.mjs && node --check bench/hook-bench.mjs && node --check bench/panel-test.mjs",
+    "install:plugins": "powershell -ExecutionPolicy Bypass -File install.ps1",
+    "check": "node --check plugins/z-token/scripts/guard.mjs && node --check plugins/z-token/scripts/loop-breaker.mjs && node --check plugins/z-token/scripts/mcp-server.mjs && node --check plugins/z-token/scripts/lib/scan.mjs && node --check plugins/z-token/scripts/lib/fsindex.mjs && node --check plugins/z-token/scripts/lib/ledger.mjs && node --check plugins/z-token/scripts/lib/build.mjs && node --check plugins/z-token/scripts/lib/run.mjs && node --check plugins/z-token/scripts/lib/diet.mjs && node --check plugins/z-token/scripts/lib/config.mjs && node --check plugins/z-brain/scripts/mcp-server.mjs && node --check plugins/z-brain/scripts/cli.mjs",
     "test": "node bench/guard-test.mjs && node bench/lang-test.mjs && node bench/build-test.mjs && node bench/fs-test.mjs && node bench/run-test.mjs && node bench/panel-test.mjs",
     "smoke": "node bench/mcp-smoke.mjs",
     "bench": "node bench/measure.mjs"

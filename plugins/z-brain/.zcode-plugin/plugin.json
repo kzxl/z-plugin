@@ -1,0 +1,22 @@
+{
+  "name": "z-brain",
+  "version": "1.2.0",
+  "description": "Zero-overhead local episodic knowledge engine for AI coding agents with SQLite FTS5 progressive disclosure (L0 Index / L2 View).",
+  "author": {
+    "name": "kzxl"
+  },
+  "skills": "skills",
+  "rules": "rules",
+  "mcpServers": {
+    "z-brain": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
+      "env": {
+        "ZBRAIN_WORKSPACE_ROOT": "${ZCODE_PROJECT_DIR}"
+      }
+    }
+  }
+}
