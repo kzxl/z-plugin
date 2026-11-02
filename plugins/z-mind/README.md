@@ -16,6 +16,7 @@ It equips agents with senior engineering rigor: 4-phase bug diagnosis, zero-regr
 | Agent `architect` | System Architect persona for boundary design and trade-off evaluation |
 | Agent `investigator` | Dedicated bugfix diagnosis sub-agent |
 | Agent `reviewer` | Adversarial Code Reviewer persona checking invariants and regressions |
+| MCP tool `zmind_init` | Bootstrap a standard `.project-rule.md` tailored to current workspace stack and protect in `.gitignore` |
 | MCP tool `zmind_rules` | Query engineering invariants by topic (`core`, `tdd`, `perf`, `git`, `refactor`) |
 | MCP tool `zmind_audit` | Audit technical plans or commit messages against engineering rules |
 | Rules `engineering-rules.md` | Full catalog of 56 engineering standards across 6 pillars (Invariants, Languages, Architecture, Cognition, Domain ERP, Ops) |
@@ -33,6 +34,9 @@ It equips agents with senior engineering rigor: 4-phase bug diagnosis, zero-regr
 ## CLI Usage
 
 ```bash
+# Bootstrap standardized .project-rule.md in current workspace
+node scripts/cli.mjs init
+
 # List all 56 rules
 node scripts/cli.mjs rules
 

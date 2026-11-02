@@ -6,8 +6,26 @@
 
 import readline from "node:readline";
 import { queryRules, auditPlan } from "./lib/rules.mjs";
+import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
 
 const TOOLS = [
+  {
+    name: "zmind_init",
+    description: "Bootstrap a standardized .project-rule.md in the current workspace. Automatically detects language stack (C#, React, Node, Go, Rust, Python, PHP), configures tailored z-mind rules and z-brain memory hooks, and protects the file in .gitignore.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        targetDir: {
+          type: "string",
+          description: "Target workspace directory (default: current working directory)"
+        },
+        force: {
+          type: "boolean",
+          description: "Overwrite existing .project-rule.md if already present"
+        }
+      }
+    }
+  },
   {
     name: "zmind_rules",
     description: "Lookup engineering invariants, architecture rules, and TDD guidelines by topic or tag (e.g. 'core', 'tdd', 'perf', 'git', 'refactor', 'all').",
@@ -97,6 +115,23 @@ rl.on("line", (line) => {
 
 function handleToolCall(id, name, args) {
   switch (name) {
+    case "zmind_init": {
+      const targetDir = args.targetDir || process.cwd();
+      const res = bootstrapProjectRule(targetDir, { force: Boolean(args.force) });
+      const text = [
+        res.success ? `✅ [Z-MIND INIT SUCCESS]` : `ℹ️ [Z-MIND INIT NOTICE]`,
+        `Message: ${res.message}`,
+        res.projectName ? `Project: ${res.projectName}` : null,
+        res.language ? `Stack: ${res.language}` : null,
+        res.rules ? `Enforced Rules: ${res.rules.join(", ")}` : null,
+        `Path: ${res.path}`
+      ].filter(Boolean).join("\n");
+      sendResponse(id, {
+        content: [{ type: "text", text }]
+      });
+      break;
+    }
+
     case "zmind_rules": {
       const rules = queryRules(args.topic || "all");
       const text = rules.map(r => `[${r.code}] ${r.title} [${r.category || "general"}] (${(r.tags || []).join(", ")}):\n  ${r.summary}`).join("\n\n");

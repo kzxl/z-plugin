@@ -4,10 +4,26 @@
  */
 
 import { queryRules, auditPlan } from "./lib/rules.mjs";
+import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
 
 const [cmd, ...args] = process.argv.slice(2);
 
 switch (cmd) {
+  case "init":
+  case "bootstrap": {
+    const targetDir = args[0] || process.cwd();
+    const force = args.includes("--force");
+    const res = bootstrapProjectRule(targetDir, { force });
+    if (res.success) {
+      console.log(`\n✅ [Z-MIND INIT] ${res.message}`);
+      console.log(`  • Project Name: ${res.projectName}`);
+      console.log(`  • Stack Language: ${res.language}`);
+      console.log(`  • Active Rules: ${res.rules.join(", ")}\n`);
+    } else {
+      console.log(`\nℹ️ [Z-MIND INIT] ${res.message}\n`);
+    }
+    break;
+  }
   case "rules": {
     const topic = args[0] || "all";
     const rules = queryRules(topic);
@@ -47,7 +63,7 @@ switch (cmd) {
     console.log(`  • Total Invariants: ${rules.length}`);
     console.log(`  • Protocols: Bugfix (4-phase), Refactor (NEV gate), Architecture, Teamwork`);
     console.log(`  • Sub-agents: architect, investigator, reviewer`);
-    console.log(`  • Commands: rules, audit, status\n`);
+    console.log(`  • Commands: init, rules, audit, status\n`);
     break;
   }
 }

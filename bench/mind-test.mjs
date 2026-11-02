@@ -1,5 +1,9 @@
 // Comprehensive test suite for z-mind cognitive engineering plugin
 import { queryRules, auditPlan } from "../plugins/z-mind/scripts/lib/rules.mjs";
+import { detectProject, bootstrapProjectRule } from "../plugins/z-mind/scripts/lib/bootstrap.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 function ok(cond, msg) {
   if (!cond) {
@@ -99,4 +103,28 @@ refactor(legacy): complete rewrite of entire billing subsystem
 `);
 ok(aggressiveRewritePlan.warnings.some(w => w.includes("R_EPISTEMIC")), "Aggressive rewrite caught by R_EPISTEMIC");
 
-console.log("\nall z-mind tests passed (56 rules verified)");
+console.log("z-mind: bootstrap & project-rule generator");
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zmind-test-bootstrap-"));
+try {
+  fs.writeFileSync(path.join(tmpDir, "MyApp.csproj"), "<Project></Project>");
+  fs.writeFileSync(path.join(tmpDir, ".gitignore"), "bin/\nobj/\n");
+
+  const bootRes = bootstrapProjectRule(tmpDir);
+  ok(bootRes.success === true, "bootstrap successfully created .project-rule.md");
+  ok(bootRes.language === "csharp", "detected csharp stack");
+  ok(bootRes.rules.includes("R_CS"), "configured R_CS rule");
+
+  const createdContent = fs.readFileSync(bootRes.path, "utf8");
+  ok(createdContent.includes('plugin: "z-mind"'), "rule specifies plugin: z-mind");
+  ok(createdContent.includes("zbrain_fetch"), "rule contains zbrain_fetch");
+
+  const gitignoreContent = fs.readFileSync(path.join(tmpDir, ".gitignore"), "utf8");
+  ok(gitignoreContent.includes(".project-rule.md"), "added .project-rule.md to .gitignore");
+
+  const duplicateRes = bootstrapProjectRule(tmpDir);
+  ok(duplicateRes.alreadyExists === true, "prevented duplicate overwrite without force");
+} finally {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+console.log("\nall z-mind tests passed (56 rules & bootstrap verified)");
