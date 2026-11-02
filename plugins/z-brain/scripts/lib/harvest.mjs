@@ -2,6 +2,10 @@ import { getDb, insertAtom } from './db.mjs';
 
 /**
  * Harvest an atomic lesson into Z-Brain SQLite
+ * Supports:
+ *  - 3-part string: "<problem> | <cause> | <fix>"
+ *  - Single atom object: { problem, cause, fix, tags, trust_level }
+ *  - Multi-atom batch: [{...}, {...}] or { atoms: [...] }
  */
 export function harvestKnowledge({
   input,
@@ -11,6 +15,33 @@ export function harvestKnowledge({
   evidence = []
 }) {
   const db = getDb();
+
+  // Support batch array or { atoms: [...] }
+  const atomList = Array.isArray(input) ? input : (input?.atoms && Array.isArray(input.atoms) ? input.atoms : null);
+  if (atomList) {
+    const ids = [];
+    for (const a of atomList) {
+      const res = harvestSingle(db, {
+        input: a,
+        project: a.project || project,
+        tags: a.tags || tags,
+        trust_level: a.trust_level || trust_level,
+        evidence: a.evidence || evidence
+      });
+      ids.push(res.id);
+    }
+    return {
+      success: true,
+      count: ids.length,
+      ids,
+      message: `Batch harvested ${ids.length} atoms successfully into Z-Brain SQLite.`
+    };
+  }
+
+  return harvestSingle(db, { input, project, tags, trust_level, evidence });
+}
+
+function harvestSingle(db, { input, project, tags, trust_level, evidence }) {
   let question = '';
   let answer = '';
   let gotchaFix = '';
@@ -36,7 +67,7 @@ export function harvestKnowledge({
   } else if (typeof input === 'object' && input !== null) {
     question = input.question || input.problem || '';
     answer = input.answer || input.fix || '';
-    gotchaFix = input.gotcha_fix || input.cause ? `${input.cause} | ${input.fix}` : null;
+    gotchaFix = input.gotcha_fix || (input.cause && input.fix ? `${input.cause} | ${input.fix}` : null);
     if (input.project) project = input.project;
     if (input.tags) tags = input.tags;
     if (input.trust_level) trust_level = input.trust_level;
@@ -57,8 +88,8 @@ export function harvestKnowledge({
   const evidenceList = Array.isArray(evidence) ? evidence : (evidence ? [String(evidence)] : []);
 
   const atom = {
-    project_id: project.toLowerCase(),
-    scope: project === 'global' ? 'global' : 'project',
+    project_id: (project || 'global').toLowerCase(),
+    scope: (project || 'global').toLowerCase() === 'global' ? 'global' : 'project',
     trust_level: trust_level || 'observation',
     question,
     answer,

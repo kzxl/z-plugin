@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const server = path.join(root, "plugins", "zero-token", "scripts", "mcp-server.mjs");
+const server = path.join(root, "plugins", "z-token", "scripts", "mcp-server.mjs");
 
 // Self-contained fixture so the smoke test runs on a fresh clone and in CI.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-smoke-"));
@@ -125,10 +125,10 @@ try {
   const resList = await rpc("resources/list", {});
   const resources = resList.result?.resources || [];
   out.push(`resources/list -> ${resources.map((r) => r.uri).join(", ") || "(none)"}`);
-  const panel = await rpc("resources/read", { uri: "ui://zero-token/panel.html" });
+  const panel = await rpc("resources/read", { uri: "ui://z-token/panel.html" });
   const content = panel.result?.contents?.[0] || {};
   out.push(`resources/read -> ${content.mimeType || "(no mime)"}, ${(content.text || "").length} chars`);
-  out.push(`panel contains title -> ${/<h1>Zero Token<\/h1>/.test(content.text || "")}`);
+  out.push(`panel contains title -> ${/<h1>Z-Token<\/h1>|<h1>Zero Token<\/h1>/.test(content.text || "")}`);
   out.push(`panel handshake -> ${/ui\/initialize/.test(content.text || "") && /ui\/notifications\/initialized/.test(content.text || "")}`);
   out.push(`panel controls -> reload=${/>Reload</.test(content.text || "")} interval=${/Auto: 5s/.test(content.text || "")} bridge=${/tools\/call/.test(content.text || "")}`);
 

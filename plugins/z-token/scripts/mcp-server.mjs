@@ -106,7 +106,7 @@ li b{flex:none;color:var(--accent);font-weight:600;font-variant-numeric:tabular-
 .foot{margin-top:14px;padding-top:10px;border-top:1px solid var(--line);color:var(--mut);font-size:10.5px}
 </style></head>
 <body>
-<h1>Zero Token</h1>
+<h1>Z-Token</h1>
 <div class="sub">Last 24 hours · updated ${updated}</div>
 <div class="bar">
   <button id="reload" type="button">Reload</button>

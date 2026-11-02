@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const guard = path.join(root, "plugins", "zero-token", "scripts", "guard.mjs");
-const loop = path.join(root, "plugins", "zero-token", "scripts", "loop-breaker.mjs");
+const guard = path.join(root, "plugins", "z-token", "scripts", "guard.mjs");
+const loop = path.join(root, "plugins", "z-token", "scripts", "loop-breaker.mjs");
 const N = Number(process.argv[2] || 10);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-hook-"));
