@@ -1,0 +1,2 @@
+# Placeholder to preserve data directory in git.
+# Actual sqlite databases are local-only and ignored by .gitignore.

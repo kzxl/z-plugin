@@ -6,3 +6,10 @@ bench/run.log
 *.log
 .DS_Store
 Thumbs.db
+
+# SQLite local databases and WAL files (internal private knowledge)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+plugins/z-brain/data/*.sqlite*

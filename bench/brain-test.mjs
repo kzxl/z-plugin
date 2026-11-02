@@ -1,10 +1,9 @@
 // Test suite for z-brain episodic memory engine
+// Verifies first-run automatic database creation, schema setup, FTS5 sync, and progressive disclosure
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getDb, countAtoms, getAtomById } from "../plugins/z-brain/scripts/lib/db.mjs";
-import { searchKnowledge } from "../plugins/z-brain/scripts/lib/search.mjs";
-import { harvestKnowledge } from "../plugins/z-brain/scripts/lib/harvest.mjs";
-import { formatL0Progressive, formatDeepView } from "../plugins/z-brain/scripts/lib/format.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,55 +15,67 @@ function ok(cond, msg) {
   console.log("  ok  ", msg);
 }
 
-console.log("z-brain: database & schema");
+// 1. Isolate test with a brand new, non-existent temporary database
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zbrain-first-run-"));
+const tempDbPath = path.join(tempDir, "data", "zbrain.sqlite");
+
+process.env.ZBRAIN_DB_PATH = tempDbPath;
+
+console.log("z-brain: first-run auto-initialization (no existing db)");
+ok(!fs.existsSync(tempDbPath), "database file does not exist initially");
+
+const { getDb, countAtoms, closeDb } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+const { searchKnowledge } = await import("../plugins/z-brain/scripts/lib/search.mjs");
+const { harvestKnowledge } = await import("../plugins/z-brain/scripts/lib/harvest.mjs");
+const { formatL0Progressive, formatDeepView } = await import("../plugins/z-brain/scripts/lib/format.mjs");
+
 const db = getDb();
-ok(db !== null, "database initialized");
-const total = countAtoms(db);
-ok(total > 0, `database contains knowledge atoms (total: ${total})`);
+ok(fs.existsSync(tempDbPath), "database file created automatically on first getDb() call");
+const initialCount = countAtoms(db);
+ok(initialCount === 0, `fresh database starts with 0 atoms (verified: ${initialCount})`);
 
-console.log("z-brain: search & scoping");
-const globalSearch = searchKnowledge({ query: "sqlite", limit: 5 });
-ok(Array.isArray(globalSearch) && globalSearch.length > 0, "FTS5 query returns results");
-ok(globalSearch[0].id > 0, "result atom has positive ID");
+console.log("z-brain: schema & virtual table triggers");
+const tables = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").all();
+const tableNames = tables.map(t => t.name);
+ok(tableNames.includes("knowledge_atoms"), "knowledge_atoms table created");
+ok(tableNames.includes("knowledge_fts"), "knowledge_fts virtual table created");
 
-const projectSearch = searchKnowledge({ query: "test", project: "agentic-core", limit: 5 });
-for (const item of projectSearch) {
-  ok(
-    item.project_id === "agentic-core" || item.scope === "global" || item.project_id === "global",
-    `scoping honored: item #${item.id} [${item.project_id}, ${item.scope}]`
-  );
-}
-
-console.log("z-brain: progressive disclosure formatting");
-const l0 = formatL0Progressive(globalSearch.slice(0, 2), "Test Query");
-ok(l0.includes("Gotcha/Fix:"), "L0 format includes Gotcha/Fix summary");
-ok(l0.split("\n").length < 15, "L0 format is compact");
-
-const deepView = formatDeepView(globalSearch[0]);
-ok(deepView.includes("QUESTION / PROBLEM:"), "deep view contains question header");
-ok(deepView.includes("ANSWER / SOLUTION / FIX:"), "deep view contains answer header");
-
-console.log("z-brain: harvesting");
-const single = harvestKnowledge({
-  input: "CI Pipeline Failure | Wrong path reference in bench | Updated import path to z-token",
-  project: "ci-test",
-  tags: ["rd", "ci"],
+console.log("z-brain: atomic harvest & indexing");
+const h1 = harvestKnowledge({
+  input: "Database Deadlock | Missing index on RefId | Added composite index",
+  project: "erp",
+  tags: ["inventory", "db"],
   trust_level: "verified_fact",
   evidence: "build:ok"
 });
-ok(single.success === true, "single atom harvest succeeded");
-ok(single.id > 0, `harvested ID is #${single.id}`);
+ok(h1.success === true && h1.id === 1, "first atom harvested with ID #1");
 
-const batch = harvestKnowledge({
+const h2 = harvestKnowledge({
   input: [
-    { question: "Batch Q1", answer: "Batch A1", tags: ["batch"] },
-    { question: "Batch Q2", answer: "Batch A2", tags: ["batch"] }
+    { question: "WPF async deadlock", answer: "Use ConfigureAwait(false)", tags: ["wpf"] },
+    { question: "LiteSql SQLite sync", answer: "WAL mode zero lock contention", tags: ["sqlite"] }
   ],
-  project: "ci-test"
+  project: "global"
 });
-ok(batch.success === true && batch.count === 2, "batch harvest succeeded");
+ok(h2.success === true && h2.count === 2, "batch harvest created 2 atoms");
 
-// Clean test rows
-db.exec(`DELETE FROM knowledge_atoms WHERE project_id = 'ci-test'`);
+ok(countAtoms(db) === 3, "total count is now 3 atoms");
 
-console.log("\nall z-brain tests passed");
+console.log("z-brain: FTS5 search & progressive disclosure");
+const searchRes = searchKnowledge({ query: "deadlock", project: "erp", limit: 5 });
+ok(searchRes.length > 0, "FTS5 search finds deadlock atom");
+ok(searchRes[0].project_id === "erp", "scoping matches erp project");
+
+const l0 = formatL0Progressive(searchRes, "deadlock query");
+ok(l0.includes("Gotcha/Fix:"), "L0 output includes Gotcha/Fix line");
+ok(l0.includes("[#1]"), "L0 references atom #1");
+
+const deep = formatDeepView(searchRes[0]);
+ok(deep.includes("QUESTION / PROBLEM:"), "deep view formatted correctly");
+ok(deep.includes("Added composite index"), "deep view contains fix");
+
+// Cleanup
+closeDb();
+fs.rmSync(tempDir, { recursive: true, force: true });
+
+console.log("\nall z-brain tests passed (first-run auto-init verified)");

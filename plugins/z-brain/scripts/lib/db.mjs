@@ -10,7 +10,7 @@ const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'zbrain.sqlite');
 let _dbInstance = null;
 
 export function getDb(customPath = null) {
-  if (_dbInstance) return _dbInstance;
+  if (_dbInstance && !customPath) return _dbInstance;
 
   const dbPath = customPath || process.env.ZBRAIN_DB_PATH || DEFAULT_DB_PATH;
   const dbDir = path.dirname(dbPath);
@@ -27,11 +27,22 @@ export function getDb(customPath = null) {
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA cache_size = -32000;'); // 32MB cache
 
-  // Initialize Tables
+  // Initialize Tables and Triggers automatically
   initSchema(db);
 
-  _dbInstance = db;
+  if (!customPath) {
+    _dbInstance = db;
+  }
   return db;
+}
+
+export function closeDb() {
+  if (_dbInstance) {
+    try {
+      _dbInstance.close();
+    } catch {}
+    _dbInstance = null;
+  }
 }
 
 function initSchema(db) {
@@ -99,52 +110,50 @@ export function insertAtom(db, atom) {
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?
     )
-    ON CONFLICT(id) DO UPDATE SET
-      project_id=excluded.project_id,
-      scope=excluded.scope,
-      trust_level=excluded.trust_level,
-      question=excluded.question,
-      answer=excluded.answer,
-      gotcha_fix=excluded.gotcha_fix,
-      tags=excluded.tags,
-      evidence=excluded.evidence,
-      updated_at=excluded.updated_at
   `);
 
+  const id = atom.id || getNextId(db);
+
   stmt.run(
-    atom.id ?? null,
-    atom.project_id || atom.project || 'global',
+    id,
+    atom.project_id || 'global',
     atom.scope || 'project',
     atom.trust_level || 'observation',
     atom.question,
     atom.answer,
-    atom.gotcha_fix || extractGotchaFix(atom.answer),
+    atom.gotcha_fix || null,
     tagsJson,
     evidenceJson,
     atom.category || 'general',
-    atom.confidence ?? 0.5,
+    atom.confidence !== undefined ? atom.confidence : 0.5,
     atom.pinned ? 1 : 0,
     atom.created_at || now,
     now
   );
 
-  return atom.id || db.prepare('SELECT last_insert_rowid() as id').get().id;
-}
-
-export function extractGotchaFix(answerText) {
-  if (!answerText) return null;
-  const match = answerText.match(/(?:Gotcha\/Fix|Gotcha|Fix|Lưu ý|Khắc phục):\s*([^\n\r]+)/i);
-  if (match) return match[1].trim();
-
-  // If answer is short, use first line
-  const lines = answerText.split('\n').map(l => l.trim()).filter(Boolean);
-  return lines[0]?.slice(0, 160) || null;
+  return id;
 }
 
 export function getAtomById(db, id) {
-  return db.prepare('SELECT * FROM knowledge_atoms WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM knowledge_atoms WHERE id = ?').get(id);
+  if (!row) return null;
+  return {
+    ...row,
+    tags: typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : row.tags,
+    evidence: typeof row.evidence === 'string' ? JSON.parse(row.evidence || '[]') : row.evidence
+  };
 }
 
-export function countAtoms(db) {
-  return db.prepare('SELECT count(*) as count FROM knowledge_atoms').get().count;
+export function countAtoms(db, projectId = null) {
+  if (projectId) {
+    const res = db.prepare('SELECT count(*) as count FROM knowledge_atoms WHERE project_id = ?').get(projectId);
+    return res.count;
+  }
+  const res = db.prepare('SELECT count(*) as count FROM knowledge_atoms').get();
+  return res.count;
+}
+
+function getNextId(db) {
+  const res = db.prepare('SELECT max(id) as max_id FROM knowledge_atoms').get();
+  return (res && res.max_id) ? res.max_id + 1 : 1;
 }
