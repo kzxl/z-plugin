@@ -10,9 +10,10 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 |---|---|
 | MCP tool `zbrain_fetch` | Compact PRE-task context sweep delivering L0 1-line index (~30 tokens/atom) |
 | MCP tool `zbrain_view` | On-demand L2 deep inspection of root causes, code fixes, and evidence |
-| MCP tool `zbrain_harvest` | POST-task atomic lesson recording (`<problem> \| <cause> \| <fix>` or JSON) |
+| MCP tool `zbrain_harvest` | POST-task atomic lesson recording (`<problem> \| <cause> \| <fix>` or JSON) with smart deduplication |
 | MCP tool `zbrain_query` | Multi-angle filtered search with project scope and trust levels |
 | MCP tool `zbrain_status` | SQLite database statistics, atom counts, and engine status |
+| Hook `harvest-advisor` | PostToolUse hook that prompts the agent to harvest lessons after successful test runs |
 | CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`) |
 | Skill `z-brain` | Teaches agents to perform progressive disclosure sweeps before writing code |
 | Rules `rules/z-brain-rules.md` | Universal invariant rules for episodic memory management |
@@ -21,9 +22,15 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 ## Architecture & Storage
 
 - **Storage Backend**: Embedded `node:sqlite` (Node.js 22+ native synchronous binding).
-- **Zero Server**: No PostgreSQL, no Docker, no AME daemon running in the background.
-- **Concurrency**: `PRAGMA journal_mode = WAL` and `PRAGMA synchronous = NORMAL` for non-blocking concurrent reads and writes.
+- **Zero Server**: No PostgreSQL, no Docker, no background memory daemon running.
+- **Concurrency**: `PRAGMA journal_mode = WAL` and `PRAGMA synchronous = NORMAL` for non-blocking concurrent reads and writes across Antigravity and ZCode.
 - **FTS Engine**: SQLite FTS5 with BM25 ranking and automatic triggers keeping index in sync with `knowledge_atoms`.
+
+## Smart Episodic Features
+
+1. **Auto Project Scoping**: Automatically detects git repository identity (`erp`, `zero_universe`, `z-plugin`) to scope queries and lessons without manual flags.
+2. **Smart Deduplication & Upsert**: When harvesting lessons with identical or near-identical problem definitions, `z-brain` updates and enriches the existing record instead of inserting redundant rows.
+3. **Post-Test Harvest Hook**: Monitors test execution tools and reminds agents to capture verified solutions when tests transition to green.
 
 ## Progressive Disclosure (L0 vs L2)
 

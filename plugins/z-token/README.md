@@ -8,7 +8,7 @@ Cuts the tokens a coding session spends on file dumps, unbounded greps and raw b
 |---|---|
 | MCP tools `outline`, `search`, `build`, `run`, `diet` | Structure-only reads, capped search, compact build (MSBuild for legacy .NET Framework, dotnet for SDK-style), build/test/lint for other ecosystems, baseline context report |
 | Agent `z-token:scout` | Read-only subagent that returns `file:line` pointers instead of code |
-| PreToolUse hook | Blocks unbounded `Read`, `cat` of large files, `grep -r` without a cap, `git log -p` without `-n` |
+| PreToolUse hook | Blocks unbounded `Read`, `cat` of large files, `grep -r` / `rg` without caps, recursive PowerShell tree walks (`Get-ChildItem -Recurse` / `gci -r`), and bare `git diff` |
 | PostToolUse hook | Warns once when the same tool call runs three times with identical input |
 | Skill `z-token` | The behaviour rules that make the model choose the cheap path |
 | Commands `/build`, `/diet`, `/saved` | Manual entry points: compact build, baseline report, savings ledger |
@@ -18,12 +18,20 @@ Language coverage: the guard is language-agnostic; `search` scans any text file,
 
 ## Install
 
-```text
-/plugin marketplace add kzxl/zcode-zero-token
-/plugin install zero-token@zcode-zero-token
+From the `z-plugin` monorepo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Plugin z-token
 ```
 
-Start a new task afterwards. Check **Settings → Plugin Management → zero-token** to confirm the tools, the agent and both hooks are runnable.
+Or via marketplace in ZCode:
+
+```text
+/plugin marketplace add kzxl/z-plugin
+/plugin install z-token@z-plugin
+```
+
+Start a new task afterwards. Check **Settings → Plugin Management → z-token** to confirm the tools, the agent and both hooks are runnable.
 
 ## Tuning
 
