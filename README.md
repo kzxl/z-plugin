@@ -16,7 +16,7 @@ Consolidating multiple specialized plugins under a single repository, `z-plugin`
 | Plugin | Version | Focus | Core Capabilities |
 | :--- | :---: | :--- | :--- |
 | [**`z-token`**](plugins/z-token) | `1.0.0` | **Context Diet & Token Guard** | Code outline, capped search, lean .NET builds, oversized-read blocking gateway, repeated-call loop breaker. |
-| [**`z-brain`**](plugins/z-brain) | `1.2.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), on-demand L2 deep view. |
+| [**`z-brain`**](plugins/z-brain) | `1.0.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), on-demand L2 deep view. |
 | [**`z-mind`**](plugins/z-mind) | `1.0.0` | **Cognitive OS & Engineering Invariants** | Senior engineering disciplines, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, deep module design, multi-agent teamwork. |
 
 ---

@@ -27,7 +27,7 @@
     {
       "name": "z-brain",
       "source": "./plugins/z-brain",
-      "version": "1.2.0",
+      "version": "1.0.0",
       "displayName": "Z-Brain",
       "description": "Zero-overhead local episodic knowledge engine with SQLite FTS5 progressive disclosure (L0 Index / L2 View).",
       "category": "developer-tools",
