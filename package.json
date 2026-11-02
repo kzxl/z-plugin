@@ -11,7 +11,7 @@
   "scripts": {
     "install:plugins": "powershell -ExecutionPolicy Bypass -File install.ps1",
     "check": "node --check plugins/z-token/scripts/guard.mjs && node --check plugins/z-token/scripts/loop-breaker.mjs && node --check plugins/z-token/scripts/mcp-server.mjs && node --check plugins/z-token/scripts/lib/scan.mjs && node --check plugins/z-token/scripts/lib/fsindex.mjs && node --check plugins/z-token/scripts/lib/ledger.mjs && node --check plugins/z-token/scripts/lib/build.mjs && node --check plugins/z-token/scripts/lib/run.mjs && node --check plugins/z-token/scripts/lib/diet.mjs && node --check plugins/z-token/scripts/lib/config.mjs && node --check plugins/z-brain/scripts/mcp-server.mjs && node --check plugins/z-brain/scripts/cli.mjs",
-    "test": "node bench/guard-test.mjs && node bench/lang-test.mjs && node bench/build-test.mjs && node bench/fs-test.mjs && node bench/run-test.mjs && node bench/panel-test.mjs",
+    "test": "node bench/guard-test.mjs && node bench/lang-test.mjs && node bench/build-test.mjs && node bench/fs-test.mjs && node bench/run-test.mjs && node bench/panel-test.mjs && node bench/brain-test.mjs",
     "smoke": "node bench/mcp-smoke.mjs",
     "bench": "node bench/measure.mjs"
   }
