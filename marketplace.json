@@ -61,6 +61,24 @@
         "antigravity",
         "zcode"
       ]
+    },
+    {
+      "name": "z-gate",
+      "source": "./plugins/z-gate",
+      "version": "1.0.0",
+      "displayName": "Z-Gate",
+      "description": "Net Engineering Value (NEV) gate, codebase asset discovery (R_REUSE), wrapper hell prevention, and pre-commit diff auditor.",
+      "category": "developer-tools",
+      "keywords": [
+        "z-gate",
+        "nev",
+        "refactor",
+        "asset-discovery",
+        "pre-commit",
+        "git",
+        "antigravity",
+        "zcode"
+      ]
     }
   ]
 }

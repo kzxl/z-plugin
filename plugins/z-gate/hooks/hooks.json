@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|run_command",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/git-guard.mjs"],
+            "timeoutMs": 5000,
+            "statusMessage": "z-gate: auditing staged diff & commit"
+          }
+        ]
+      }
+    ]
+  }
+}
