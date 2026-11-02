@@ -153,6 +153,45 @@ export function countAtoms(db, projectId = null) {
   return res.count;
 }
 
+export function getDbStats(db) {
+  const total = db.prepare('SELECT count(*) as count FROM knowledge_atoms').get().count;
+  const verified = db.prepare("SELECT count(*) as count FROM knowledge_atoms WHERE trust_level = 'verified_fact'").get().count;
+  const observations = db.prepare("SELECT count(*) as count FROM knowledge_atoms WHERE trust_level = 'observation'").get().count;
+  const hypotheses = db.prepare("SELECT count(*) as count FROM knowledge_atoms WHERE trust_level = 'hypothesis'").get().count;
+
+  const projectCounts = db.prepare('SELECT project_id, count(*) as count FROM knowledge_atoms GROUP BY project_id ORDER BY count DESC LIMIT 8').all();
+  const recent = db.prepare('SELECT id, project_id, trust_level, question, gotcha_fix, created_at FROM knowledge_atoms ORDER BY id DESC LIMIT 5').all();
+
+  // Aggregate tags
+  const rows = db.prepare('SELECT tags FROM knowledge_atoms').all();
+  const tagCounts = {};
+  for (const r of rows) {
+    try {
+      const tags = JSON.parse(r.tags || '[]');
+      for (const t of tags) {
+        const norm = String(t).trim().toLowerCase();
+        if (norm) tagCounts[norm] = (tagCounts[norm] || 0) + 1;
+      }
+    } catch {}
+  }
+  const topTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tag, count]) => ({ tag, count }));
+
+  return {
+    total,
+    trust: {
+      verified_fact: verified,
+      observation: observations,
+      hypothesis: hypotheses
+    },
+    projectCounts,
+    topTags,
+    recent
+  };
+}
+
 function getNextId(db) {
   const res = db.prepare('SELECT max(id) as max_id FROM knowledge_atoms').get();
   return (res && res.max_id) ? res.max_id + 1 : 1;

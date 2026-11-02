@@ -24,7 +24,7 @@ process.env.ZBRAIN_DB_PATH = tempDbPath;
 console.log("z-brain: first-run auto-initialization (no existing db)");
 ok(!fs.existsSync(tempDbPath), "database file does not exist initially");
 
-const { getDb, countAtoms, closeDb } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+const { getDb, countAtoms, closeDb, getDbStats } = await import("../plugins/z-brain/scripts/lib/db.mjs");
 const { searchKnowledge } = await import("../plugins/z-brain/scripts/lib/search.mjs");
 const { harvestKnowledge } = await import("../plugins/z-brain/scripts/lib/harvest.mjs");
 const { formatL0Progressive, formatDeepView } = await import("../plugins/z-brain/scripts/lib/format.mjs");
@@ -73,6 +73,17 @@ ok(l0.includes("[#1]"), "L0 references atom #1");
 const deep = formatDeepView(searchRes[0]);
 ok(deep.includes("QUESTION / PROBLEM:"), "deep view formatted correctly");
 ok(deep.includes("Added composite index"), "deep view contains fix");
+
+console.log("z-brain: rich stats & tag aggregation");
+const stats = getDbStats(db);
+ok(stats.total === 3, "getDbStats total matches count");
+ok(stats.trust.verified_fact === 1, "verified_fact count matches");
+ok(stats.topTags.some(t => t.tag === "inventory"), "topTags aggregates inventory tag");
+
+console.log("z-brain: enhanced search with compound words & tags");
+const compSearch = searchKnowledge({ query: "dead-lock", tags: ["inventory"], project: "erp" });
+ok(compSearch.length > 0, "finds deadlock with hyphenated dead-lock query");
+ok(compSearch[0].tags.includes("inventory"), "matches inventory tag");
 
 // Cleanup
 closeDb();

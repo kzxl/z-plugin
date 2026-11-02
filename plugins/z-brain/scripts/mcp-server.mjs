@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { getDb, getAtomById, countAtoms } from './lib/db.mjs';
+import { getDb, getAtomById, countAtoms, getDbStats } from './lib/db.mjs';
 import { searchKnowledge } from './lib/search.mjs';
 import { formatL0Progressive, formatDeepView } from './lib/format.mjs';
 import { harvestKnowledge } from './lib/harvest.mjs';
@@ -146,25 +146,24 @@ function handleToolCall(name, args) {
     }
 
     case 'zbrain_status': {
-      const count = countAtoms(db);
       const dbPath = path.resolve(__dirname, '..', 'data', 'zbrain.sqlite');
       let sizeBytes = 0;
       try { sizeBytes = fs.statSync(dbPath).size; } catch {}
 
-      const stats = {
+      const stats = getDbStats(db);
+      const payload = {
         name: 'z-brain',
         version: pluginMeta.version,
         backend: 'node:sqlite (in-process)',
         ftsEngine: 'FTS5 BM25',
-        totalAtoms: count,
         dbFile: dbPath,
-        dbSizeBytes: sizeBytes,
-        dbSizeFormatted: `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`,
-        status: 'online'
+        dbSize: `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`,
+        status: 'online',
+        summary: stats
       };
 
       return {
-        content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }]
+        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
       };
     }
 

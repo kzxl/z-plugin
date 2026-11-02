@@ -4,10 +4,21 @@ import { getDb } from './db.mjs';
  * Clean search query into safe FTS5 terms
  */
 function sanitizeFtsQuery(rawQuery) {
-  if (!rawQuery) return '';
-  // Remove special FTS punctuation
-  const clean = rawQuery
-    .replace(/["'*():^{}[\]\\/]/g, ' ')
+  if (!rawQuery) return "";
+  // Normalize developer keywords and compound words
+  let normalized = rawQuery
+    .replace(/c#/gi, " csharp ")
+    .replace(/c\+\+/gi, " cpp ")
+    .replace(/f#/gi, " fsharp ")
+    .replace(/\.net/gi, " dotnet ")
+    .replace(/(\w+)-(\w+)/g, "$1$2 $1 $2");
+
+  const tagMatches = normalized.match(/(?:tag:(\w+)|#(\w+))/gi) || [];
+  const extractedTags = tagMatches.map(t => t.replace(/^(tag:|#)/i, "").toLowerCase());
+
+  const clean = normalized
+    .replace(/(?:tag:\w+|#\w+)/gi, " ")
+    .replace(/["'*():^{}\[\]\\\/]/g, " ")
     .trim();
 
   const words = clean
@@ -15,10 +26,10 @@ function sanitizeFtsQuery(rawQuery) {
     .map(w => w.trim())
     .filter(w => w.length > 1 && !/^(the|and|for|with|from|this|that|trong|cho|cua|la|cac)$/i.test(w));
 
-  if (words.length === 0) return '';
+  const allTerms = [...new Set([...words, ...extractedTags])];
+  if (allTerms.length === 0) return "";
 
-  // Match words with OR / prefix matching
-  return words.map(w => `"${w}"*`).join(' OR ');
+  return allTerms.map(w => `"${w}"*`).join(" OR ");
 }
 
 /**
@@ -127,9 +138,10 @@ export function searchKnowledge({
     if (normalizedProject && row.project_id === normalizedProject) score += 15;
 
     // Tag boost
-    if (tags && tags.length > 0) {
+    const searchTags = (Array.isArray(tags) ? tags : String(tags || "").split(",")).map(t => String(t).trim().toLowerCase()).filter(Boolean);
+    if (searchTags.length > 0) {
       const rowTags = typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : (row.tags || []);
-      const matched = tags.filter(t => rowTags.includes(t)).length;
+      const matched = searchTags.filter(t => rowTags.map(x => String(x).toLowerCase()).includes(t)).length;
       score += matched * 10;
     }
 

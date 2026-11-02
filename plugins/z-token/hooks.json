@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Bash|read_file|run_command",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"],
+            "timeoutMs": 5000,
+            "statusMessage": "z-token: checking context cost"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|run_command|read_file",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/loop-breaker.mjs"],
+            "timeoutMs": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

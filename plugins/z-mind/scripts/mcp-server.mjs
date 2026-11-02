@@ -158,13 +158,26 @@ function handleToolCall(id, name, args) {
 
     case "zmind_status": {
       const rules = queryRules("all");
+      const cats = {
+        invariants: rules.filter(r => r.category === "invariants").length,
+        lang: rules.filter(r => r.category === "lang").length,
+        arch: rules.filter(r => r.category === "arch").length,
+        cognition: rules.filter(r => r.category === "cognition").length,
+        domain: rules.filter(r => r.category === "domain").length,
+        ops: rules.filter(r => r.category === "ops").length
+      };
+
       const text = [
-        `🧠 Z-Mind Cognitive OS Status:`,
-        `  • Active Invariants: ${rules.length} core rules`,
-        `  • Protocols: Bugfix (4-phase), Refactor (NEV gate), Architecture (Deep module), Teamwork`,
-        `  • Agents: architect, investigator, reviewer`,
-        `  • Integration: Antigravity 2.0 & ZCode Plugin Native`
+        `🧠 Z-Mind Cognitive Engineering Status (v1.0.0):`,
+        `  • Canonical Rules: ${rules.length} rules active across 6 pillars:`,
+        `    - Invariants: ${cats.invariants} | Languages: ${cats.lang} | Architecture: ${cats.arch}`,
+        `    - Cognition: ${cats.cognition} | Domain ERP: ${cats.domain} | Operations: ${cats.ops}`,
+        `  • Audit Engine: zmind_audit (verifies R_TDD, R_PROOF, R_NEV, R_WPF, R_DB, R_PUB)`,
+        `  • Project Bootstrapper: zmind_init (auto-stack detection & .project-rule.md generator)`,
+        `  • Autonomous Agents: architect (Deep-module design), investigator (4-phase root cause), reviewer (Adversarial NEV)`,
+        `  • Active Skills: z-mind, z-architecture, z-bugfix, z-refactor, z-teamwork`
       ].join("\n");
+
       sendResponse(id, {
         content: [{ type: "text", text }]
       });
