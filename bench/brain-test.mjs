@@ -24,7 +24,7 @@ process.env.ZBRAIN_DB_PATH = tempDbPath;
 console.log("z-brain: first-run auto-initialization (no existing db)");
 ok(!fs.existsSync(tempDbPath), "database file does not exist initially");
 
-const { getDb, countAtoms, closeDb, getDbStats } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+const { getDb, countAtoms, closeDb, getDbStats, insertEntityNode, insertEntityEdge, queryEntityGraph, supersedeAtom, getAtomById } = await import("../plugins/z-brain/scripts/lib/db.mjs");
 const { searchKnowledge } = await import("../plugins/z-brain/scripts/lib/search.mjs");
 const { harvestKnowledge } = await import("../plugins/z-brain/scripts/lib/harvest.mjs");
 const { formatL0Progressive, formatDeepView } = await import("../plugins/z-brain/scripts/lib/format.mjs");
@@ -40,6 +40,8 @@ const tables = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table'
 const tableNames = tables.map(t => t.name);
 ok(tableNames.includes("knowledge_atoms"), "knowledge_atoms table created");
 ok(tableNames.includes("knowledge_fts"), "knowledge_fts virtual table created");
+ok(tableNames.includes("entity_nodes"), "entity_nodes graph table created");
+ok(tableNames.includes("entity_edges"), "entity_edges graph table created");
 
 console.log("z-brain: atomic harvest & indexing");
 const h1 = harvestKnowledge({
@@ -136,6 +138,31 @@ const gitHarvestRes = harvestFromGit(db, { cwd: process.cwd(), commit: "HEAD" })
 ok(gitHarvestRes.success, "harvestFromGit extracted atom from recent commit");
 ok(Boolean(gitHarvestRes.atom.id), "harvested atom received database ID");
 ok(gitHarvestRes.atom.tags.includes("auto_harvest"), "harvested atom has auto_harvest tag");
+
+console.log("z-brain: knowledge graph (L3) & temporal validity (v1.1.0)");
+const node1 = insertEntityNode(db, { project_id: "erp", name: "OrderService", entity_type: "service" });
+const node2 = insertEntityNode(db, { project_id: "erp", name: "InventoryLedger", entity_type: "database_table" });
+ok(node1 > 0 && node2 > 0, "inserted entity nodes into knowledge graph");
+
+const edgeId = insertEntityEdge(db, {
+  project_id: "erp",
+  source_node_id: node1,
+  target_node_id: node2,
+  relation_type: "mutates_stock",
+  confidence: 0.95
+});
+ok(edgeId > 0, "inserted relational edge into knowledge graph");
+
+const graphRes = queryEntityGraph(db, { project: "erp", name: "OrderService" });
+ok(graphRes.length === 1, "found 1 edge connected to OrderService");
+ok(graphRes[0].relation_type === "mutates_stock", "graph edge contains correct relation type");
+ok(graphRes[0].target_name === "InventoryLedger", "graph edge correctly resolves target entity name");
+
+// Test temporal supersede
+ok(supersedeAtom(db, 1, 2) === true, "atom #1 marked as superseded by atom #2");
+const atom1 = getAtomById(db, 1);
+ok(atom1.superseded_by === 2, "atom #1 superseded_by points to atom #2");
+ok(Boolean(atom1.valid_to), "atom #1 valid_to timestamp is set");
 
 // Cleanup
 closeDb();

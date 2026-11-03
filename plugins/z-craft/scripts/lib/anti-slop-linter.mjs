@@ -176,10 +176,22 @@ export const SLOP_RULES = [
 ];
 
 /**
+ * Strips comments while preserving newlines and character positions for accurate line numbering
+ */
+export function sanitizeSource(content) {
+  let clean = content.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, ' '));
+  clean = clean.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\r\n]/g, ' '));
+  clean = clean.replace(/(?<!:)\/\/[^\r\n]*/g, (m) => ' '.repeat(m.length));
+  return clean;
+}
+
+/**
  * Lint string content for anti-slop violations.
  */
 export function lintUiContent(content, filename = "snippet.tsx", cwd = process.cwd()) {
   const violations = [];
+  const cleanContent = sanitizeSource(content);
+  const cleanLines = cleanContent.split(/\r?\n/);
   const lines = content.split(/\r?\n/);
 
   for (const rule of SLOP_RULES) {
@@ -190,7 +202,7 @@ export function lintUiContent(content, filename = "snippet.tsx", cwd = process.c
     if (rule.multiline) {
       const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
       let match;
-      while ((match = regex.exec(content)) !== null) {
+      while ((match = regex.exec(cleanContent)) !== null) {
         const hint = typeof rule.fixHint === "function" ? rule.fixHint(match[0]) : rule.fixHint;
         const line = content.slice(0, match.index).split(/\r?\n/).length;
         violations.push({
@@ -207,10 +219,9 @@ export function lintUiContent(content, filename = "snippet.tsx", cwd = process.c
       continue;
     }
 
-    for (let i = 0; i < lines.length; i++) {
-      const lineText = lines[i];
-      // Skip comments
-      if (/^\s*(?:\/\/|\/\*|\*|<!--|#)/.test(lineText)) continue;
+    for (let i = 0; i < cleanLines.length; i++) {
+      const lineText = cleanLines[i];
+      if (!lineText.trim()) continue;
 
       const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
       let match;

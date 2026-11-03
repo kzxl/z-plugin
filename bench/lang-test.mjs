@@ -22,7 +22,19 @@ write("d.ts", "export class A {\n  run() {\n  }\n  async load(): Promise<void> {
 write("e.sql", "CREATE PROCEDURE dbo.Sync\nAS\nBEGIN\nEND\n");
 write("f.sh", "function deploy() {\n  echo hi\n}\n");
 write("g.rb", "def hello\n  1\nend\n");
-write("h.cs", "namespace N {\n  public class OrderService {\n    public string Get(int id) { return \"x\"; }\n  }\n}\n");
+write("h.cs", `namespace N {
+  public class OrderService {
+    public string Get(int id) { return "x"; }
+    public async Task<Dictionary<string, int>> GetMapAsync(int id) { return null; }
+    public Dictionary<string, int> Cache { get; set; }
+    [HttpGet]
+    public async Task<List<string>>
+    QueryAll(int page) {
+      return null;
+    }
+  }
+}
+`);
 
 // UTF-16LE with BOM: a legacy repository is likely to contain this.
 const utf16 = write("i-utf16.cs", "", "utf8");
@@ -62,6 +74,9 @@ for (const [lang, needle] of [
   ["Shell function", "function deploy"],
   ["Ruby def", "def hello"],
   ["UTF-16 class", "class Utf16Marker"],
+  ["C# generic method", "GetMapAsync"],
+  ["C# generic prop", "Dictionary<string, int> Cache"],
+  ["C# multiline method", "QueryAll"],
 ]) {
   check(lang, o.includes(needle), needle);
 }
@@ -71,6 +86,10 @@ const csMethod = readSymbol(path.join(tmp, "h.cs"), "Get");
 check("readSymbol finds C# method", csMethod.found === true);
 check("readSymbol extracts C# method body", csMethod.text.includes("return \"x\";"));
 check("readSymbol returns line numbers", csMethod.startLine > 0 && csMethod.endLine >= csMethod.startLine);
+
+const multiMethod = readSymbol(path.join(tmp, "h.cs"), "QueryAll");
+check("readSymbol finds multi-line method", multiMethod.found === true);
+check("readSymbol captures attribute and return type", multiMethod.text.includes("[HttpGet]") && multiMethod.text.includes("Task<List<string>>"));
 
 const pyMethod = outline(path.join(tmp, "a.py"), { symbol: "bar" });
 check("outline with symbol parameter extracts Python def", pyMethod.found === true);

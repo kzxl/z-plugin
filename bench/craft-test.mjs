@@ -75,6 +75,26 @@ ok(cleanReport.passed, 'passes clean enterprise component');
 ok(cleanReport.violations.length === 0, 'zero violations found in clean component');
 ok(cleanReport.score === 100, 'craftsmanship score is 100/100');
 
+// 2b. Comment sanitization test: comments mentioning prohibited tokens should not trigger violations
+const snippetWithComments = `
+export function DocumentedComponent({ onAction }: CleanProps) {
+  // Previously we used #7c3aed and shadow-2xl here, but refactored to tokens
+  /*
+    TODO note: do not use from-purple-500 to-indigo-500
+  */
+  return (
+    <div className="bg-surface border border-border p-4">
+      <button onClick={onAction} className="bg-primary text-primary-foreground">
+        Lưu
+      </button>
+    </div>
+  );
+}
+`;
+const commentReport = lintUiContent(snippetWithComments, 'DocumentedComponent.tsx');
+ok(commentReport.passed, 'sanitizes comments without false positive violations on mentioned tokens');
+ok(commentReport.score === 100, 'component with slop words in comments maintains 100/100 score');
+
 console.log('z-craft: UX micro-spec generator (inter-plugin mesh)');
 
 // 3. Spec generator tests

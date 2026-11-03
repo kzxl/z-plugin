@@ -45,7 +45,7 @@ const PATTERNS = [
   { kind: "func", re: /^\s*(?:function\s+[A-Za-z_][\w-]*|[A-Za-z_][\w-]*\s*\(\)\s*\{)/ },
   {
     kind: "method",
-    re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|new|synchronized|final|native|default)\s+)+[\w<>[\],.?*&:~]+\s+[A-Za-z_]\w*\s*(?:<[^>]*>)?\s*\(/,
+    re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|new|synchronized|final|native|default)\s+)+(?:[\w.]+(?:<[\w\s,.<>[\]?]+>)?(?:\[\]|\?)?)\s+[A-Za-z_]\w*\s*(?:<[\w\s,.<>[\]?]+>)?\s*\(/,
   },
   // Unmodified members: JS/TS class methods and object methods (`run() {`,
   // `async load(): Promise<void> {`).
@@ -55,7 +55,7 @@ const PATTERNS = [
   },
   {
     kind: "prop",
-    re: /^\s*(?:(?:public|private|protected|internal|static|readonly|virtual|override|required|lateinit|const)\s+)+[\w<>[\],.?]+\s+[A-Za-z_]\w*\s*(?::\s*[\w<>[\],.?]+)?\s*(?:=|\{\s*(?:get|set|init))/,
+    re: /^\s*(?:(?:public|private|protected|internal|static|readonly|virtual|override|required|lateinit|const)\s+)+(?:[\w.]+(?:<[\w\s,.<>[\]?]+>)?(?:\[\]|\?)?)\s+[A-Za-z_]\w*\s*(?::\s*[\w<>[\],.?]+)?\s*(?:=|\{\s*(?:get|set|init))/,
   },
   // Return-type declarations with no modifiers: C, Go, Dart, old-style Java.
   {
@@ -106,7 +106,16 @@ export function outline(target, opts = {}) {
     const rel = path.relative(process.cwd(), f) || f;
     const found = [];
     for (let i = 0; i < rows.length; i++) {
-      if (symbolKind(rows[i])) found.push(`${String(i + 1).padStart(5)}  ${rows[i].trim().slice(0, 160)}`);
+      let kind = symbolKind(rows[i]);
+      let displayLine = rows[i].trim();
+      if (!kind && i + 1 < rows.length && !COMMENT_RE.test(rows[i]) && !CONTROL_RE.test(rows[i])) {
+        const combined = `${rows[i].trim()} ${rows[i + 1].trim()}`;
+        if (symbolKind(combined)) {
+          kind = symbolKind(combined);
+          displayLine = combined;
+        }
+      }
+      if (kind) found.push(`${String(i + 1).padStart(5)}  ${displayLine.slice(0, 160)}`);
       if (found.length > maxPerFile) break;
     }
     if (found.length === 0) continue;
@@ -152,7 +161,7 @@ export function readSymbol(target, symbolName, opts = {}) {
   for (let i = 0; i < rows.length; i++) {
     const line = rows[i];
     if (COMMENT_RE.test(line)) continue;
-    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line))) {
+    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
       declIdx = i;
       break;
     }
@@ -175,11 +184,13 @@ export function readSymbol(target, symbolName, opts = {}) {
     };
   }
 
-  // Scan backwards for decorators, attributes, or doc comments (up to 6 lines)
+  // Scan backwards for decorators, attributes, doc comments, or multi-line access modifiers (up to 8 lines)
   let startIdx = declIdx;
-  while (startIdx > 0) {
+  while (startIdx > 0 && declIdx - startIdx < 8) {
     const prev = rows[startIdx - 1].trim();
     if (/^\s*(?:\[[^\]]+\]|@\w+|(?:\/\/|#|\*|\/\*\*|\/\/\/))/.test(prev)) {
+      startIdx--;
+    } else if (/^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe)\s+)/.test(prev)) {
       startIdx--;
     } else {
       break;

@@ -110,13 +110,45 @@ export function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_obs_project ON session_observations(project_id);
     CREATE INDEX IF NOT EXISTS idx_obs_session ON session_observations(session_id);
     CREATE INDEX IF NOT EXISTS idx_obs_created ON session_observations(created_at);
+
+    -- Knowledge Graph (L3 Memory Hierarchy): Entity Nodes and Relational Edges
+    CREATE TABLE IF NOT EXISTS entity_nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL DEFAULT 'global',
+      name TEXT NOT NULL,
+      entity_type TEXT NOT NULL DEFAULT 'concept',
+      description TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_entity_project_name ON entity_nodes(project_id, name);
+
+    CREATE TABLE IF NOT EXISTS entity_edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL DEFAULT 'global',
+      source_node_id INTEGER NOT NULL,
+      target_node_id INTEGER NOT NULL,
+      relation_type TEXT NOT NULL,
+      confidence REAL DEFAULT 1.0,
+      metadata TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_edges_source_target ON entity_edges(source_node_id, target_node_id);
   `);
 
-  // Non-destructive migration: Ensure files_touched exists on knowledge_atoms
+  // Non-destructive migration: Ensure files_touched and temporal validity columns exist on knowledge_atoms
   try {
     const cols = db.prepare('PRAGMA table_info(knowledge_atoms);').all().map(c => c.name);
     if (!cols.includes('files_touched')) {
       db.exec("ALTER TABLE knowledge_atoms ADD COLUMN files_touched TEXT DEFAULT '[]';");
+    }
+    if (!cols.includes('valid_from')) {
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN valid_from TEXT;");
+    }
+    if (!cols.includes('valid_to')) {
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN valid_to TEXT;");
+    }
+    if (!cols.includes('superseded_by')) {
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN superseded_by INTEGER;");
     }
   } catch {}
 }
@@ -126,14 +158,19 @@ export function insertAtom(db, atom) {
   const tagsJson = Array.isArray(atom.tags) ? JSON.stringify(atom.tags) : (atom.tags || '[]');
   const evidenceJson = Array.isArray(atom.evidence) ? JSON.stringify(atom.evidence) : (atom.evidence || '[]');
   const filesJson = Array.isArray(atom.files_touched) ? JSON.stringify(atom.files_touched) : (atom.files_touched || '[]');
+  const validFrom = atom.valid_from || atom.created_at || now;
+  const validTo = atom.valid_to || null;
+  const supersededBy = atom.superseded_by || null;
 
   const stmt = db.prepare(`
     INSERT INTO knowledge_atoms (
       id, project_id, scope, trust_level, question, answer, gotcha_fix,
-      tags, evidence, category, confidence, pinned, files_touched, created_at, updated_at
+      tags, evidence, category, confidence, pinned, files_touched,
+      valid_from, valid_to, superseded_by, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?
     )
   `);
 
@@ -153,6 +190,9 @@ export function insertAtom(db, atom) {
     atom.confidence !== undefined ? atom.confidence : 0.5,
     atom.pinned ? 1 : 0,
     filesJson,
+    validFrom,
+    validTo,
+    supersededBy,
     atom.created_at || now,
     now
   );
@@ -363,4 +403,91 @@ export function getDbStats(db) {
 function getNextId(db) {
   const res = db.prepare('SELECT max(id) as max_id FROM knowledge_atoms').get();
   return (res && res.max_id) ? res.max_id + 1 : 1;
+}
+
+/**
+ * Mark an older atom as superseded by a newer verified atom (L2 Temporal Memory)
+ */
+export function supersedeAtom(db, oldId, newId) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE knowledge_atoms
+    SET valid_to = ?, superseded_by = ?, updated_at = ?
+    WHERE id = ?
+  `).run(now, newId, now, oldId);
+  return true;
+}
+
+/**
+ * Insert an Entity Node into the Knowledge Graph (L3 Memory Hierarchy)
+ */
+export function insertEntityNode(db, node) {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO entity_nodes (project_id, name, entity_type, description, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    node.project_id || 'global',
+    node.name,
+    node.entity_type || 'concept',
+    node.description || null,
+    now
+  );
+  const row = db.prepare('SELECT last_insert_rowid() as id').get();
+  return row ? row.id : 1;
+}
+
+/**
+ * Insert a Relational Edge between two Entity Nodes
+ */
+export function insertEntityEdge(db, edge) {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO entity_edges (project_id, source_node_id, target_node_id, relation_type, confidence, metadata, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    edge.project_id || 'global',
+    edge.source_node_id,
+    edge.target_node_id,
+    edge.relation_type,
+    edge.confidence !== undefined ? edge.confidence : 1.0,
+    typeof edge.metadata === 'object' ? JSON.stringify(edge.metadata) : (edge.metadata || '{}'),
+    now
+  );
+  const row = db.prepare('SELECT last_insert_rowid() as id').get();
+  return row ? row.id : 1;
+}
+
+/**
+ * Query Knowledge Graph relations by project, entity name, or relationship type
+ */
+export function queryEntityGraph(db, { project = null, name = null, relation = null, limit = 20 } = {}) {
+  let sql = `
+    SELECT e.id, e.project_id, e.relation_type, e.confidence, e.metadata, e.created_at,
+           s.name as source_name, s.entity_type as source_type,
+           t.name as target_name, t.entity_type as target_type
+    FROM entity_edges e
+    JOIN entity_nodes s ON e.source_node_id = s.id
+    JOIN entity_nodes t ON e.target_node_id = t.id
+    WHERE 1=1
+  `;
+  const params = [];
+  if (project && project !== 'global') {
+    sql += " AND (e.project_id = ? OR e.project_id = 'global')";
+    params.push(project.toLowerCase());
+  }
+  if (name) {
+    sql += " AND (s.name LIKE ? OR t.name LIKE ?)";
+    params.push(`%${name}%`, `%${name}%`);
+  }
+  if (relation) {
+    sql += " AND e.relation_type = ?";
+    params.push(relation);
+  }
+  sql += " ORDER BY e.id DESC LIMIT ?";
+  params.push(limit);
+
+  return db.prepare(sql).all(...params);
 }
