@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
  * PreToolUse Git Guard Hook for Z-Gate
- * Intercepts 'git commit' tool calls to audit staged diff and commit message (R_GIT, R_NEV, R_REUSE).
+ * Intercepts 'git commit' tool calls to audit staged diff against:
+ *  - P0 Blocker Invariants (SQL injection, Hardcoded Secrets, Sync-over-async deadlocks)
+ *  - Net Engineering Value (Wrapper hell, LOC bloat, R_NEV)
+ *  - Conventional Commits & Empirical Proof (R_GIT, R_PROOF)
  */
 
 import cp from 'node:child_process';
 import { auditDiff } from './lib/nev-auditor.mjs';
+import { reviewCode } from './lib/code-reviewer.mjs';
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -60,11 +64,32 @@ async function main() {
 
   if (!diff || diff.trim().length === 0) return;
 
-  const audit = auditDiff({ diff, commitMessage: commitMsg, cwd });
+  // Run deep review
+  const review = await reviewCode({ diff, commitMessage: commitMsg, cwd });
+  const p0Blockers = review.findings.filter(f => f.severity === 'P0');
 
+  if (p0Blockers.length > 0) {
+    const blockText = [
+      `🛑 [z-gate CRITICAL BLOCKER] Pre-Commit Review detected ${p0Blockers.length} P0 violation(s):`,
+      ...p0Blockers.map(b => `  • [${b.rule}] ${b.file}:${b.line}: ${b.message} (Action: ${b.suggestion})`),
+      `❌ Action Required: Fix all P0 security leaks / deadlocks before committing (R_NEV, R_DB, R_WPF).`
+    ].join('\n');
+
+    const reminder = {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext: blockText
+      }
+    };
+    process.stdout.write(JSON.stringify(reminder));
+    return;
+  }
+
+  // Check general NEV audit warnings
+  const audit = auditDiff({ diff, commitMessage: commitMsg, cwd });
   if (!audit.passed) {
     const warningText = [
-      `🛡️ [z-gate] Pre-Commit Gate flagged ${audit.warnings.length} violation(s) (NEV Score: ${audit.nevScore}/100):`,
+      `🛡️ [z-gate] Pre-Commit Gate flagged ${audit.warnings.length} NEV violation(s) (Score: ${audit.nevScore}/100):`,
       ...audit.warnings.map(w => `  • ${w}`),
       `💡 Resolve these invariants before proceeding with the commit (R_NEV, R_REUSE, R_GIT).`
     ].join('\n');

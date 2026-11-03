@@ -1,4 +1,4 @@
-// Test suite for z-gate (Net Engineering Value & Asset Discovery Gate)
+// Test suite for z-gate (Net Engineering Value, Security & Code Review Gate)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +17,8 @@ function ok(cond, msg) {
 const { parseDiff } = await import("../plugins/z-gate/scripts/lib/diff-parser.mjs");
 const { findHelpers } = await import("../plugins/z-gate/scripts/lib/helper-discovery.mjs");
 const { auditDiff } = await import("../plugins/z-gate/scripts/lib/nev-auditor.mjs");
+const { reviewCode } = await import("../plugins/z-gate/scripts/lib/code-reviewer.mjs");
+const { formatReviewReport } = await import("../plugins/z-gate/scripts/lib/review-formatter.mjs");
 
 console.log("z-gate: diff parser metrics");
 const sampleDiff = `
@@ -162,7 +164,7 @@ diff --git a/src/components/Dashboard.tsx b/src/components/Dashboard.tsx
 +    <div className="bg-gradient-to-r from-purple-500 to-indigo-500">
 +      <button onClick={() => {}}>Do nothing</button>
 +    </div>
-`;
+ `;
 const auditSlop = auditDiff({
   diff: slopUiDiff,
   commitMessage: "feat(ui): add dashboard header",
@@ -171,6 +173,60 @@ const auditSlop = auditDiff({
 ok(!auditSlop.passed, "audit fails on UI anti-slop violations");
 ok(auditSlop.warnings.some(w => w.includes("AI-Slop detected") && w.includes("neon gradient")), "caught neon gradient in UI diff (R_ANTI_SLOP)");
 ok(auditSlop.checks.some(c => c.check.includes("R_ANTI_SLOP") && !c.passed), "anti-slop check marked as failed");
+
+console.log("z-gate: unified code review engine (P0, P1, P2, P3)");
+// 1. Critical P0 Security, Secrets & Concurrency violations
+const severeDiff = `
+diff --git a/Services/PaymentService.cs b/Services/PaymentService.cs
+--- a/Services/PaymentService.cs
++++ b/Services/PaymentService.cs
+@@ -10,3 +10,7 @@
++    string apiKey = "sk-live_99887766554433221100aa";
++    var query = "SELECT * FROM Transactions WHERE Id = " + txId;
++    var status = _client.GetStatusAsync().Result;
++    public async void ProcessBackground() {}
+`;
+
+const severeReview = await reviewCode({
+  diff: severeDiff,
+  commitMessage: "feat(payment): process transaction",
+  cwd: tempRepo
+});
+
+ok(severeReview.status === "FAIL", "severe review fails overall status");
+ok(severeReview.summary.p0Count >= 2, "flags at least 2 P0 critical issues");
+ok(severeReview.findings.some(f => f.severity === "P0" && f.rule.includes("Secret Leak")), "caught hardcoded secret token");
+ok(severeReview.findings.some(f => f.severity === "P0" && f.rule.includes("Parameterization")), "caught SQL injection");
+ok(severeReview.findings.some(f => f.severity === "P1" && f.rule.includes("Deadlock")), "caught sync-over-async .Result deadlock hazard");
+ok(severeReview.findings.some(f => f.severity === "P1" && f.rule.includes("Async Void")), "caught async void method");
+
+// 2. Formatter checks
+const tableReport = formatReviewReport(severeReview, "table");
+ok(tableReport.includes("Z-GATE CODE REVIEW AUDIT REPORT"), "terminal table report includes header");
+ok(tableReport.includes("FAIL"), "report shows failure badge");
+ok(tableReport.includes("P0"), "report includes P0 badge");
+
+const mdReport = formatReviewReport(severeReview, "markdown");
+ok(mdReport.includes("Z-Gate Code Review Report"), "markdown report includes header");
+ok(mdReport.includes("FAIL"), "markdown report includes fail badge");
+
+// 3. Clean diff passes review
+const pristineDiff = `
+diff --git a/Services/PaymentService.cs b/Services/PaymentService.cs
+--- a/Services/PaymentService.cs
++++ b/Services/PaymentService.cs
+@@ -10,3 +10,5 @@
++    var status = await _client.GetStatusAsync();
++    return status.IsSuccess;
+`;
+
+const cleanReview = await reviewCode({
+  diff: pristineDiff,
+  commitMessage: "feat(payment): check status asynchronously",
+  cwd: tempRepo
+});
+ok(cleanReview.status === "PASS", "clean review passes");
+ok(cleanReview.score === 100, `clean score is 100 (got: ${cleanReview.score})`);
 
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });

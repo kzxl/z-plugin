@@ -2,7 +2,7 @@
 /**
  * Z-Gate MCP Server (Model Context Protocol)
  * Lightweight, zero-overhead stdio JSON-RPC 2.0 server.
- * Enforces Net Engineering Value (R_NEV), Asset-First Discovery (R_REUSE), and Git Invariants (R_GIT).
+ * Enforces Net Engineering Value (R_NEV), Unified Code Review, Asset Discovery (R_REUSE), and Git Invariants (R_GIT).
  */
 
 import readline from 'node:readline';
@@ -13,10 +13,12 @@ import { fileURLToPath } from 'node:url';
 
 import { findHelpers } from './lib/helper-discovery.mjs';
 import { auditDiff } from './lib/nev-auditor.mjs';
+import { reviewCode } from './lib/code-reviewer.mjs';
+import { formatReviewReport } from './lib/review-formatter.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let pluginMeta = { name: 'z-gate', version: '1.0.0' };
+let pluginMeta = { name: 'z-gate', version: '1.1.0' };
 try {
   const metaPath = path.resolve(__dirname, '..', 'plugin.json');
   if (fs.existsSync(metaPath)) {
@@ -41,6 +43,21 @@ function getUnstagedDiff(cwd) {
 }
 
 const TOOLS = [
+  {
+    name: 'zgate_review',
+    description:
+      'Deep multi-dimensional code reviewer: Audits code changes across Security (SQLi, Secrets), Concurrency (.Result, deadlocks), Net Engineering Value (wrapper hell, LOC bloat), UI Anti-Slop, and cross-references touched files with historical gotchas from z-brain.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        diff: { type: 'string', description: 'Explicit unified diff text to review (optional, defaults to git staged diff)' },
+        staged: { type: 'boolean', description: 'If true, inspects git staged diff (default: true)' },
+        focus: { type: 'string', enum: ['all', 'security', 'concurrency', 'performance', 'architecture', 'ui', 'regression'], description: 'Review focus (default: all)' },
+        format: { type: 'string', enum: ['markdown', 'table', 'json'], description: 'Output format (default: markdown)' },
+        commitMessage: { type: 'string', description: 'Proposed commit message to verify Conventional Commits format' }
+      }
+    }
+  },
   {
     name: 'zgate_find_helpers',
     description:
@@ -81,10 +98,44 @@ const TOOLS = [
   }
 ];
 
-function handleToolCall(name, args) {
+async function handleToolCall(name, args) {
   const cwd = process.cwd();
 
   switch (name) {
+    case 'zgate_review': {
+      let diffText = args.diff;
+      if (!diffText) {
+        diffText = args.staged !== false ? getStagedDiff(cwd) : getUnstagedDiff(cwd);
+        if (!diffText || diffText.trim().length === 0) {
+          diffText = getUnstagedDiff(cwd);
+        }
+      }
+
+      if (!diffText || diffText.trim().length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: '✨ Clean working tree — no code changes to review.'
+            }
+          ]
+        };
+      }
+
+      const review = await reviewCode({
+        diff: diffText,
+        commitMessage: args.commitMessage,
+        cwd,
+        focus: args.focus || 'all'
+      });
+
+      const reportText = formatReviewReport(review, args.format || 'markdown');
+
+      return {
+        content: [{ type: 'text', text: reportText }]
+      };
+    }
+
     case 'zgate_find_helpers': {
       const results = findHelpers({
         query: args.query,
@@ -98,22 +149,27 @@ function handleToolCall(name, args) {
           content: [
             {
               type: 'text',
-              text: `No existing helpers found matching "${args.query}". You may proceed to author new logic, keeping it deep and concise.`
+              text: `No existing helper methods found matching intent "${args.query}". Safe to implement or consider extracting to a shared Helper if generic.`
             }
           ]
         };
       }
 
-      const formatted = [
-        `🔍 Reusable Codebase Helpers Found (${results.length} matches):`,
-        `💡 Review these existing assets before writing custom utility logic (R_REUSE):\n`,
-        ...results.map(
+      const formatted = results
+        .map(
           (r, idx) =>
-            `${idx + 1}. [${r.file}:${r.line}]\n   Signature: \`${r.signature}\`${r.summary ? `\n   Summary: ${r.summary}` : ''}`
+            `${idx + 1}. [${r.file}:${r.line}]\n   Signature: ${r.signature}\n   ${r.summary ? `Summary:   ${r.summary}\n   ` : ''}Matches:   ${r.matchedQuery}`
         )
-      ].join('\n');
+        .join('\n\n');
 
-      return { content: [{ type: 'text', text: formatted }] };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `🔍 Found ${results.length} reusable helper method(s) in codebase (R_REUSE):\n\n${formatted}\n\n💡 MANDATE: Reuse existing methods above instead of writing redundant hand-rolled code.`
+          }
+        ]
+      };
     }
 
     case 'zgate_audit_diff': {
@@ -149,13 +205,15 @@ function handleToolCall(name, args) {
       const stats = {
         name: 'z-gate',
         version: pluginMeta.version,
-        role: 'Net Engineering Value & Asset Discovery Gate',
-        invariants: ['R_NEV', 'R_REUSE', 'R_CORE', 'R_PROOF', 'R_GIT', 'R_WPF', 'R_DB'],
+        role: 'Unified Quality, Security & Code Review Gate',
+        invariants: ['R_NEV', 'R_REUSE', 'R_CORE', 'R_PROOF', 'R_GIT', 'R_WPF', 'R_DB', 'R_ANTI_SLOP'],
         features: [
+          'Unified Code Reviewer (Security, Concurrency, Architecture, UI Anti-Slop)',
+          'Cross-Plugin Mesh with z-brain (Historical Gotchas) & z-craft (Anti-Slop UI)',
           'Asset-First Discovery (scans Helpers/, Extensions/, Utils/)',
           'Wrapper Hell & Interface Deletion Test',
           'LOC Inflation Guard (>30% line bloat limit on refactor)',
-          'Pre-commit Invariant Checker'
+          'Pre-commit Invariant Blocker Hook'
         ],
         status: 'online'
       };
@@ -177,7 +235,7 @@ function send(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
-rl.on('line', (line) => {
+rl.on('line', async (line) => {
   if (!line.trim()) return;
 
   let req;
@@ -214,7 +272,7 @@ rl.on('line', (line) => {
     try {
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
-      const res = handleToolCall(toolName, toolArgs);
+      const res = await handleToolCall(toolName, toolArgs);
       send({ jsonrpc: '2.0', id, result: res });
     } catch (err) {
       send({
