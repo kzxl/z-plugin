@@ -29,6 +29,7 @@ import {
   formatFileKnowledge
 } from './lib/format.mjs';
 import { harvestKnowledge } from './lib/harvest.mjs';
+import { harvestFromGit } from './lib/git-harvester.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -144,6 +145,18 @@ const TOOLS = [
     }
   },
   {
+    name: 'zbrain_harvest_git',
+    description:
+      'Auto-distill knowledge atom [Problem -> Cause -> Fix] from recent Git commit(s) or staged changes and store into SQLite FTS5 database.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        commit: { type: 'string', description: 'Git commit ref (default: HEAD)' },
+        project: { type: 'string', description: 'Project name override' }
+      }
+    }
+  },
+  {
     name: 'zbrain_status',
     description:
       'Inspect Z-Brain health, total atom count, SQLite file size, and cache status.',
@@ -234,6 +247,16 @@ function handleToolCall(name, args) {
       const text = formatL0Progressive(results, args.query);
       return {
         content: [{ type: 'text', text }]
+      };
+    }
+
+    case 'zbrain_harvest_git': {
+      const res = harvestFromGit(db, {
+        commit: args.commit || 'HEAD',
+        project: args.project
+      });
+      return {
+        content: [{ type: 'text', text: res.message || JSON.stringify(res, null, 2) }]
       };
     }
 

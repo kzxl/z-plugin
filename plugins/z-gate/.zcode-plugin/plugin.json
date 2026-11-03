@@ -2,7 +2,7 @@
   "name": "z-gate",
   "displayName": "Z-Gate",
   "description": "Net Engineering Value (NEV) gate, codebase asset discovery (R_REUSE), wrapper hell prevention, and pre-commit diff auditor.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "developer-tools",
   "keywords": [
     "z-gate",
@@ -17,7 +17,9 @@
   "mcpServers": {
     "z-gate": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ]
     }
   },
   "hooks": "./hooks/hooks.json",

@@ -15,6 +15,7 @@ import { findHelpers } from './lib/helper-discovery.mjs';
 import { auditDiff } from './lib/nev-auditor.mjs';
 import { reviewCode } from './lib/code-reviewer.mjs';
 import { formatReviewReport } from './lib/review-formatter.mjs';
+import { installPreCommitHook } from './lib/git-hook.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +95,17 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {}
+    }
+  },
+  {
+    name: 'zgate_install_hook',
+    description:
+      'Install or update .git/hooks/pre-commit in the target repository to automatically block commits containing critical P0 violations (SQLi, secrets, deadlocks).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        directory: { type: 'string', description: 'Root directory of the git repository (default: current working directory)' }
+      }
     }
   }
 ];
@@ -220,6 +232,14 @@ async function handleToolCall(name, args) {
 
       return {
         content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }]
+      };
+    }
+
+    case 'zgate_install_hook': {
+      const targetDir = args.directory || cwd;
+      const res = installPreCommitHook(targetDir);
+      return {
+        content: [{ type: 'text', text: res.message }]
       };
     }
 

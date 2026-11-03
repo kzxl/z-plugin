@@ -220,6 +220,34 @@ export async function reviewCode({
           suggestion: 'Replace Thread.Sleep with await Task.Delay(...) to avoid blocking the OS thread.'
         });
       }
+
+      // ERP-DECIMAL: Monetary / Price field declared as float/double
+      const decimalMatch = code.match(/\b(double|float)\s+(Price|Amount|Cost|UnitPrice|DonGia|ThanhTien|TongTien|GiaVon|GiaBan|TaxAmount|DiscountAmount)\b/i);
+      if (decimalMatch) {
+        findings.push({
+          severity: 'P1',
+          category: 'DOMAIN_ERP',
+          file: currentFile,
+          line: lineIndex,
+          rule: 'ERP Financial Precision (R_ERP_GATE)',
+          message: `Monetary field '${decimalMatch[2]}' declared as '${decimalMatch[1]}'.`,
+          suggestion: 'Use "decimal" for all financial, currency, and pricing fields to prevent binary IEEE-754 floating point rounding errors.'
+        });
+      }
+
+      // ERP-LOCK: Stock/Inventory update without row lock or transaction hint
+      if (/\bUPDATE\s+(?:Inventory|Stock|TonKho|SoKho|KhoVatTu)\b/i.test(code) &&
+          !/(?:UPDLOCK|ROWLOCK|WITH\s*\(UPDLOCK\))/i.test(code)) {
+        findings.push({
+          severity: 'P1',
+          category: 'DOMAIN_ERP',
+          file: currentFile,
+          line: lineIndex,
+          rule: 'ERP Inventory Lock Protection (R_ERP_GATE)',
+          message: 'Direct UPDATE on inventory/stock table without explicit row-level lock (UPDLOCK).',
+          suggestion: 'Append WITH (UPDLOCK, ROWLOCK) and ensure an ambient transaction scope to prevent race-condition negative stock allocations.'
+        });
+      }
     }
 
     // F. [P2] UI Software Craftsmanship & Anti-Slop (R_ANTI_SLOP)

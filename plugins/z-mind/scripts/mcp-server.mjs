@@ -8,6 +8,8 @@ import readline from "node:readline";
 import { queryRules, auditPlan } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
 import { runDoctor } from "./lib/doctor.mjs";
+import { synthesizePlan } from "./lib/plan-generator.mjs";
+import { auditArchitecture } from "./lib/arch-doctor.mjs";
 
 const TOOLS = [
   {
@@ -55,12 +57,25 @@ const TOOLS = [
     }
   },
   {
+    name: "zmind_plan",
+    description: "Synthesize a disciplined 5-phase TDD execution plan (Sensory Sweep -> Failing Reproduction Test -> Seam Analysis -> Minimal Vertical Slice -> Empirical Proof Gate).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "Task description, bug report, or feature request" },
+        format: { type: "string", enum: ["markdown", "json"], description: "Output format (default: markdown)" }
+      },
+      required: ["task"]
+    }
+  },
+  {
     name: "zmind_doctor",
     description: "Inspect workspace health, .project-rule.md compliance, and scan for architecture invariant anti-patterns.",
     inputSchema: {
       type: "object",
       properties: {
-        directory: { type: "string", description: "Target directory (defaults to current working directory)" }
+        directory: { type: "string", description: "Target directory (defaults to current working directory)" },
+        mode: { type: "string", enum: ["default", "arch"], description: "Doctor inspection mode (default: compliance, arch: layer boundary audit)" }
       }
     }
   },
@@ -171,12 +186,28 @@ function handleToolCall(id, name, args) {
       break;
     }
 
+    case "zmind_plan": {
+      const plan = synthesizePlan(args.task, { format: args.format || "markdown" });
+      const text = args.format === "json" ? JSON.stringify(plan.raw, null, 2) : plan.markdown;
+      sendResponse(id, {
+        content: [{ type: "text", text }]
+      });
+      break;
+    }
+
     case "zmind_doctor": {
       const dir = args?.directory || process.cwd();
-      const report = runDoctor(dir);
-      sendResponse(id, {
-        content: [{ type: "text", text: JSON.stringify(report, null, 2) }]
-      });
+      if (args?.mode === "arch") {
+        const archReport = auditArchitecture(dir);
+        sendResponse(id, {
+          content: [{ type: "text", text: JSON.stringify(archReport, null, 2) }]
+        });
+      } else {
+        const report = runDoctor(dir);
+        sendResponse(id, {
+          content: [{ type: "text", text: JSON.stringify(report, null, 2) }]
+        });
+      }
       break;
     }
 

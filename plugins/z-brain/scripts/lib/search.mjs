@@ -1,6 +1,17 @@
 import path from 'node:path';
 import { getDb } from './db.mjs';
 
+const ERP_SYNONYMS = {
+  "ton kho": ["inventory", "stock", "ton_kho", "lot"],
+  "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
+  "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
+  "deadlock": ["result", "sync-over-async", "configureawait", "wait"],
+  "don hang": ["order", "don_hang", "sales"],
+  "đơn hàng": ["order", "don_hang", "sales"],
+  "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
+  "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"]
+};
+
 export function detectCurrentProject(cwd = process.cwd()) {
   try {
     const base = path.basename(cwd).toLowerCase().replace(/[^a-z0-9_\-]/g, '_');
@@ -40,7 +51,15 @@ function sanitizeFtsQuery(rawQuery) {
     .map(w => w.trim())
     .filter(w => w.length > 1 && !/^(the|and|for|with|from|this|that|trong|cho|cua|la|cac)$/i.test(w));
 
-  const allTerms = [...new Set([...words, ...extractedTags])];
+  const lowerRaw = rawQuery.toLowerCase();
+  const synonyms = [];
+  for (const [key, synList] of Object.entries(ERP_SYNONYMS)) {
+    if (lowerRaw.includes(key)) {
+      synonyms.push(...synList);
+    }
+  }
+
+  const allTerms = [...new Set([...words, ...extractedTags, ...synonyms])];
   if (allTerms.length === 0) return "";
 
   return allTerms.map(w => `"${w}"*`).join(" OR ");

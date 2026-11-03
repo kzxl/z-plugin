@@ -2,7 +2,7 @@
   "name": "z-gate",
   "displayName": "Z-Gate",
   "description": "Net Engineering Value (NEV) gate, codebase asset discovery (R_REUSE), wrapper hell prevention, and pre-commit diff auditor.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "kzxl",
   "suggestedPrompts": [
     "/z-gate find",

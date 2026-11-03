@@ -14,6 +14,7 @@ import { lintUiContent, lintUiFiles, SLOP_RULES } from './lib/anti-slop-linter.m
 import { generateMicroSpec } from './lib/spec-generator.mjs';
 import { generateCanvasWidget } from './lib/generative-canvas.mjs';
 import { createCheckpoint, listCheckpoints, restoreCheckpoint } from './lib/time-machine.mjs';
+import { scaffoldComponent } from './lib/scaffolder.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -79,6 +80,19 @@ const TOOLS = [
         files: { type: 'array', items: { type: 'string' }, description: 'File paths to include in snapshot (for create)' }
       },
       required: ['action']
+    }
+  },
+  {
+    name: 'zcraft_scaffold',
+    description:
+      'Scaffold a production-grade 4-state enterprise UI component satisfying R_UX_MATRIX (Populated, Loading Skeleton, Empty + CTA, Error + Retry) in React/Tailwind, WPF XAML, or WinForms DevExpress.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Component title or domain entity (e.g. InventoryManagement, OrderList)' },
+        framework: { type: 'string', enum: ['react', 'wpf', 'winforms'], description: 'Target UI framework (default: react)' }
+      },
+      required: ['title']
     }
   },
   {
@@ -212,6 +226,22 @@ function handleRpc(req) {
           jsonrpc: '2.0',
           id,
           result: { content: [{ type: 'text', text: JSON.stringify(status, null, 2) }] }
+        };
+      }
+
+      if (name === 'zcraft_scaffold') {
+        const scaffold = scaffoldComponent(args.title, { framework: args.framework || 'react' });
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `✨ [Z-CRAFT SCAFFOLD: ${scaffold.framework.toUpperCase()}]\nFile: ${scaffold.filename}\nStates verified: ${scaffold.states.join(', ')}\n\n\`\`\`${scaffold.framework === 'wpf' ? 'xml' : scaffold.framework === 'winforms' ? 'csharp' : 'tsx'}\n${scaffold.code}\n\`\`\``
+              }
+            ]
+          }
         };
       }
 

@@ -1,6 +1,8 @@
 // Comprehensive test suite for z-mind cognitive engineering plugin
 import { queryRules, auditPlan } from "../plugins/z-mind/scripts/lib/rules.mjs";
 import { detectProject, bootstrapProjectRule } from "../plugins/z-mind/scripts/lib/bootstrap.mjs";
+import { synthesizePlan } from "../plugins/z-mind/scripts/lib/plan-generator.mjs";
+import { auditArchitecture } from "../plugins/z-mind/scripts/lib/arch-doctor.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -125,6 +127,36 @@ try {
   ok(duplicateRes.alreadyExists === true, "prevented duplicate overwrite without force");
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+console.log("z-mind: plan synthesizer & architecture doctor (v1.1.0)");
+// 1. TDD Plan Synthesis test
+const synthBugfix = synthesizePlan("Fix deadlock in OrderService during checkout");
+ok(synthBugfix.raw.mode === "BUGFIX", "identified bugfix mode");
+ok(synthBugfix.raw.phases.length === 5, "synthesized complete 5-phase TDD plan");
+ok(synthBugfix.markdown.includes("R_TDD"), "plan cites R_TDD invariant");
+ok(synthBugfix.markdown.toLowerCase().includes("reproduction test"), "plan mandates reproduction test");
+
+const synthFeature = synthesizePlan("Implement real-time inventory ledger sync");
+ok(synthFeature.raw.mode === "FEATURE", "identified feature mode");
+ok(synthFeature.markdown.includes("Seam Analysis & Interface Deletion Test"), "plan mandates interface deletion test");
+
+// 2. Architecture Boundary Doctor test
+const archTmp = fs.mkdtempSync(path.join(os.tmpdir(), "zmind-test-arch-"));
+try {
+  const uiDir = path.join(archTmp, "Views");
+  fs.mkdirSync(uiDir, { recursive: true });
+  fs.writeFileSync(path.join(uiDir, "OrderForm.cs"), `
+using System.Data.SqlClient;
+public class OrderForm {
+    private DbContext _context;
+}
+`);
+  const archReport = auditArchitecture(archTmp);
+  ok(!archReport.passed, "architecture doctor detected UI -> DbContext leakage");
+  ok(archReport.violations.some(v => v.category === "ARCH_LAYER_LEAK"), "flagged ARCH_LAYER_LEAK violation");
+} finally {
+  fs.rmSync(archTmp, { recursive: true, force: true });
 }
 
 console.log("\nall z-mind tests passed (56 rules & bootstrap verified)");

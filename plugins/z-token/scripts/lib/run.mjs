@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { compactTestLog } from "./test-runner.mjs";
 
 function readDir(dir) {
   try {
@@ -80,7 +81,14 @@ export function planAction(opts = {}) {
     };
   }
   if (eco === "dotnet") {
-    return { ecosystem: eco, cwd: dir, unsupported: true, message: "run: this is a .NET solution; use the build tool so MSBuild/dotnet is selected correctly." };
+    if (action === "test") {
+      exe = "dotnet";
+      args = ["test", "--no-restore", "-v:q", "--logger", "console;verbosity=normal"];
+      if (opts.filter) args.push("--filter", opts.filter);
+      label = "dotnet test";
+    } else {
+      return { ecosystem: eco, cwd: dir, unsupported: true, message: "run: this is a .NET solution; use the build tool so MSBuild/dotnet is selected correctly." };
+    }
   }
 
   let exe;
@@ -250,7 +258,9 @@ export function runAction(opts = {}, cfg = {}) {
     fs.writeFileSync(logFile, text);
   } catch {}
 
-  const compact = compactCommandLog(text, opts);
+  const compact = (opts.action === "test" || plan.action === "test")
+    ? compactTestLog(text).text
+    : compactCommandLog(text, opts);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   const status = res.error ? `FAILED (${res.error.code || res.error.message})` : res.status === 0 ? "ok" : `FAILED (exit ${res.status ?? "?"})`;
   const kb = (Buffer.byteLength(text) / 1024).toFixed(0);

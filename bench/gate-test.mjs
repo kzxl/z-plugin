@@ -19,6 +19,7 @@ const { findHelpers } = await import("../plugins/z-gate/scripts/lib/helper-disco
 const { auditDiff } = await import("../plugins/z-gate/scripts/lib/nev-auditor.mjs");
 const { reviewCode } = await import("../plugins/z-gate/scripts/lib/code-reviewer.mjs");
 const { formatReviewReport } = await import("../plugins/z-gate/scripts/lib/review-formatter.mjs");
+const { installPreCommitHook } = await import("../plugins/z-gate/scripts/lib/git-hook.mjs");
 
 console.log("z-gate: diff parser metrics");
 const sampleDiff = `
@@ -227,6 +228,32 @@ const cleanReview = await reviewCode({
 });
 ok(cleanReview.status === "PASS", "clean review passes");
 ok(cleanReview.score === 100, `clean score is 100 (got: ${cleanReview.score})`);
+
+// 4. ERP Domain & Concurrency Hazards (v1.1.0 R_ERP_GATE)
+console.log("z-gate: ERP domain & financial precision review (v1.1.0)");
+const erpDiff = `
+diff --git a/Services/InventoryService.cs b/Services/InventoryService.cs
+--- a/Services/InventoryService.cs
++++ b/Services/InventoryService.cs
+@@ -10,3 +10,6 @@
++    public double UnitPrice { get; set; }
++    var sql = "UPDATE Inventory SET Quantity = Quantity - 1 WHERE ItemId = @id";
++    await connection.ExecuteAsync(sql, new { id });
+`;
+const erpReview = await reviewCode({
+  diff: erpDiff,
+  commitMessage: "feat(inventory): update stock without lock",
+  cwd: tempRepo
+});
+ok(erpReview.findings.some(f => f.category === "DOMAIN_ERP" && f.rule.includes("Financial Precision")), "caught double UnitPrice violation (ERP-DECIMAL)");
+ok(erpReview.findings.some(f => f.category === "DOMAIN_ERP" && f.rule.includes("Inventory Lock")), "caught UPDATE Inventory without UPDLOCK (ERP-LOCK)");
+
+// 5. Pre-commit hook installation check
+const hookGitDir = path.join(tempRepo, ".git");
+fs.mkdirSync(hookGitDir, { recursive: true });
+const hookRes = installPreCommitHook(tempRepo);
+ok(hookRes.success, "installed pre-commit hook successfully");
+ok(fs.existsSync(path.join(hookGitDir, "hooks", "pre-commit")), "pre-commit file exists on disk");
 
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });

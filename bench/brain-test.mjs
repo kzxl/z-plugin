@@ -28,6 +28,7 @@ const { getDb, countAtoms, closeDb, getDbStats } = await import("../plugins/z-br
 const { searchKnowledge } = await import("../plugins/z-brain/scripts/lib/search.mjs");
 const { harvestKnowledge } = await import("../plugins/z-brain/scripts/lib/harvest.mjs");
 const { formatL0Progressive, formatDeepView } = await import("../plugins/z-brain/scripts/lib/format.mjs");
+const { harvestFromGit } = await import("../plugins/z-brain/scripts/lib/git-harvester.mjs");
 
 const db = getDb();
 ok(fs.existsSync(tempDbPath), "database file created automatically on first getDb() call");
@@ -124,6 +125,17 @@ ok(fileRes.observations.length === 1, "found 1 observation associated with Order
 
 const fileView = formatFileKnowledge("OrderService.cs", fileRes.atoms, fileRes.observations);
 ok(fileView.includes("OrderService.cs"), "file knowledge output contains target file name");
+
+console.log("z-brain: ERP synonym expansion & git auto-harvest (v1.1.0)");
+// Test ERP synonym expansion: Query "tồn kho" matches inventory atom
+const erpSearchRes = searchKnowledge({ query: "tồn kho", project: "erp" });
+ok(erpSearchRes.length > 0, "ERP synonym 'tồn kho' matched inventory atom");
+
+// Test git auto-harvest
+const gitHarvestRes = harvestFromGit(db, { cwd: process.cwd(), commit: "HEAD" });
+ok(gitHarvestRes.success, "harvestFromGit extracted atom from recent commit");
+ok(Boolean(gitHarvestRes.atom.id), "harvested atom received database ID");
+ok(gitHarvestRes.atom.tags.includes("auto_harvest"), "harvested atom has auto_harvest tag");
 
 // Cleanup
 closeDb();

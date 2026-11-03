@@ -149,6 +149,7 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence, files_
   return {
     success: true,
     id,
+    atom: { id, ...atom },
     project: atom.project_id,
     trust_level: atom.trust_level,
     tags: tagList,

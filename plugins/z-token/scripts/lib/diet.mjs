@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import cp from "node:child_process";
 
 const CHARS_PER_TOKEN = 4;
 const PATH_OVERHEAD_CHARS = 90; // absolute path + "(also loadable as ...)" per skill line
@@ -178,3 +179,30 @@ export function dietReport(cwd = process.cwd()) {
 
   return { text: lines.join("\n"), stats: { skills: totalSkills, estTokens: Math.round((totalSkillChars + schemaChars) / CHARS_PER_TOKEN) } };
 }
+
+export function smartDiff(opts = {}) {
+  const cwd = opts.cwd || process.cwd();
+  const excludePatterns = [
+    ":!*.Designer.cs",
+    ":!*.g.cs",
+    ":!*.generated.cs",
+    ":!*.min.js",
+    ":!*.min.css",
+    ":!package-lock.json",
+    ":!yarn.lock",
+    ":!pnpm-lock.yaml"
+  ];
+  const staged = opts.staged ? ["--cached"] : [];
+  try {
+    const statOut = cp.execSync(`git diff ${staged.join(" ")} --stat -- ${excludePatterns.join(" ")}`, { cwd, encoding: "utf8" });
+    const diffOut = cp.execSync(`git diff ${staged.join(" ")} -- ${excludePatterns.join(" ")}`, { cwd, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+    const trimmedDiff = diffOut.slice(0, 15000);
+    const suffix = diffOut.length > 15000 ? "\n... [diff truncated by z-token slicer to conserve context]" : "";
+    return {
+      text: `Smart Sliced Diff (excluding designer, minified, & lock files):\n\nSummary:\n${statOut || "No changes"}\n\nDiff:\n${trimmedDiff || "Clean"}${suffix}`
+    };
+  } catch (err) {
+    return { text: `smartDiff error: ${err.message}` };
+  }
+}
+

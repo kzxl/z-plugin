@@ -15,11 +15,11 @@ Consolidating multiple specialized plugins under a single repository, `z-plugin`
 
 | Plugin | Version | Focus | Core Capabilities |
 | :--- | :---: | :--- | :--- |
-| [**`z-token`**](plugins/z-token) | `1.0.0` | **Context Diet & Token Guard** | Code outline, capped search, lean .NET builds, oversized-read blocking gateway, PowerShell recursive grep guard, repeated-call loop breaker. |
-| [**`z-brain`**](plugins/z-brain) | `1.0.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), smart deduplication/upsert, auto project scoping. |
-| [**`z-mind`**](plugins/z-mind) | `1.0.0` | **Cognitive OS & 58 Invariants** | Senior engineering disciplines, 58 canonical rules, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, project rule bootstrap & doctor. |
-| [**`z-gate`**](plugins/z-gate) | `1.0.0` | **Asset Discovery & NEV Gate** | Codebase helper discovery (`R_REUSE`), pre-commit diff audit against wrapper hell and LOC bloat, Git PreToolUse hook enforcing targeted staging (`R_GIT`). |
-| [**`z-craft`**](plugins/z-craft) | `1.0.0` | **Software Craftsmanship & Vibe Engine** | Disciplined vibe-coding, Anti-Slop AST Linter (`R_ANTI_SLOP`), 4-state UX micro-contract generator, live generative canvas preview, and vibe time-machine. |
+| [**`z-token`**](plugins/z-token) | `1.1.0` | **Context Diet & Token Guard** | Code outline, capped search, lean .NET builds, oversized-read blocking gateway, PowerShell recursive grep guard, repeated-call loop breaker. |
+| [**`z-brain`**](plugins/z-brain) | `1.1.0` | **Episodic Memory Engine** | Pure local embedded SQLite WAL, FTS5 BM25 search, L0 compact index (~30 tokens), smart deduplication/upsert, auto project scoping. |
+| [**`z-mind`**](plugins/z-mind) | `1.1.0` | **Cognitive OS & 58 Invariants** | Senior engineering disciplines, 58 canonical rules, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, project rule bootstrap & doctor. |
+| [**`z-gate`**](plugins/z-gate) | `1.1.0` | **Asset Discovery & NEV Gate** | Codebase helper discovery (`R_REUSE`), pre-commit diff audit against wrapper hell and LOC bloat, Git PreToolUse hook enforcing targeted staging (`R_GIT`). |
+| [**`z-craft`**](plugins/z-craft) | `1.1.0` | **Software Craftsmanship & Vibe Engine** | Disciplined vibe-coding, Anti-Slop AST Linter (`R_ANTI_SLOP`), 4-state UX micro-contract generator, live generative canvas preview, and vibe time-machine. |
 
 ---
 

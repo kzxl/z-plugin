@@ -13,6 +13,7 @@ import { lintUiContent, lintUiFiles, loadWorkspaceTokens } from '../plugins/z-cr
 import { generateMicroSpec } from '../plugins/z-craft/scripts/lib/spec-generator.mjs';
 import { generateCanvasWidget } from '../plugins/z-craft/scripts/lib/generative-canvas.mjs';
 import { createCheckpoint, listCheckpoints, restoreCheckpoint } from '../plugins/z-craft/scripts/lib/time-machine.mjs';
+import { scaffoldComponent } from '../plugins/z-craft/scripts/lib/scaffolder.mjs';
 
 function ok(cond, msg) {
   if (!cond) {
@@ -128,5 +129,35 @@ ok(fs.readFileSync(testFile, 'utf8') === 'export const V1 = 1;', 'file successfu
 
 // Clean up
 fs.rmSync(tmpDir, { recursive: true, force: true });
+
+console.log('z-craft: desktop anti-slop & 4-state scaffold (v1.1.0)');
+
+// 6. Desktop WinForms & WPF Anti-Slop tests
+const sloppyDesktopSnippet = `
+public async Task RefreshGrid() {
+    foreach (var row in list) {
+        gridView1.SetRowCellValue(row.Id, "Status", "Active");
+    }
+    Dispatcher.Invoke(() => { lblCount.Text = "Done"; });
+}
+`;
+const desktopReport = lintUiContent(sloppyDesktopSnippet, 'OrderForm.cs');
+ok(desktopReport.violations.some(v => v.ruleId === 'AS-8'), 'caught DevExpress batch update without BeginUpdate (AS-8)');
+ok(desktopReport.violations.some(v => v.ruleId === 'AS-10'), 'caught WPF blocking Dispatcher.Invoke in async method (AS-10)');
+
+// 7. Scaffolder tests
+const reactScaffold = scaffoldComponent('InventoryReport', { framework: 'react' });
+ok(reactScaffold.filename === 'InventoryReport.tsx', 'scaffolds React component filename');
+ok(reactScaffold.states.length === 4, 'scaffold implements all 4 UX states');
+ok(reactScaffold.code.includes('state === \'loading\''), 'React scaffold has loading state');
+ok(reactScaffold.code.includes('state === \'empty\''), 'React scaffold has empty state');
+
+const wpfScaffold = scaffoldComponent('OrderViewer', { framework: 'wpf' });
+ok(wpfScaffold.filename === 'OrderViewerView.xaml', 'scaffolds WPF XAML UserControl');
+ok(wpfScaffold.code.includes('IsLoading'), 'WPF scaffold has IsLoading binding');
+
+const winformsScaffold = scaffoldComponent('StockLedger', { framework: 'winforms' });
+ok(winformsScaffold.filename === 'StockLedgerControl.cs', 'scaffolds WinForms UserControl');
+ok(winformsScaffold.code.includes('gridControl.BeginUpdate()'), 'WinForms scaffold adheres to AS-8 BeginUpdate');
 
 console.log('\nall z-craft tests passed!');

@@ -137,6 +137,41 @@ export const SLOP_RULES = [
     description: "Unskinned raw color or non-standard brush in desktop XAML/WinForms.",
     pattern: /(?:Color\.FromArgb\(\s*\d+\s*,\s*255\s*,\s*0\s*,\s*255\s*\)|Background=["']#(?:FF)?[78][0-9A-Fa-f]{5}["'])/i,
     fixHint: "Bind to DevExpress SkinPalette or Application.Current.Resources token brush."
+  },
+  {
+    id: "AS-8",
+    name: "DEVEXPRESS_BEGIN_UPDATE",
+    severity: "error",
+    multiline: true,
+    description: "Modifying DevExpress GridControl/GridView rows in a loop without wrapping in BeginUpdate() / EndUpdate().",
+    pattern: /(?:for|foreach)\s*\([^)]+\)\s*\{[^}]*(?:gridView\d*|gridControl\d*)\.(?:SetRowCellValue|AddNewRow|DeleteRow)/is,
+    fixHint: "Wrap the loop in gridControl.BeginUpdate() ... try/finally { gridControl.EndUpdate(); } for 10x UI throughput."
+  },
+  {
+    id: "AS-9",
+    name: "WINFORMS_WAIT_INDICATOR",
+    severity: "warning",
+    multiline: true,
+    description: "Async background I/O or Task without SplashScreenManager or WaitForm overlay.",
+    pattern: /(?:await\s+Task\.Run|BackgroundWorker)\b(?!.*(?:SplashScreenManager|ShowWaitForm|ShowOverlayForm))/s,
+    fixHint: "Show a loading overlay using SplashScreenManager.ShowOverlayForm(this) during async background work."
+  },
+  {
+    id: "AS-10",
+    name: "WPF_DISPATCHER_BLOCKING",
+    severity: "error",
+    multiline: true,
+    description: "Blocking Dispatcher.Invoke(...) called inside an async method, causing UI thread deadlocks.",
+    pattern: /\basync\b[\s\S]*?\bDispatcher\.Invoke\s*\(/s,
+    fixHint: "Use 'await Dispatcher.InvokeAsync(...)' instead of blocking 'Dispatcher.Invoke(...)'.",
+  },
+  {
+    id: "AS-11",
+    name: "HARDCODED_FONT_FAMILY",
+    severity: "warning",
+    description: "Hardcoded font instantiation bypassing enterprise design tokens and DevExpress skinning.",
+    pattern: /new\s+Font\s*\(\s*["'](?:Segoe UI|Arial|Tahoma|Microsoft Sans Serif)["']\s*,\s*\d+/i,
+    fixHint: "Use WindowsFormsSettings.DefaultFont or DevExpress AppearanceObject instead of hardcoded Font instances."
   }
 ];
 
@@ -149,6 +184,26 @@ export function lintUiContent(content, filename = "snippet.tsx", cwd = process.c
 
   for (const rule of SLOP_RULES) {
     if (rule.excludeFiles && rule.excludeFiles.some(re => re.test(filename))) {
+      continue;
+    }
+
+    if (rule.multiline) {
+      const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        const hint = typeof rule.fixHint === "function" ? rule.fixHint(match[0]) : rule.fixHint;
+        const line = content.slice(0, match.index).split(/\r?\n/).length;
+        violations.push({
+          ruleId: rule.id,
+          name: rule.name,
+          severity: rule.severity,
+          line,
+          matched: match[0].trim().slice(0, 80),
+          message: rule.description,
+          fixHint: hint
+        });
+        if (!rule.pattern.global) break;
+      }
       continue;
     }
 

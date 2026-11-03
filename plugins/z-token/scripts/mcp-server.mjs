@@ -7,8 +7,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { outline, search, readSymbol } from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
-import { dietReport } from "./lib/diet.mjs";
+import { dietReport, smartDiff } from "./lib/diet.mjs";
 import { runAction } from "./lib/run.mjs";
+import { runTests } from "./lib/test-runner.mjs";
 import { loadConfig } from "./lib/config.mjs";
 import { appendLedger, readLedger, savingsReport } from "./lib/ledger.mjs";
 
@@ -346,6 +347,7 @@ async function callTool(name, args) {
       return runAction(a, config);
     case "diet":
       if (a.scope === "savings") return savingsReport(a.days || 1);
+      if (a.scope === "diff") return smartDiff(a);
       if (a.scope === "panel") {
         const m = panelMetrics();
         return {
