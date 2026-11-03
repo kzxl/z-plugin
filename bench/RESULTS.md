@@ -1,11 +1,11 @@
 # Token-diet benchmark
 
-Generated 2026-11-02T02:51:20.850Z | fixtures are synthetic, sized like real-world enterprise files.
+Generated 2026-11-03T16:17:59.278Z | fixtures are synthetic, sized like real-world enterprise files.
 Token estimate: 3.6 chars/token for code, 4 for logs/prose.
 
 | Scenario | Before (tokens) | After (tokens) | Saved |
 |---|---:|---:|---:|
-| Read one large C# file (whole file) | 38,749 | 1,761 | 95.5% |
+| Read one large C# file (whole file) | 38,749 | 1,751 | 95.5% |
 | Find one symbol across the repo (grep -rn) | 9,218 | 1,698 | 81.6% |
 | Read a build log (dotnet build) | 55,783 | 461 | 99.2% |
 
@@ -14,15 +14,15 @@ Token estimate: 3.6 chars/token for code, 4 for logs/prose.
 - Read 136 KB with no limit -> BLOCKED (104-token reason)
 - `grep -rn` unbounded -> BLOCKED
 - `grep -rn -m 5` (bounded) -> allowed
-- Read a small 10 KB file -> allowed
+- Read a small 11 KB file -> allowed
 - Same command repeated 3 times -> warning emitted
 
 
 ## Plugin permanent cost
 
 - Skill description + agent description: ~151 tokens
-- 4 MCP tool schemas: ~612 tokens
-- Total: ~763 tokens per session
+- 4 MCP tool schemas: ~736 tokens
+- Total: ~887 tokens per session
 
 ## Baseline on the generating machine (example)
 
@@ -33,24 +33,30 @@ formula: 4 chars/token, +90 chars per skill line
 GROUP                 ITEMS   EST. TOKENS
 user                     47         3255
 zcode-guide@zcode-plugins-official      6         1011
-token-diet@dev-token-diet      7          471
+token-diet@dev-token-diet      6          404
 browser-use@zcode-plugins-official      2          323
+z-mind@z-plugin           5          315
 spreadsheets@zcode-plugins-official      2          306
 pdf@zcode-plugins-official      2          300
 presentations@zcode-plugins-official      2          289
 documents@zcode-plugins-official      2          268
+visualize@zcode-plugins-official      2          201
 restore-legacy-sessions@zcode-plugins-official      1          122
-visualize@zcode-plugins-official      1          100
 skill-creator@zcode-plugins-official      1           83
 plugin-creator@zcode-plugins-official      1           81
+zcode-site@zcode-plugins-official      1           79
+z-craft@z-plugin          1           79
+z-token@z-plugin          1           65
+z-gate@z-plugin           1           64
+z-brain@z-plugin          1           58
 computer-use@zcode-plugins-official      1           55
 ios-simulator@zcode-plugins-official      1           46
 android-emulator@zcode-plugins-official      1           45
-plugin MCP schemas       14        16800
+plugin MCP schemas       19        22800
 
-TOTAL ~23553 tokens, every session, before you type anything (77 skills).
+TOTAL ~30244 tokens, every session, before you type anything (87 skills).
 
-AGENTS.md (user): 4.2 KB (~1065 tokens, always loaded)
+AGENTS.md (user): 3.4 KB (~864 tokens, always loaded)
 
 HEAVIEST SKILL DESCRIPTIONS
     214  pdf (pdf@zcode-plugins-official)

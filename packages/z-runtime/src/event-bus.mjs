@@ -34,6 +34,31 @@ export class EventBus {
     return () => set.delete(handler);
   }
 
+  on(topic, handler) {
+    return this.subscribe(topic, handler);
+  }
+
+  /**
+   * Synchronous event emission (matches EventEmitter semantics with error boundaries)
+   */
+  emit(topic, payload = {}) {
+    const matched = [];
+    if (this.subscribers.has(topic)) {
+      for (const h of this.subscribers.get(topic)) matched.push(h);
+    }
+    for (const item of this.wildcardSubscribers) {
+      if (item.regex.test(topic)) matched.push(item.handler);
+    }
+    for (const h of matched) {
+      try {
+        h(payload, topic);
+      } catch (err) {
+        this.errorHandler(err, topic);
+      }
+    }
+    return matched.length;
+  }
+
   /**
    * Publish an event asynchronously (fire-and-forget, non-blocking)
    */
