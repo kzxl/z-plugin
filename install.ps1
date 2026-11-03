@@ -98,6 +98,73 @@ foreach ($pName in $pluginsToProcess) {
     }
 }
 
+# 3. Synchronize MCP configs and enabled plugins state for Antigravity & ZCode
+$antigravityConfigPath = Join-Path $env:USERPROFILE ".gemini\config\config.json"
+if (Test-Path $antigravityConfigPath) {
+    try {
+        $cfg = Get-Content $antigravityConfigPath -Raw | ConvertFrom-Json
+        if (-not $cfg.plugins) { $cfg | Add-Member -MemberType NoteProperty -Name "plugins" -Value ([PSCustomObject]@{}) }
+        foreach ($p in $pluginsToProcess) {
+            if (-not $cfg.plugins.$p) {
+                $cfg.plugins | Add-Member -MemberType NoteProperty -Name $p -Value ([PSCustomObject]@{ enabled = (-not $Uninstall) }) -Force
+            } else {
+                $cfg.plugins.$p.enabled = (-not $Uninstall)
+            }
+        }
+        $cfg | ConvertTo-Json -Depth 10 | Set-Content $antigravityConfigPath -Encoding utf8
+        Write-Host "[Antigravity] Synchronized enabled plugins in config.json" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not update config.json: $_"
+    }
+}
+
+$mcpConfigPaths = @(
+    (Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"),
+    (Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_config.json")
+)
+foreach ($mcpPath in $mcpConfigPaths) {
+    if (Test-Path $mcpPath) {
+        try {
+            $mcp = Get-Content $mcpPath -Raw | ConvertFrom-Json
+            if (-not $mcp.mcpServers) { $mcp | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value ([PSCustomObject]@{}) }
+            foreach ($p in $pluginsToProcess) {
+                $serverScript = Join-Path $env:USERPROFILE ".gemini\config\plugins\$p\scripts\mcp-server.mjs"
+                if (Test-Path $serverScript) {
+                    $serverObj = [PSCustomObject]@{
+                        command = "node"
+                        args = @($serverScript -replace '\\', '/')
+                    }
+                    if (-not $mcp.mcpServers.$p) {
+                        $mcp.mcpServers | Add-Member -MemberType NoteProperty -Name $p -Value $serverObj -Force
+                    }
+                }
+            }
+            $mcp | ConvertTo-Json -Depth 10 | Set-Content $mcpPath -Encoding utf8
+            Write-Host "[Antigravity] Synchronized MCP config: $mcpPath" -ForegroundColor Green
+        } catch {
+            Write-Warning "Could not update ${mcpPath}: $_"
+        }
+    }
+}
+
+# 4. Synchronize ZCode CLI config
+$zcodeConfigPath = Join-Path $env:USERPROFILE ".zcode\cli\config.json"
+if (Test-Path $zcodeConfigPath) {
+    try {
+        $zcfg = Get-Content $zcodeConfigPath -Raw | ConvertFrom-Json
+        if (-not $zcfg.plugins) { $zcfg | Add-Member -MemberType NoteProperty -Name "plugins" -Value ([PSCustomObject]@{}) }
+        if (-not $zcfg.plugins.enabledPlugins) { $zcfg.plugins | Add-Member -MemberType NoteProperty -Name "enabledPlugins" -Value ([PSCustomObject]@{}) }
+        foreach ($p in $pluginsToProcess) {
+            $zcfg.plugins.enabledPlugins | Add-Member -MemberType NoteProperty -Name $p -Value (-not $Uninstall) -Force
+            $zcfg.plugins.enabledPlugins | Add-Member -MemberType NoteProperty -Name "$p@z-plugin" -Value (-not $Uninstall) -Force
+        }
+        $zcfg | ConvertTo-Json -Depth 10 | Set-Content $zcodeConfigPath -Encoding utf8
+        Write-Host "[ZCode] Synchronized enabled plugins in cli/config.json" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not update ZCode config.json: $_"
+    }
+}
+
 if ($Uninstall) {
     Write-Host "`nUnlink completed successfully." -ForegroundColor Green
 } else {
