@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schemas/manifest-v2.schema.json",
+  "id": "z-token",
+  "name": "Z-Token Context Firewall",
+  "version": "1.1.0",
+  "description": "Compact-context tools and guards: code outline, capped search, compact .NET builds, oversized-read blocking, and token budgeting.",
+  "author": "kzxl",
+  "license": "MIT",
+  "kind": "domain-module",
+  "main": "./scripts/mcp-server.mjs",
+  "runtime": {
+    "node": ">=22.0.0",
+    "aeos": "^2.0.0",
+    "os": ["win32", "linux", "darwin"]
+  },
+  "capabilities": {
+    "provides": [
+      {
+        "id": "capability:context-guard",
+        "version": "1.1.0",
+        "description": "PreToolUse and PostToolUse token guard and loop breaker."
+      },
+      {
+        "id": "capability:code-outline",
+        "version": "1.1.0",
+        "description": "Multi-language symbol outline and declaration extraction."
+      }
+    ]
+  },
+  "mcp": {
+    "server": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "tools": ["outline", "read_symbol", "search", "build", "run", "diet"]
+    }
+  }
+}

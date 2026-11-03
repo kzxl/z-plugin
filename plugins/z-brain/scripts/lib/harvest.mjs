@@ -1,15 +1,65 @@
 import { getDb, insertAtom, updateAtom } from './db.mjs';
 
+function extractTokens(str) {
+  return new Set(
+    str
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 2 && !/^(the|and|for|with|from|this|that|trong|cho|cua|la|cac)$/i.test(w))
+  );
+}
+
+function tokenSimilarity(setA, setB) {
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection++;
+  }
+  const union = setA.size + setB.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
 function findSimilarAtom(db, question, projectId) {
   const cleanQ = question.trim().toLowerCase();
-  const exact = db.prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) = ?').get(projectId, cleanQ);
+  
+  // 1. Exact match
+  const exact = db
+    .prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) = ?')
+    .get(projectId, cleanQ);
   if (exact) return exact;
 
+  // 2. Token Jaccard similarity across recent project atoms (Semantic similarity)
+  const qTokens = extractTokens(cleanQ);
+  if (qTokens.size >= 2) {
+    const candidates = db
+      .prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? ORDER BY id DESC LIMIT 50')
+      .all(projectId);
+
+    for (const cand of candidates) {
+      const candTokens = extractTokens(cand.question);
+      const sim = tokenSimilarity(qTokens, candTokens);
+      if (sim >= 0.70) {
+        return cand;
+      }
+    }
+  }
+
+  // 3. Normalized prefix check with divergence guard
   const prefix = cleanQ.slice(0, 45);
   if (prefix.length >= 25) {
-    const near = db.prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) LIKE ?').get(projectId, `${prefix}%`);
-    if (near) return near;
+    const near = db
+      .prepare('SELECT id, question, trust_level, evidence, tags FROM knowledge_atoms WHERE project_id = ? AND LOWER(question) LIKE ?')
+      .get(projectId, `${prefix}%`);
+    if (near) {
+      const candTokens = extractTokens(near.question);
+      const sim = tokenSimilarity(qTokens, candTokens);
+      // Only accept prefix match if token overlap is at least 50%
+      if (sim >= 0.50 || Math.abs(near.question.length - cleanQ.length) <= 20) {
+        return near;
+      }
+    }
   }
+
   return null;
 }
 

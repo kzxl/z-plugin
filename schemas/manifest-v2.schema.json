@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ZPluginManifestV2",
+  "description": "Standard Manifest Schema v2 for AEOS Plugins and DLC Extensions",
+  "type": "object",
+  "required": ["id", "name", "version", "kind", "main"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-_]+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "license": {
+      "type": "string",
+      "default": "MIT"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["core-kernel", "domain-module", "extension-dlc", "tool-pack"]
+    },
+    "main": {
+      "type": "string"
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "node": { "type": "string" },
+        "aeos": { "type": "string" },
+        "os": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" },
+              "version": { "type": "string" },
+              "description": { "type": "string" },
+              "contract": { "type": "string" }
+            }
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" },
+              "version": { "type": "string" },
+              "optional": { "type": "boolean", "default": false }
+            }
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "plugins": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "properties": {
+        "subscribes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "publishes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "filesystem": {
+          "type": "object",
+          "properties": {
+            "read": { "type": "array", "items": { "type": "string" } },
+            "write": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "process": {
+          "type": "object",
+          "properties": {
+            "exec": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "network": {
+          "type": "object",
+          "properties": {
+            "outbound": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "server": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "tools": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

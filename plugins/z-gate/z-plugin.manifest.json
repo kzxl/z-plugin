@@ -1,0 +1,52 @@
+{
+  "$schema": "../../schemas/manifest-v2.schema.json",
+  "id": "z-gate",
+  "name": "Z-Gate Unified Quality & Code Review Gate",
+  "version": "1.1.0",
+  "description": "Unified quality, security and code review gate: NEV audit, wrapper hell check, helper discovery, and ERP domain invariants.",
+  "author": "kzxl",
+  "license": "MIT",
+  "kind": "domain-module",
+  "main": "./scripts/mcp-server.mjs",
+  "runtime": {
+    "node": ">=22.0.0",
+    "aeos": "^2.0.0",
+    "os": ["win32", "linux", "darwin"]
+  },
+  "capabilities": {
+    "provides": [
+      {
+        "id": "capability:quality-gate",
+        "version": "1.1.0",
+        "description": "Differential multi-dimensional code reviewer (P0-P4)."
+      },
+      {
+        "id": "capability:helper-discovery",
+        "version": "1.1.0",
+        "description": "Discovers existing codebase utility methods and extensions (R_REUSE)."
+      }
+    ],
+    "requires": [
+      {
+        "id": "capability:knowledge-engine",
+        "version": "^1.1.0",
+        "optional": true
+      }
+    ]
+  },
+  "events": {
+    "publishes": ["quality.review.completed"]
+  },
+  "mcp": {
+    "server": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "tools": [
+        "zgate_review",
+        "zgate_find_helpers",
+        "zgate_audit_diff",
+        "zgate_status"
+      ]
+    }
+  }
+}

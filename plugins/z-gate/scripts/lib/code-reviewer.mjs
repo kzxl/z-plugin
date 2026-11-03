@@ -17,14 +17,54 @@ import { findHelpers } from './helper-discovery.mjs';
 const CONVENTIONAL_COMMIT_REGEX = /^(feat|fix|refactor|test|docs|chore|perf|ci|style)(\([a-zA-Z0-9_\-\.\/]+\))?:\s.+/;
 
 /**
- * Safely lookup past gotchas for modified files from z-brain (Mesh)
+ * Safely lookup past gotchas for modified files from z-brain via Service Registry / Mesh
  */
 async function lookupBrainGotchas(files) {
   const gotchas = [];
   try {
-    const brainDbPath = path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-brain', 'scripts', 'lib', 'db.mjs');
-    if (fs.existsSync(brainDbPath)) {
-      const brainModule = await import(pathToFileURL(brainDbPath).href);
+    let brainModule = null;
+
+    // 1. Check Service Registry if active
+    try {
+      const { defaultServiceRegistry } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+      const knowledgeEngine = defaultServiceRegistry.get('IKnowledgeEngine') || defaultServiceRegistry.get('z-brain');
+      if (knowledgeEngine && typeof knowledgeEngine.getKnowledgeByFile === 'function') {
+        for (const file of files) {
+          const basename = path.basename(file);
+          if (basename.length > 3) {
+            const res = await knowledgeEngine.getKnowledgeByFile(basename, { limit: 2 });
+            if (res && res.atoms && res.atoms.length > 0) {
+              for (const atom of res.atoms) {
+                gotchas.push({
+                  file,
+                  atomId: atom.id,
+                  gotcha: atom.gotcha_fix || atom.question,
+                  trustLevel: atom.trust_level
+                });
+              }
+            }
+          }
+        }
+        return gotchas;
+      }
+    } catch {}
+
+    // 2. Discover via environment or standard installed plugin locations
+    const candidatePaths = [
+      process.env.ZBRAIN_MODULE_PATH,
+      path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
+      path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
+      path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-brain', 'scripts', 'lib', 'db.mjs')
+    ].filter(Boolean);
+
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        brainModule = await import(pathToFileURL(p).href);
+        break;
+      }
+    }
+
+    if (brainModule && typeof brainModule.getDb === 'function') {
       const db = brainModule.getDb();
       for (const file of files) {
         const basename = path.basename(file);

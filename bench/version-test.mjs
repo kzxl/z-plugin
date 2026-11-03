@@ -52,6 +52,13 @@ for (const dirName of pluginFolders) {
     const zcode = JSON.parse(fs.readFileSync(zcodeManifestPath, "utf8"));
     ok(zcode.version === releaseVersion, `${dirName}/.zcode-plugin/plugin.json version (${zcode.version}) matches release (${releaseVersion})`);
   }
+
+  // AEOS z-plugin.manifest.json
+  const aeosManifestPath = path.join(pDir, "z-plugin.manifest.json");
+  if (fs.existsSync(aeosManifestPath)) {
+    const aeos = JSON.parse(fs.readFileSync(aeosManifestPath, "utf8"));
+    ok(aeos.version === releaseVersion, `${dirName}/z-plugin.manifest.json version (${aeos.version}) matches release (${releaseVersion})`);
+  }
 }
 
 console.log("\nall version consistency checks passed");

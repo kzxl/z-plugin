@@ -5,19 +5,53 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-// Lazy load inter-plugin peers gracefully
+// Lazy load inter-plugin peers gracefully via Service Registry or dynamic locator
 let findHelpers = null;
+let searchKnowledge = null;
+
 try {
-  const m = await import('../../../z-gate/scripts/lib/helper-discovery.mjs');
-  findHelpers = m.findHelpers;
+  const { defaultServiceRegistry } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+  findHelpers = defaultServiceRegistry.get('IHelperDiscoveryService')?.findHelpers || null;
+  searchKnowledge = defaultServiceRegistry.get('IKnowledgeEngine')?.searchKnowledge || null;
 } catch {}
 
-let searchKnowledge = null;
-try {
-  const m = await import('../../../z-brain/scripts/lib/search.mjs');
-  searchKnowledge = m.searchKnowledge;
-} catch {}
+if (!findHelpers) {
+  const gatePaths = [
+    process.env.ZGATE_MODULE_PATH,
+    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
+    path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
+    path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs')
+  ].filter(Boolean);
+  for (const p of gatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const m = await import(pathToFileURL(p).href);
+        findHelpers = m.findHelpers;
+        break;
+      } catch {}
+    }
+  }
+}
+
+if (!searchKnowledge) {
+  const brainPaths = [
+    process.env.ZBRAIN_SEARCH_PATH,
+    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
+    path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
+    path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-brain', 'scripts', 'lib', 'search.mjs')
+  ].filter(Boolean);
+  for (const p of brainPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const m = await import(pathToFileURL(p).href);
+        searchKnowledge = m.searchKnowledge;
+        break;
+      } catch {}
+    }
+  }
+}
 
 export function generateMicroSpec(prompt, options = {}) {
   const cleanPrompt = (prompt || "").trim();

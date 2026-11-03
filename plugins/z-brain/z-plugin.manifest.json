@@ -1,0 +1,50 @@
+{
+  "$schema": "../../schemas/manifest-v2.schema.json",
+  "id": "z-brain",
+  "name": "Z-Brain Knowledge Engine",
+  "version": "1.1.0",
+  "description": "Zero-overhead cognitive episodic memory for AI agents with SQLite WAL and FTS5.",
+  "author": "kzxl",
+  "license": "MIT",
+  "kind": "domain-module",
+  "main": "./scripts/mcp-server.mjs",
+  "runtime": {
+    "node": ">=22.0.0",
+    "aeos": "^2.0.0",
+    "os": ["win32", "linux", "darwin"]
+  },
+  "capabilities": {
+    "provides": [
+      {
+        "id": "capability:knowledge-engine",
+        "version": "1.1.0",
+        "description": "FTS5 BM25 memory retrieval, gotcha indexing, and atomic lesson harvesting."
+      },
+      {
+        "id": "capability:session-observer",
+        "version": "1.1.0",
+        "description": "Captures session observations, decisions, and file-centric gotchas."
+      }
+    ]
+  },
+  "events": {
+    "subscribes": ["code.modified", "quality.review.completed"],
+    "publishes": ["memory.atom.harvested"]
+  },
+  "mcp": {
+    "server": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "tools": [
+        "zbrain_fetch",
+        "zbrain_view",
+        "zbrain_harvest",
+        "zbrain_query",
+        "zbrain_timeline",
+        "zbrain_file",
+        "zbrain_observe",
+        "zbrain_status"
+      ]
+    }
+  }
+}

@@ -49,10 +49,16 @@ export function auditDiff({ diff = '', commitMessage = '', cwd = process.cwd(), 
 
   // 4. LOC Inflation & Code Bloat on Refactor (R_NEV)
   if (isRefactoringTask && parsed.addedLines.length > 0) {
-    const added = parsed.addedLines.length;
-    const deleted = parsed.deletedLines.length;
+    // Exclude automated test files from production code inflation calculations
+    const isTestFile = (f) => f && (/(?:test|spec)s?[\/\._-]|(?:tests?|specs?)\.(?:cs|ts|js|jsx|tsx|py)$|Tests\.cs$/i.test(f));
+    const prodAdded = parsed.addedLines.filter((l) => !isTestFile(l.file)).length;
+    const prodDeleted = parsed.deletedLines.filter((l) => !isTestFile(l.file)).length;
 
-    // If added > deleted by more than 30%
+    // Evaluate production LOC delta
+    const added = prodAdded;
+    const deleted = prodDeleted;
+
+    // If production added > deleted by more than 30%
     if (deleted > 0 && (added - deleted) / deleted > 0.3) {
       const inflationPercent = Math.round(((added - deleted) / deleted) * 100);
       warnings.push(

@@ -81,6 +81,17 @@ for (const dirName of folders) {
       console.log(`  ✓ Updated plugins/${dirName}/.zcode-plugin/plugin.json -> ${targetVersion}`);
     }
   }
+
+  // AEOS Manifest v2
+  const manifestPath = path.join(pDir, "z-plugin.manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (manifest.version !== targetVersion) {
+      manifest.version = targetVersion;
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+      console.log(`  ✓ Updated plugins/${dirName}/z-plugin.manifest.json -> ${targetVersion}`);
+    }
+  }
 }
 
 // 4. README.md Shipped Plugins table

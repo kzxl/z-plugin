@@ -1,0 +1,55 @@
+{
+  "$schema": "../../schemas/manifest-v2.schema.json",
+  "id": "z-craft",
+  "name": "Z-Craft Software Craftsmanship & Disciplined Vibe-Coding",
+  "version": "1.1.0",
+  "description": "Software craftsmanship engine: anti-slop linter, 4-state UX micro-contract generator, generative canvas preview, and vibe time-machine.",
+  "author": "kzxl",
+  "license": "MIT",
+  "kind": "domain-module",
+  "main": "./scripts/mcp-server.mjs",
+  "runtime": {
+    "node": ">=22.0.0",
+    "aeos": "^2.0.0",
+    "os": ["win32", "linux", "darwin"]
+  },
+  "capabilities": {
+    "provides": [
+      {
+        "id": "capability:ui-craftsmanship",
+        "version": "1.1.0",
+        "description": "Anti-slop AST linter, design token bridge, and desktop UI invariants."
+      },
+      {
+        "id": "capability:canvas-preview",
+        "version": "1.1.0",
+        "description": "Interactive HTML canvas preview generator and snapshot time-machine."
+      }
+    ],
+    "requires": [
+      {
+        "id": "capability:helper-discovery",
+        "version": "^1.1.0",
+        "optional": true
+      },
+      {
+        "id": "capability:knowledge-engine",
+        "version": "^1.1.0",
+        "optional": true
+      }
+    ]
+  },
+  "mcp": {
+    "server": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "tools": [
+        "zcraft_spec",
+        "zcraft_lint_ui",
+        "zcraft_preview",
+        "zcraft_checkpoint",
+        "zcraft_status"
+      ]
+    }
+  }
+}
