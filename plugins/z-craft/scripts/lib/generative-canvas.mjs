@@ -102,7 +102,13 @@ export function generateCanvasWidget({
   <title>${safeTitle}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { background-color: #020617; margin: 0; padding: 12px; }
+    /* Offline & Enterprise Fallback Tokens */
+    body { background-color: #020617; color: #f8fafc; margin: 0; padding: 12px; font-family: system-ui, -apple-system, sans-serif; }
+    .hidden { display: none !important; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #1e293b; padding: 8px 12px; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>

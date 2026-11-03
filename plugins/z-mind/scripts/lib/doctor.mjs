@@ -75,13 +75,19 @@ export function runDoctor(cwd = process.cwd()) {
           quickScan(path.join(dir, ent.name), depth + 1);
         } else if (ent.isFile() && /\.(cs|ts|js)$/i.test(ent.name)) {
           try {
-            const code = fs.readFileSync(path.join(dir, ent.name), 'utf8');
-            if (code.includes('BindingSource') && foundBindingSource === 0) {
+            const rawCode = fs.readFileSync(path.join(dir, ent.name), 'utf8');
+            // Strip single-line and multi-line comments to avoid false positives in documentation
+            const cleanCode = rawCode
+              .replace(/\/\*[\s\S]*?\*\//g, '')
+              .replace(/\/\/.*$/gm, '')
+              .replace(/#.*$/gm, '');
+
+            if (/\bBindingSource\b/.test(cleanCode) && foundBindingSource === 0) {
               foundBindingSource++;
               issues.push(`WinForms violation: Found BindingSource in ${ent.name} (R_WPF).`);
               score -= 15;
             }
-            if ((/SELECT\s+.*\+\s*[$a-zA-Z0-9_]/i.test(code) || /\$\"SELECT\s+.*\{/i.test(code)) && foundSqlConcat === 0) {
+            if ((/SELECT\s+.*\+\s*[$a-zA-Z0-9_]/i.test(cleanCode) || /\$\"SELECT\s+.*\{/i.test(cleanCode)) && foundSqlConcat === 0) {
               foundSqlConcat++;
               issues.push(`SQL violation: Found raw query string concatenation in ${ent.name} (R_DB).`);
               score -= 15;

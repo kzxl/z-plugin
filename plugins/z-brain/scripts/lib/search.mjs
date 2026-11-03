@@ -1,16 +1,33 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getDb } from './db.mjs';
 
-const ERP_SYNONYMS = {
-  "ton kho": ["inventory", "stock", "ton_kho", "lot"],
-  "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
-  "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
-  "deadlock": ["result", "sync-over-async", "configureawait", "wait"],
-  "don hang": ["order", "don_hang", "sales"],
-  "đơn hàng": ["order", "don_hang", "sales"],
-  "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
-  "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"]
-};
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_SYNONYMS_PATH = path.resolve(__dirname, '..', '..', 'data', 'synonyms.json');
+
+let _cachedSynonyms = null;
+
+export function getSynonymsDictionary(customPath = null) {
+  if (_cachedSynonyms && !customPath) return _cachedSynonyms;
+  const dictPath = customPath || process.env.ZBRAIN_SYNONYMS_PATH || DEFAULT_SYNONYMS_PATH;
+  try {
+    if (fs.existsSync(dictPath)) {
+      _cachedSynonyms = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
+      return _cachedSynonyms;
+    }
+  } catch {}
+  return {
+    "ton kho": ["inventory", "stock", "ton_kho", "lot"],
+    "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
+    "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
+    "deadlock": ["result", "sync-over-async", "configureawait", "wait"],
+    "don hang": ["order", "don_hang", "sales"],
+    "đơn hàng": ["order", "don_hang", "sales"],
+    "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
+    "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"]
+  };
+}
 
 export function detectCurrentProject(cwd = process.cwd()) {
   try {
@@ -28,7 +45,7 @@ export function detectCurrentProject(cwd = process.cwd()) {
 /**
  * Clean search query into safe FTS5 terms
  */
-function sanitizeFtsQuery(rawQuery) {
+function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
   if (!rawQuery) return "";
   // Normalize developer keywords and compound words
   let normalized = rawQuery
@@ -53,7 +70,8 @@ function sanitizeFtsQuery(rawQuery) {
 
   const lowerRaw = rawQuery.toLowerCase();
   const synonyms = [];
-  for (const [key, synList] of Object.entries(ERP_SYNONYMS)) {
+  const dict = customSynonyms || getSynonymsDictionary();
+  for (const [key, synList] of Object.entries(dict)) {
     if (lowerRaw.includes(key)) {
       synonyms.push(...synList);
     }
@@ -74,10 +92,11 @@ export function searchKnowledge({
   tags = [],
   limit = 5,
   includeGlobal = true,
-  trustThreshold = null
+  trustThreshold = null,
+  synonyms = null
 }) {
   const db = getDb();
-  const ftsQuery = sanitizeFtsQuery(query);
+  const ftsQuery = sanitizeFtsQuery(query, synonyms);
   const effectiveProject = project || detectCurrentProject();
   const normalizedProject = effectiveProject && effectiveProject !== "global" ? String(effectiveProject).trim().toLowerCase() : null;
 

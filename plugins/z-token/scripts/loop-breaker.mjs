@@ -35,7 +35,8 @@ async function main() {
 
   const threshold = lb.threshold ?? 3;
 
-  const session = String(ev.session_id || "unknown").replace(/[^\w.-]/g, "_");
+  const rawSession = ev.session_id || ev.sessionId || ev.conversation_id || ev.conversationId || (ev.cwd ? path.basename(ev.cwd) : "default");
+  const session = String(rawSession).replace(/[^\w.-]/g, "_");
   const tool = ev.tool_name || "";
   if (!tool) return;
 

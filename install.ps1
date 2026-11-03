@@ -3,7 +3,8 @@
 param(
     [string]$Plugin = "all",
     [switch]$Uninstall,
-    [switch]$CleanLegacy
+    [switch]$CleanLegacy,
+    [switch]$Development
 )
 
 $repoRoot = $PSScriptRoot
@@ -73,8 +74,37 @@ foreach ($pName in $pluginsToProcess) {
         if (Test-Path $targetDir) {
             $item = Get-Item $targetDir -Force
             if ($item.Attributes -match "ReparsePoint") {
-                Write-Host "[$($ide.Name)] Removing legacy junction for $targetDir (Antigravity Go LS requires physical directories)..." -ForegroundColor Yellow
+                Write-Host "[$($ide.Name)] Removing legacy junction for $targetDir..." -ForegroundColor Yellow
                 [System.IO.Directory]::Delete($targetDir)
+            }
+        }
+
+        # Development mode: link directly to repo source via symlink or junction
+        if ($Development) {
+            try {
+                if (Test-Path $targetDir) {
+                    $item = Get-Item $targetDir -Force
+                    if ($item.Attributes -match "ReparsePoint") {
+                        [System.IO.Directory]::Delete($targetDir)
+                    } else {
+                        $localData = Join-Path $targetDir "data"
+                        $hasData = (Test-Path $localData) -and (Get-ChildItem -Path $localData -Filter "*.sqlite*" -ErrorAction SilentlyContinue)
+                        if (!$hasData) {
+                            Remove-Item -Path $targetDir -Recurse -Force -ErrorAction Stop
+                        }
+                    }
+                }
+                New-Item -ItemType SymbolicLink -Path $targetDir -Target $src -Force -ErrorAction Stop | Out-Null
+                Write-Host "[$($ide.Name)] Linked development symlink: $targetDir -> $src" -ForegroundColor Green
+                continue
+            } catch {
+                try {
+                    New-Item -ItemType Junction -Path $targetDir -Target $src -Force -ErrorAction Stop | Out-Null
+                    Write-Host "[$($ide.Name)] Linked development junction: $targetDir -> $src" -ForegroundColor Green
+                    continue
+                } catch {
+                    Write-Warning "Could not link development symlink/junction: $_. Falling back to copy sync."
+                }
             }
         }
 

@@ -1,0 +1,10 @@
+{
+  "ton kho": ["inventory", "stock", "ton_kho", "lot"],
+  "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
+  "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
+  "deadlock": ["result", "sync-over-async", "configureawait", "wait"],
+  "don hang": ["order", "don_hang", "sales"],
+  "đơn hàng": ["order", "don_hang", "sales"],
+  "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
+  "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"]
+}
