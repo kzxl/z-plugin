@@ -1,0 +1,81 @@
+{
+  "R_DOMAIN_FIN": {
+    "title": "ERP Finance & Accounting Invariants",
+    "category": "domain",
+    "tags": [
+      "finance",
+      "accounting",
+      "period-lock",
+      "double-entry",
+      "tax",
+      "rounding",
+      "ledger"
+    ],
+    "summary": "ERP Finance: Strict accounting period lock (strictly no retroactive edits to closed financial periods), double-entry balance verification (Total Debit == Total Credit on all posted vouchers), currency rounding discipline, and immutable posted general ledger transactions."
+  },
+  "R_DOMAIN_WMS": {
+    "title": "ERP Warehouse Management & Stock Handover",
+    "category": "domain",
+    "tags": [
+      "wms",
+      "warehouse",
+      "handover",
+      "location",
+      "bin",
+      "transfer",
+      "two-step"
+    ],
+    "summary": "ERP WMS & Handover: Strict 2-step transfer gate (Dispatched -> In-Transit -> Received), bin/location capacity validation before storage assignment, and mandatory physical handover acknowledgment before stock ledger debit/credit."
+  },
+  "R_DOMAIN_INV": {
+    "title": "ERP Inventory & Warehouse Invariants",
+    "category": "domain",
+    "tags": [
+      "inventory",
+      "warehouse",
+      "erp",
+      "stock",
+      "locking",
+      "fifo"
+    ],
+    "summary": "Inventory & Warehouse Invariants: Strict physical vs ledger reconciliation, transactional row-level stock locks (UPDLOCK, ROWLOCK), FIFO/LIFO ledger immutability, zero negative inventory unless explicit backorder configuration, atomic lot reservations."
+  },
+  "R_DOMAIN_PROD": {
+    "title": "ERP Production & Lot Traceability",
+    "category": "domain",
+    "tags": [
+      "production",
+      "manufacturing",
+      "lot",
+      "serial",
+      "traceability",
+      "bom"
+    ],
+    "summary": "Production & Lot Traceability: End-to-end Lot/Serial traceability across BOM stages, immutable process sign-offs, ticket-to-journal stage transitions, zero unverified scrap or material substitution, continuous defect logging."
+  },
+  "R_DOMAIN_SALES": {
+    "title": "ERP Sales Order & Packaging Flow",
+    "category": "domain",
+    "tags": [
+      "sales",
+      "order",
+      "pricing",
+      "packaging",
+      "nkdg",
+      "erp"
+    ],
+    "summary": "Sales & Packaging Flow: Deterministic price and discount calculation decoupled from UI, mandatory approval gate before warehouse stock-out, selective packing log (NKDG) generation, immutable audit journaling."
+  },
+  "R_DOMAIN_AUTH": {
+    "title": "ERP Enterprise RBAC & Data Tenancy",
+    "category": "domain",
+    "tags": [
+      "auth",
+      "rbac",
+      "permission",
+      "security",
+      "row-level-security"
+    ],
+    "summary": "Enterprise RBAC & Data Sovereignty: 2-tier authorization matrix (Feature-Action CRUD/Export/Approve + Row-Level Security tenancy filters), client UI signal delegation vs backend hard authorization filters, least-privilege service delegation."
+  }
+}

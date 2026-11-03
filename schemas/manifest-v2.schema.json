@@ -36,6 +36,36 @@
     "main": {
       "type": "string"
     },
+    "extends": {
+      "type": "object",
+      "properties": {
+        "plugin": { "type": "string" },
+        "slot": { "type": "string" }
+      }
+    },
+    "contributions": {
+      "type": "object",
+      "properties": {
+        "rules": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "synonyms": { "type": "string" },
+        "gateChecks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "handler": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "runtime": {
       "type": "object",
       "properties": {

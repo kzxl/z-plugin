@@ -16,6 +16,17 @@ import { findHelpers } from './helper-discovery.mjs';
 
 const CONVENTIONAL_COMMIT_REGEX = /^(feat|fix|refactor|test|docs|chore|perf|ci|style)(\([a-zA-Z0-9_\-\.\/]+\))?:\s.+/;
 
+export const customLineReviewers = [];
+
+/**
+ * Register custom line reviewers contributed by extension DLCs (e.g. dlc-erp)
+ */
+export function registerLineReviewer(reviewerFn) {
+  if (typeof reviewerFn === 'function') {
+    customLineReviewers.push(reviewerFn);
+  }
+}
+
 /**
  * Safely lookup past gotchas for modified files from z-brain via Service Registry / Mesh
  */
@@ -262,7 +273,7 @@ export async function reviewCode({
       }
 
       // ERP-DECIMAL: Monetary / Price field declared as float/double
-      const decimalMatch = code.match(/\b(double|float)\s+(Price|Amount|Cost|UnitPrice|DonGia|ThanhTien|TongTien|GiaVon|GiaBan|TaxAmount|DiscountAmount)\b/i);
+      const decimalMatch = code.match(/\b(double|float)\s+(Price|Amount|Cost|UnitPrice|SubTotal|Total|DonGia|ThanhTien|TongTien|GiaVon|GiaBan|TaxAmount|DiscountAmount)\b/i);
       if (decimalMatch) {
         findings.push({
           severity: 'P1',
@@ -315,6 +326,14 @@ export async function reviewCode({
           suggestion: 'Provide real action handler or mark button disabled: disabled aria-disabled="true".'
         });
       }
+    }
+
+    // G. Custom DLC Review Checks (extensible review hooks)
+    for (const rev of customLineReviewers) {
+      try {
+        const finding = rev(code, currentFile, lineIndex);
+        if (finding) findings.push(finding);
+      } catch {}
     }
 
     // G. [P3] Cognitive Complexity: Excessive Indentation

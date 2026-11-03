@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/manifest-v2.schema.json",
+  "id": "dlc-erp",
+  "name": "ERP & Financial Engineering DLC",
+  "version": "1.1.0",
+  "kind": "extension-dlc",
+  "description": "Enterprise Resource Planning invariants, financial precision linters, and bilingual ERP synonyms.",
+  "main": "index.mjs",
+  "extends": {
+    "plugin": "z-mind",
+    "slot": "domain-rules"
+  },
+  "dependencies": {
+    "plugins": {
+      "z-mind": ">=1.1.0",
+      "z-gate": ">=1.1.0"
+    }
+  },
+  "contributions": {
+    "rules": [
+      "./rules/erp-rules.json"
+    ],
+    "synonyms": "./synonyms/erp-synonyms.json",
+    "gateChecks": [
+      {
+        "id": "ERP-DECIMAL",
+        "name": "Decimal Currency Precision",
+        "handler": "checkDecimalPrecision"
+      },
+      {
+        "id": "ERP-LOCK",
+        "name": "UPDLOCK for Inventory Rows",
+        "handler": "checkInventoryLock"
+      }
+    ]
+  },
+  "runtime": {
+    "node": ">=22"
+  }
+}

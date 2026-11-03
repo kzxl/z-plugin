@@ -37,4 +37,14 @@ for (const pName of expectedPlugins) {
   ok(manifest.mcp && manifest.mcp.server && Array.isArray(manifest.mcp.server.tools), `${pName} declares MCP tools`);
 }
 
+// Validate extension DLCs
+const dlcManifestPath = path.join(root, "extensions", "dlc-erp", "z-plugin.manifest.json");
+ok(fs.existsSync(dlcManifestPath), "extensions/dlc-erp/z-plugin.manifest.json exists on disk");
+const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
+ok(dlcManifest.id === "dlc-erp", "dlc-erp manifest id matches");
+ok(dlcManifest.version === "1.1.0", "dlc-erp version matches suite release version");
+ok(dlcManifest.kind === "extension-dlc", "dlc-erp kind is extension-dlc");
+ok(dlcManifest.extends && dlcManifest.extends.plugin === "z-mind", "dlc-erp extends z-mind");
+ok(dlcManifest.contributions && Array.isArray(dlcManifest.contributions.rules), "dlc-erp has contributed rules");
+
 console.log("\nall manifest v2 validation checks passed!");

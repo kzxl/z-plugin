@@ -1,0 +1,15 @@
+{
+  "ton kho": ["inventory", "stock", "ton_kho", "lot"],
+  "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
+  "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
+  "don hang": ["order", "don_hang", "sales"],
+  "đơn hàng": ["order", "don_hang", "sales"],
+  "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
+  "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"],
+  "phieu xuat": ["goods_issue", "delivery_order", "phieu_xuat"],
+  "phiếu xuất": ["goods_issue", "delivery_order", "phieu_xuat"],
+  "cong no": ["ar_ap", "receivable", "payable", "cong_no"],
+  "công nợ": ["ar_ap", "receivable", "payable", "cong_no"],
+  "ke toan": ["accounting", "general_ledger", "ke_toan"],
+  "kế toán": ["accounting", "general_ledger", "ke_toan"]
+}

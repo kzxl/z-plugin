@@ -800,3 +800,13 @@ export function auditPlan(text) {
     summary: warnings.length === 0 ? "Plan adheres to Z-Mind engineering invariants." : `Audit found ${warnings.length} invariant warning(s).`
   };
 }
+
+/**
+ * Register dynamic rules contributed by an Extension DLC
+ */
+export function registerRulesPack(rulesObj) {
+  if (typeof rulesObj === 'object' && rulesObj !== null) {
+    Object.assign(ENGINEERING_RULES, rulesObj);
+  }
+  return Object.keys(ENGINEERING_RULES).length;
+}
