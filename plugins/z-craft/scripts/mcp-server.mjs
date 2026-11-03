@@ -95,6 +95,15 @@ const TOOLS = [
 function handleRpc(req) {
   const { id, method, params } = req;
 
+  // JSON-RPC 2.0 notifications MUST NOT produce any response
+  if (!method || method.startsWith('notifications/')) {
+    return null;
+  }
+
+  if (method === 'ping') {
+    return { jsonrpc: '2.0', id, result: {} };
+  }
+
   if (method === 'initialize') {
     return {
       jsonrpc: '2.0',
@@ -209,13 +218,19 @@ function handleRpc(req) {
       return {
         jsonrpc: '2.0',
         id,
-        error: { code: -32601, message: `Tool not found: ${name}` }
+        result: {
+          content: [{ type: 'text', text: `Tool not found: ${name}` }],
+          isError: true
+        }
       };
     } catch (err) {
       return {
         jsonrpc: '2.0',
         id,
-        error: { code: -32000, message: err.message || String(err) }
+        result: {
+          content: [{ type: 'text', text: `[ERROR] ${err.message || String(err)}` }],
+          isError: true
+        }
       };
     }
   }

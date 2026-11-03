@@ -93,18 +93,22 @@ rl.on("line", (line) => {
 
   const { id, method, params } = request;
 
+  if (!method || method.startsWith("notifications/")) {
+    return; // Notification, no response
+  }
+
   try {
     switch (method) {
+      case "ping":
+        sendResponse(id, {});
+        break;
+
       case "initialize":
         sendResponse(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
           serverInfo: { name: "z-mind", version: "1.0.0" }
         });
-        break;
-
-      case "notifications/initialized":
-        // Notification, no response
         break;
 
       case "tools/list":

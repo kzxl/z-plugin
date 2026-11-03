@@ -1,16 +1,13 @@
 {
   "name": "z-craft",
-  "version": "1.0.0",
+  "displayName": "Z-Craft",
   "description": "Autonomous Software Craftsmanship & Disciplined Vibe-Coding Engine: anti-slop AST linter, UX micro-spec generator, generative UI canvas, and vibe time-machine.",
+  "version": "1.0.0",
   "author": "kzxl",
-  "mcpServers": {
-    "z-craft": {
-      "command": "node",
-      "args": ["${pluginDir}/scripts/mcp-server.mjs"],
-      "env": {
-        "NODE_OPTIONS": "--no-warnings"
-      }
-    }
-  },
-  "skills": ["skills/z-craft"]
+  "suggestedPrompts": [
+    "/z-craft spec",
+    "/z-craft lint",
+    "/z-craft preview",
+    "/z-craft status"
+  ]
 }

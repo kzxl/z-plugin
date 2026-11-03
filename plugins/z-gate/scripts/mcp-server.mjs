@@ -261,7 +261,12 @@ rl.on('line', async (line) => {
     return;
   }
 
-  if (method === 'notifications/initialized') return;
+  if (!method || method.startsWith('notifications/')) return;
+
+  if (method === 'ping') {
+    send({ jsonrpc: '2.0', id, result: {} });
+    return;
+  }
 
   if (method === 'tools/list') {
     send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });

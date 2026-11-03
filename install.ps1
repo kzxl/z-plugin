@@ -69,29 +69,24 @@ foreach ($pName in $pluginsToProcess) {
             New-Item -Path $ide.Path -ItemType Directory -Force | Out-Null
         }
 
-        # Check existing link
+        # Check existing link/folder
         if (Test-Path $targetDir) {
             $item = Get-Item $targetDir -Force
             if ($item.Attributes -match "ReparsePoint") {
-                $currentTarget = (Get-Item $targetDir).Target
-                if ($currentTarget -eq $src) {
-                    Write-Host "[$($ide.Name)] Junction already up-to-date: $targetDir -> $src" -ForegroundColor DarkGray
-                    continue
-                } else {
-                    Write-Host "[$($ide.Name)] Re-pointing junction from $currentTarget to $src..." -ForegroundColor Yellow
-                    [System.IO.Directory]::Delete($targetDir)
-                }
-            } else {
-                Write-Host "[$($ide.Name)] Replacing existing folder with junction: $targetDir..." -ForegroundColor Yellow
-                Remove-Item -Path $targetDir -Recurse -Force
+                Write-Host "[$($ide.Name)] Removing legacy junction for $targetDir (Antigravity Go LS requires physical directories)..." -ForegroundColor Yellow
+                [System.IO.Directory]::Delete($targetDir)
             }
         }
 
         try {
-            New-Item -ItemType Junction -Path $targetDir -Target $src | Out-Null
-            Write-Host "[$($ide.Name)] Linked Junction: $targetDir -> $src" -ForegroundColor Green
+            if (!(Test-Path $targetDir)) {
+                New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
+            }
+            # Mirror files into target directory while preserving local SQLite databases and checkpoints
+            robocopy $src $targetDir /MIR /XF *.sqlite* /XD .git node_modules data /NP /NFL /NDL /NJH /NJS | Out-Null
+            Write-Host "[$($ide.Name)] Synchronized directory: $targetDir" -ForegroundColor Green
         } catch {
-            Write-Warning "Could not create junction, falling back to copy: $_"
+            Write-Warning "Could not copy: $_"
             Copy-Item -Path $src -Destination $targetDir -Recurse -Force
             Write-Host "[$($ide.Name)] Copied to: $targetDir" -ForegroundColor Green
         }
@@ -128,6 +123,12 @@ foreach ($mcpPath in $mcpConfigPaths) {
             $mcp = Get-Content $mcpPath -Raw | ConvertFrom-Json
             if (-not $mcp.mcpServers) { $mcp | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value ([PSCustomObject]@{}) }
             foreach ($p in $pluginsToProcess) {
+                if ($Uninstall) {
+                    if ($mcp.mcpServers.$p) {
+                        $mcp.mcpServers.PSObject.Properties.Remove($p)
+                    }
+                    continue
+                }
                 $serverScript = Join-Path $env:USERPROFILE ".gemini\config\plugins\$p\scripts\mcp-server.mjs"
                 if (Test-Path $serverScript) {
                     $serverObj = [PSCustomObject]@{
@@ -136,6 +137,8 @@ foreach ($mcpPath in $mcpConfigPaths) {
                     }
                     if (-not $mcp.mcpServers.$p) {
                         $mcp.mcpServers | Add-Member -MemberType NoteProperty -Name $p -Value $serverObj -Force
+                    } else {
+                        $mcp.mcpServers.$p = $serverObj
                     }
                 }
             }
