@@ -139,6 +139,132 @@ export function generateCanvasWidget({
   };
 }
 
+/**
+ * Graphify: Generates an interactive Architecture Topology Canvas preview
+ */
+export function generateGraphCanvasWidget({
+  title = "Architecture Call Graph",
+  nodes = [],
+  edges = [],
+  workspaceRoot = process.cwd()
+} = {}) {
+  let graphNodes = [...nodes];
+  let graphEdges = [...edges];
+
+  if (graphNodes.length === 0) {
+    try {
+      const cacheDir = path.join(workspaceRoot, ".z-plugin", "cache", "symbols");
+      if (fs.existsSync(cacheDir)) {
+        const files = fs.readdirSync(cacheDir).filter(f => f.endsWith(".json"));
+        for (const bf of files) {
+          const raw = JSON.parse(fs.readFileSync(path.join(cacheDir, bf), "utf8"));
+          if (raw.symbols) {
+            for (const symKey of Object.keys(raw.symbols)) {
+              for (const item of raw.symbols[symKey]) {
+                const calls = item.calls || [];
+                graphNodes.push({
+                  id: item.name,
+                  name: item.name,
+                  file: item.file,
+                  kind: item.kind,
+                  degree: calls.length,
+                  isGodNode: calls.length >= 8
+                });
+                for (const callee of calls) {
+                  graphEdges.push({ from: item.name, to: callee });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const uniqueNodesMap = new Map();
+  for (const n of graphNodes) {
+    if (!uniqueNodesMap.has(n.id)) uniqueNodesMap.set(n.id, n);
+  }
+  const topNodes = Array.from(uniqueNodesMap.values()).slice(0, 60);
+  const nodeIds = new Set(topNodes.map(n => n.id));
+  const topEdges = graphEdges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to)).slice(0, 100);
+
+  const safeTitle = escapeHtml(title);
+
+  const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${safeTitle}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #020617; color: #f8fafc; margin: 0; padding: 14px; font-family: system-ui, sans-serif; }
+    .node-box { transition: all 0.2s ease; cursor: pointer; }
+    .node-box:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+  </style>
+</head>
+<body>
+  <div class="p-6 bg-slate-900 border border-slate-800 rounded-xl shadow-lg">
+    <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+      <div>
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <span>🕸️</span> ${safeTitle}
+        </h2>
+        <p class="text-xs text-slate-400">Graphify Architecture Topology • ${topNodes.length} nodes, ${topEdges.length} call edges</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2.5 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">Interactive Topology</span>
+      </div>
+    </div>
+
+    <!-- Search filter -->
+    <div class="my-4 flex items-center gap-3">
+      <input type="text" id="filterInput" placeholder="Filter symbol or file..." class="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 w-64" oninput="filterGraph()">
+      <span class="text-xs text-slate-400" id="filterStats">Showing all nodes</span>
+    </div>
+
+    <!-- Node Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" id="nodesContainer">
+      ${topNodes.map(n => `
+        <div class="node-box p-3 rounded-lg border ${n.isGodNode ? 'bg-amber-950/20 border-amber-600/50 hover:border-amber-400' : 'bg-slate-950/60 border-slate-800 hover:border-blue-500/50'} text-xs" data-name="${escapeHtml(n.name)}" data-file="${escapeHtml(n.file || '')}">
+          <div class="flex items-center justify-between">
+            <span class="font-mono font-semibold ${n.isGodNode ? 'text-amber-400' : 'text-blue-400'}">${escapeHtml(n.name)}</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] ${n.isGodNode ? 'bg-amber-500/20 text-amber-300 font-bold' : 'bg-slate-800 text-slate-400'}">${n.isGodNode ? 'God Node (Deg: ' + n.degree + ')' : (n.kind || 'symbol')}</span>
+          </div>
+          <div class="text-[11px] text-slate-400 truncate mt-1">${escapeHtml(n.file || 'unknown')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <script>
+    function filterGraph() {
+      const q = document.getElementById('filterInput').value.toLowerCase();
+      const boxes = document.querySelectorAll('.node-box');
+      let visible = 0;
+      boxes.forEach(b => {
+        const name = b.getAttribute('data-name').toLowerCase();
+        const file = b.getAttribute('data-file').toLowerCase();
+        const match = !q || name.includes(q) || file.includes(q);
+        b.style.display = match ? 'block' : 'none';
+        if (match) visible++;
+      });
+      document.getElementById('filterStats').textContent = 'Showing ' + visible + ' / ' + boxes.length + ' nodes';
+    }
+  </script>
+</body>
+</html>`;
+
+  return {
+    title,
+    nodeCount: topNodes.length,
+    edgeCount: topEdges.length,
+    html: fullHtml,
+    previewBlock: `<antigravity-ui title="${safeTitle}">\n${fullHtml}\n</antigravity-ui>`
+  };
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { lintUiContent, lintUiFiles, loadWorkspaceTokens } from '../plugins/z-craft/scripts/lib/anti-slop-linter.mjs';
 import { generateMicroSpec } from '../plugins/z-craft/scripts/lib/spec-generator.mjs';
-import { generateCanvasWidget } from '../plugins/z-craft/scripts/lib/generative-canvas.mjs';
+import { generateCanvasWidget, generateGraphCanvasWidget } from '../plugins/z-craft/scripts/lib/generative-canvas.mjs';
 import { createCheckpoint, listCheckpoints, restoreCheckpoint } from '../plugins/z-craft/scripts/lib/time-machine.mjs';
 import { scaffoldComponent } from '../plugins/z-craft/scripts/lib/scaffolder.mjs';
 
@@ -121,6 +121,22 @@ ok(widget.html.includes('Warehouse Stock Grid'), 'canvas contains safe title');
 ok(widget.html.includes('tailwindcss'), 'canvas imports Tailwind CDN');
 ok(widget.html.includes('switchState'), 'canvas includes state switcher script');
 ok(widget.previewBlock.startsWith('<antigravity-ui'), 'generates Antigravity generative UI block');
+
+// 4b. Graphify interactive architecture canvas test
+const graphWidget = generateGraphCanvasWidget({
+  title: 'Enterprise Architecture Topology',
+  nodes: [
+    { id: 'OrderService', name: 'OrderService', kind: 'service', degree: 4, isGodNode: false },
+    { id: 'CentralHub', name: 'CentralHub', kind: 'service', degree: 10, isGodNode: true }
+  ],
+  edges: [
+    { from: 'OrderService', to: 'CentralHub' }
+  ]
+});
+ok(Boolean(graphWidget.html), 'graph canvas generated non-empty HTML');
+ok(graphWidget.nodeCount === 2, 'graph canvas contains 2 nodes');
+ok(graphWidget.html.includes('God Node'), 'graph canvas highlights God Node');
+ok(graphWidget.previewBlock.includes('Enterprise Architecture Topology'), 'graph canvas has antigravity-ui preview');
 
 console.log('z-craft: vibe time-machine checks');
 
