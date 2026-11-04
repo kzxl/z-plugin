@@ -1,6 +1,6 @@
 # 🔌 z-plugin (AEOS) — Agent Engineering Operating System
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Antigravity%202.0%20%7C%20ZCode%20%7C%20Cursor%20%7C%20Claude%20Code%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
@@ -16,13 +16,13 @@ Consolidating specialized core plugins, extension DLCs, a micro-kernel runtime, 
 
 | Component | Type | Version | Focus & Core Capabilities |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.2.0` | **Core AEOS Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC (`LocalIpcBridge`), <1ms Cognitive Router, Adaptive Dynamic Token Budgeter (3.5k-35k tokens), and <5ms Hot-Reload Manager. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.2.0` | **Context Diet & Token Guard:** Multiline generic method signatures, code outline, capped search, lean .NET builds, oversized-read blocking gateway, repeated-call loop breaker. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.2.0` | **Episodic Memory Engine:** Embedded SQLite WAL, FTS5 BM25 + Trigram Dice Semantic Hybrid Search, Temporal Knowledge Graph, and Asynchronous Write Queue (`AsyncHarvestQueue`) with retry backoff. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.2.0` | **Cognitive OS & 58 Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, dynamic DLC rules pack hook. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.2.0` | **Asset Discovery & NEV Gate:** Codebase helper discovery (`R_REUSE`), pre-commit diff audit against wrapper hell and LOC bloat, Git PreToolUse hook enforcing targeted staging (`R_GIT`). |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.2.0` | **Software Craftsmanship & Vibe Engine:** Anti-Slop AST Linter (`R_ANTI_SLOP`) with comment sanitization, 4-state UX micro-contract generator, live generative canvas, and vibe time-machine. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.2.0` | **ERP Domain Extension:** Financial precision audits (decimal vs double), WMS two-step handover validation, SQL UPDLOCK concurrency enforcement, and bilingual ERP terminology dictionary. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.3.0` | **Core AEOS Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC (`LocalIpcBridge`), <1ms Cognitive Router, Adaptive Dynamic Token Budgeter (3.5k-35k tokens), and <5ms Hot-Reload Manager. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.3.0` | **Context Diet & Graphify Call-Graph:** Sub-2ms BFS shortest-path traversal (`tracePath`), blast radius, polymorphic interface stitching, CQRS/MediatR dispatching, type-aware chained instantiation, branch guard detection, code outline, lean builds. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.3.0` | **Episodic Memory & Graphify Gotchas:** Embedded SQLite WAL, FTS5 BM25 + Trigram Semantic Search, relational gotchas edge lookup (`get_code_gotchas`), and Asynchronous Write Queue (`AsyncHarvestQueue`) with retry backoff. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.3.0` | **Cognitive OS & 58 Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bugfix diagnosis, Net Engineering Value (NEV) refactor gate, composition root exemption & dynamic coupling risk score. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.3.0` | **Asset Discovery, Taint Flow & NEV Gate:** Inter-procedural data-flow taint analysis (`trace_data_flow`), codebase helper discovery (`R_REUSE`), pre-commit diff audit against wrapper hell and LOC bloat, Git PreToolUse hook (`R_GIT`). |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.3.0` | **Software Craftsmanship & Topology Canvas:** Pure SVG force-directed physics canvas, domain community grouping (Leiden analog), Anti-Slop AST Linter (`R_ANTI_SLOP`), 4-state UX micro-contract generator, and vibe time-machine. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.3.0` | **ERP Domain Extension:** Financial precision audits (decimal vs double), WMS two-step handover validation, SQL UPDLOCK concurrency enforcement, and bilingual ERP terminology dictionary. |
 
 ---
 
@@ -148,6 +148,13 @@ flowchart TD
 - **Comment Sanitizer:** Line-preserving comment stripping preventing false-positive violations when code docstrings mention token names.
 - **4-State UX Matrix:** Mandatory UI states: Default, Loading skeleton, Empty state, and Error with retry trigger.
 
+### 7. Graphify Call-Graph & Program Analysis Engine (`z-token`, `z-gate`, `z-craft`)
+- **Sub-2ms BFS Shortest Call-Path Traversal:** Rapid shortest invocation path tracing (`tracePath`) with $<1\text{ms}$ SLA across 64-prefix sharded buckets with zero native dependencies.
+- **Polymorphic & Decoupled Seam Stitching:** Seamlessly bridges interface definitions (`I{Service}`) to concrete implementations (`{Service}`) and CQRS/MediatR command-to-handler event pipelines.
+- **Inter-Procedural Data-Flow & Taint Analysis (`trace_data_flow`):** Traces untrusted caller parameters down to sensitive sinks (SQL Injection, Command Injection, Path Traversal) with path-sensitive branch guard detection (`if return`, `ThrowIfNull`).
+- **Centrality Blast Radius & God Node Detection:** Identifies upstream dependents, downstream callees, and high-degree God Nodes with dynamic risk scoring (exempting DI composition roots).
+- **Interactive Physics Topology Canvas:** Zero-dependency vanilla JS force-directed physics SVG canvas (Coulomb repulsion, Hooke spring, damping) and domain community clustering (Leiden analog).
+
 ---
 
 ## 🧪 Testing & Empirical Verification (`R_PROOF`)
@@ -155,10 +162,10 @@ flowchart TD
 All modules are backed by rigorous Level 3+ empirical automated test suites:
 
 ```bash
-# Run syntax checks across all 49 modules
+# Run syntax checks across all modules
 npm run check
 
-# Run all 18 test suites (521+ passing assertions)
+# Run all 22 test suites (580+ passing assertions)
 npm test
 
 # Run MCP server smoke tests
