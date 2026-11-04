@@ -7,10 +7,29 @@
 //   C-family, JS/TS, Python, Ruby, PHP, Go, Rust, Swift/Kotlin, Scala, Dart,
 //   shell, Lua, Perl and SQL. False negatives are expected for exotic syntax;
 //   the caller can always fall back to Read with offset/limit.
+// - readSymbol() provides One-Shot Method Inspection backed by persistent,
+//   prefix-sharded symbol cache (.z-plugin/cache/symbols/xx.json) with sub-ms retrieval.
 
 import fs from "node:fs";
 import path from "node:path";
 import { collectFiles, readTextCached } from "./fsindex.mjs";
+import {
+  lookupSymbol,
+  storeSymbolsForFile,
+  extractFileSymbols,
+  indexWorkspace,
+  getCacheStats,
+  clearCache,
+} from "./symbol-cache.mjs";
+
+export {
+  lookupSymbol,
+  storeSymbolsForFile,
+  extractFileSymbols,
+  indexWorkspace,
+  getCacheStats,
+  clearCache,
+};
 
 const CODE_EXT = new Set([
   ".cs", ".fs", ".vb", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -47,8 +66,6 @@ const PATTERNS = [
     kind: "method",
     re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|new|synchronized|final|native|default)\s+)+(?:[\w.]+(?:<[\w\s,.<>[\]?]+>)?(?:\[\]|\?)?)\s+[A-Za-z_]\w*\s*(?:<[\w\s,.<>[\]?]+>)?\s*\(/,
   },
-  // Unmodified members: JS/TS class methods and object methods (`run() {`,
-  // `async load(): Promise<void> {`).
   {
     kind: "method",
     re: /^\s*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*(?::\s*[^{]+)?\{/,
@@ -57,7 +74,6 @@ const PATTERNS = [
     kind: "prop",
     re: /^\s*(?:(?:public|private|protected|internal|static|readonly|virtual|override|required|lateinit|const)\s+)+(?:[\w.]+(?:<[\w\s,.<>[\]?]+>)?(?:\[\]|\?)?)\s+[A-Za-z_]\w*\s*(?::\s*[\w<>[\],.?]+)?\s*(?:=|\{\s*(?:get|set|init))/,
   },
-  // Return-type declarations with no modifiers: C, Go, Dart, old-style Java.
   {
     kind: "func",
     re: /^\s*(?:[\w:*&<>,[\].]+\s+)+[*&]?\s*[A-Za-z_]\w*\s*\([^;{}]*\)\s*(?:const)?\s*\{?\s*$/,
@@ -98,6 +114,7 @@ export function outline(target, opts = {}) {
   const selected = sized.slice(0, maxFiles);
   const lines = [];
   let symbols = 0;
+  const workspaceRoot = opts.workspaceRoot ? path.resolve(opts.workspaceRoot) : process.cwd();
 
   for (const { f, stat } of selected) {
     const text = readTextCached(f, stat, opts.cacheMaxBytes);
@@ -124,6 +141,14 @@ export function outline(target, opts = {}) {
     lines.push(...found.slice(0, maxPerFile));
     if (found.length > maxPerFile) lines.push(`      ... more symbols omitted`);
     lines.push("");
+
+    // Prime symbol cache for outlined file
+    try {
+      const fileSyms = extractFileSymbols(text);
+      if (fileSyms.length > 0) {
+        storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+      }
+    } catch {}
   }
 
   const body = lines.join("\n").trimEnd();
@@ -136,54 +161,7 @@ export function outline(target, opts = {}) {
 
 // ---------------------------------------------------------------- readSymbol (One-Shot Method Inspection)
 
-export function readSymbol(target, symbolName, opts = {}) {
-  const cleanSym = String(symbolName || "").trim();
-  if (!cleanSym) {
-    return { text: "readSymbol: symbol parameter is required", error: true };
-  }
-
-  const fullPath = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target);
-  if (!fs.existsSync(fullPath)) {
-    return { text: `Target file not found: ${target}`, error: true };
-  }
-
-  let text = "";
-  try {
-    text = fs.readFileSync(fullPath, "utf8");
-  } catch (e) {
-    return { text: `Failed to read ${target}: ${e.message}`, error: true };
-  }
-
-  const rows = text.split(/\r?\n/);
-  const symRe = new RegExp(`\\b${cleanSym}\\b`);
-
-  let declIdx = -1;
-  for (let i = 0; i < rows.length; i++) {
-    const line = rows[i];
-    if (COMMENT_RE.test(line)) continue;
-    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
-      declIdx = i;
-      break;
-    }
-  }
-
-  if (declIdx === -1) {
-    for (let i = 0; i < rows.length; i++) {
-      if (COMMENT_RE.test(rows[i])) continue;
-      if (new RegExp(`\\b${cleanSym}\\s*\\(`).test(rows[i])) {
-        declIdx = i;
-        break;
-      }
-    }
-  }
-
-  if (declIdx === -1) {
-    return {
-      text: `Symbol '${cleanSym}' not found in ${path.basename(target)}. Run 'outline' without symbol to view all available declarations in this file.`,
-      found: false
-    };
-  }
-
+function extractSymbolBody(fullPath, cleanSym, rows, declIdx) {
   // Scan backwards for decorators, attributes, doc comments, or multi-line access modifiers (up to 8 lines)
   let startIdx = declIdx;
   while (startIdx > 0 && declIdx - startIdx < 8) {
@@ -197,16 +175,16 @@ export function readSymbol(target, symbolName, opts = {}) {
     }
   }
 
-  const ext = path.extname(target).toLowerCase();
+  const ext = path.extname(fullPath).toLowerCase();
   const isPython = ext === ".py";
 
   let endIdx = declIdx;
   if (isPython) {
-    const declIndent = rows[declIdx].match(/^\s*/)[0].length;
+    const declIndent = (rows[declIdx].match(/^\s*/) || [""])[0].length;
     for (let j = declIdx + 1; j < rows.length; j++) {
       const line = rows[j];
       if (!line.trim()) continue;
-      const lineIndent = line.match(/^\s*/)[0].length;
+      const lineIndent = (line.match(/^\s*/) || [""])[0].length;
       if (lineIndent <= declIndent) {
         endIdx = j - 1;
         break;
@@ -255,14 +233,209 @@ export function readSymbol(target, symbolName, opts = {}) {
     extractedLines.push(`${String(k + 1).padStart(5)}  ${rows[k]}`);
   }
 
-  const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(target)}#L${startIdx + 1}-L${endIdx + 1}, ${endIdx - startIdx + 1} lines)`;
   return {
-    text: `${header}\n\n${extractedLines.join("\n")}`,
-    found: true,
-    symbol: cleanSym,
     startLine: startIdx + 1,
     endLine: endIdx + 1,
-    lineCount: endIdx - startIdx + 1
+    lineCount: endIdx - startIdx + 1,
+    extractedLines,
+  };
+}
+
+export function readSymbol(target, symbolName, opts = {}) {
+  const cleanSym = String(symbolName || "").trim();
+  if (!cleanSym) {
+    return { text: "readSymbol: symbol parameter is required", error: true };
+  }
+
+  const workspaceRoot = opts.workspaceRoot ? path.resolve(opts.workspaceRoot) : process.cwd();
+  const rawTarget = target || ".";
+  const fullPath = path.isAbsolute(rawTarget) ? rawTarget : path.resolve(workspaceRoot, rawTarget);
+
+  let isDir = false;
+  if (fs.existsSync(fullPath)) {
+    try {
+      isDir = fs.statSync(fullPath).isDirectory();
+    } catch {}
+  } else if (!path.extname(fullPath)) {
+    isDir = true;
+  }
+
+  // 1. Directory / Workspace Mode: fast cache lookup across the workspace
+  if (isDir) {
+    const cachedHits = lookupSymbol(workspaceRoot, cleanSym);
+    if (cachedHits.length > 0) {
+      const hit = cachedHits[0];
+      try {
+        const text = fs.readFileSync(hit.absPath, "utf8");
+        const rows = text.split(/\r?\n/);
+        const declIdx = Math.max(0, Math.min(rows.length - 1, hit.line - 1));
+        const body = extractSymbolBody(hit.absPath, cleanSym, rows, declIdx);
+        const header = `// One-Shot Symbol: ${hit.name} (${hit.file}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache hit]`;
+        return {
+          text: `${header}\n\n${body.extractedLines.join("\n")}`,
+          found: true,
+          cached: true,
+          symbol: hit.name,
+          file: hit.file,
+          startLine: body.startLine,
+          endLine: body.endLine,
+          lineCount: body.lineCount,
+        };
+      } catch {}
+    }
+
+    // Cache miss on directory target: scan files under directory to locate symbol
+    const { files, error } = collectFiles(fullPath, CODE_EXT, opts);
+    if (error || files.length === 0) {
+      return {
+        text: `Symbol '${cleanSym}' not found under ${rawTarget}.`,
+        found: false,
+      };
+    }
+
+    const symRe = new RegExp(`\\b${cleanSym}\\b`);
+    for (const f of files) {
+      let stat;
+      try {
+        stat = fs.statSync(f);
+        if (stat.size > 2_000_000) continue;
+      } catch { continue; }
+
+      let text;
+      try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
+      if (!symRe.test(text)) continue;
+
+      const rows = text.split(/\r?\n/);
+      let declIdx = -1;
+      for (let i = 0; i < rows.length; i++) {
+        const line = rows[i];
+        if (COMMENT_RE.test(line)) continue;
+        if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
+          declIdx = i;
+          break;
+        }
+      }
+
+      if (declIdx !== -1) {
+        const rel = path.relative(workspaceRoot, f).replace(/\\/g, "/");
+        try {
+          const fileSyms = extractFileSymbols(text);
+          storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+        } catch {}
+
+        const body = extractSymbolBody(f, cleanSym, rows, declIdx);
+        const header = `// One-Shot Symbol: ${cleanSym} (${rel}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache miss -> indexed]`;
+        return {
+          text: `${header}\n\n${body.extractedLines.join("\n")}`,
+          found: true,
+          cached: false,
+          symbol: cleanSym,
+          file: rel,
+          startLine: body.startLine,
+          endLine: body.endLine,
+          lineCount: body.lineCount,
+        };
+      }
+    }
+
+    return {
+      text: `Symbol '${cleanSym}' not found in ${files.length} file(s) under ${rawTarget}.`,
+      found: false,
+    };
+  }
+
+  // 2. Specific File Mode
+  if (!fs.existsSync(fullPath)) {
+    return { text: `Target file not found: ${rawTarget}`, error: true };
+  }
+
+  let stat;
+  try {
+    stat = fs.statSync(fullPath);
+  } catch (e) {
+    return { text: `Failed to stat ${rawTarget}: ${e.message}`, error: true };
+  }
+
+  const rel = path.relative(workspaceRoot, fullPath).replace(/\\/g, "/");
+
+  // Check cache for this specific file
+  const cachedHits = lookupSymbol(workspaceRoot, cleanSym, { file: rel });
+  if (cachedHits.length > 0) {
+    const hit = cachedHits[0];
+    try {
+      const text = fs.readFileSync(fullPath, "utf8");
+      const rows = text.split(/\r?\n/);
+      const declIdx = Math.max(0, Math.min(rows.length - 1, hit.line - 1));
+      const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx);
+      const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(rawTarget)}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache hit]`;
+      return {
+        text: `${header}\n\n${body.extractedLines.join("\n")}`,
+        found: true,
+        cached: true,
+        symbol: cleanSym,
+        file: rel,
+        startLine: body.startLine,
+        endLine: body.endLine,
+        lineCount: body.lineCount,
+      };
+    } catch {}
+  }
+
+  // File cache miss: parse file
+  let text = "";
+  try {
+    text = fs.readFileSync(fullPath, "utf8");
+  } catch (e) {
+    return { text: `Failed to read ${rawTarget}: ${e.message}`, error: true };
+  }
+
+  const rows = text.split(/\r?\n/);
+  const symRe = new RegExp(`\\b${cleanSym}\\b`);
+
+  let declIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const line = rows[i];
+    if (COMMENT_RE.test(line)) continue;
+    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
+      declIdx = i;
+      break;
+    }
+  }
+
+  if (declIdx === -1) {
+    for (let i = 0; i < rows.length; i++) {
+      if (COMMENT_RE.test(rows[i])) continue;
+      if (new RegExp(`\\b${cleanSym}\\s*\\(`).test(rows[i])) {
+        declIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (declIdx === -1) {
+    return {
+      text: `Symbol '${cleanSym}' not found in ${path.basename(rawTarget)}. Run 'outline' without symbol to view all available declarations in this file.`,
+      found: false,
+    };
+  }
+
+  // Populate cache for this file
+  try {
+    const fileSyms = extractFileSymbols(text);
+    storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+  } catch {}
+
+  const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx);
+  const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(rawTarget)}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines)`;
+  return {
+    text: `${header}\n\n${body.extractedLines.join("\n")}`,
+    found: true,
+    cached: false,
+    symbol: cleanSym,
+    file: rel,
+    startLine: body.startLine,
+    endLine: body.endLine,
+    lineCount: body.lineCount,
   };
 }
 

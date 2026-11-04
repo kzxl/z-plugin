@@ -54,4 +54,76 @@ assert.ok(typeof diffRes.text === "string");
 assert.ok(diffRes.text.includes("Smart Sliced Diff"));
 console.log("  ok   smartDiff executes with noise-exclusion filters");
 
-console.log("\nall z-token v1.1.0 tests passed!");
+// 4. Prefix-Sharded Symbol Cache Unit Checks
+import {
+  getSymbolPrefix,
+  extractFileSymbols,
+  storeSymbolsForFile,
+  lookupSymbol,
+  getCacheStats,
+  clearCache,
+} from "../plugins/z-token/scripts/lib/symbol-cache.mjs";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
+
+const tempWs = path.join(os.tmpdir(), `ztoken-unit-${Date.now()}`);
+fs.mkdirSync(tempWs, { recursive: true });
+
+try {
+  // Test prefix sharding algorithm
+  assert.strictEqual(getSymbolPrefix("CalculateTotal"), "ca");
+  assert.strictEqual(getSymbolPrefix("processOrder"), "pr");
+  assert.strictEqual(getSymbolPrefix("a"), "a_");
+  assert.strictEqual(getSymbolPrefix("$$$"), "__");
+  console.log("  ok   getSymbolPrefix produces 2-char sanitized prefixes");
+
+  // Test symbol extraction
+  const sampleCs = `
+    namespace Demo {
+      public class OrderManager {
+        public int OrderCount { get; set; }
+        public async Task<bool> ProcessPaymentAsync(string id, decimal amt) {
+          return true;
+        }
+      }
+    }
+  `;
+  const syms = extractFileSymbols(sampleCs);
+  assert.strictEqual(syms.length, 3);
+  assert.strictEqual(syms[0].name, "OrderManager");
+  assert.strictEqual(syms[0].kind, "type");
+  assert.strictEqual(syms[1].name, "OrderCount");
+  assert.strictEqual(syms[1].kind, "prop");
+  assert.strictEqual(syms[2].name, "ProcessPaymentAsync");
+  assert.strictEqual(syms[2].kind, "method");
+  console.log("  ok   extractFileSymbols extracts types, props, and methods accurately");
+
+  // Test store & lookup
+  const sampleFile = path.join(tempWs, "OrderManager.cs");
+  fs.writeFileSync(sampleFile, sampleCs, "utf8");
+  const stat = fs.statSync(sampleFile);
+
+  storeSymbolsForFile(tempWs, "OrderManager.cs", syms, stat.mtimeMs);
+
+  const found = lookupSymbol(tempWs, "ProcessPaymentAsync");
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(found[0].name, "ProcessPaymentAsync");
+  assert.strictEqual(found[0].line, 5);
+  assert.strictEqual(found[0].file, "OrderManager.cs");
+  console.log("  ok   storeSymbolsForFile & lookupSymbol retrieve stored symbol");
+
+  // Test stats & clear
+  const stats = getCacheStats(tempWs);
+  assert.ok(stats.bucketCount >= 2);
+  assert.strictEqual(stats.totalSymbols, 3);
+
+  clearCache(tempWs);
+  const clearedStats = getCacheStats(tempWs);
+  assert.strictEqual(clearedStats.totalSymbols, 0);
+  console.log("  ok   getCacheStats and clearCache maintain cache hygiene");
+} finally {
+  try { fs.rmSync(tempWs, { recursive: true, force: true }); } catch {}
+}
+
+console.log("\nall z-token v1.2.0 tests passed!");

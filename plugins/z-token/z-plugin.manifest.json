@@ -43,7 +43,8 @@
         "search",
         "build",
         "run",
-        "diet"
+        "diet",
+        "symbol_cache"
       ]
     }
   }

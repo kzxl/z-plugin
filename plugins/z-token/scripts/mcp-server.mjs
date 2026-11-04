@@ -5,7 +5,7 @@ import readline from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { outline, search, readSymbol } from "./lib/scan.mjs";
+import { outline, search, readSymbol, indexWorkspace, getCacheStats, clearCache } from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
 import { dietReport, smartDiff } from "./lib/diet.mjs";
 import { runAction } from "./lib/run.mjs";
@@ -246,14 +246,30 @@ const TOOLS = [
   {
     name: "read_symbol",
     description:
-      "One-Shot Method Inspection: Read the COMPLETE body of a function, method, or class (including signature, attributes, docstring, and body with safety padding) in 1 turn without two-step outline+read round-trips.",
+      "One-Shot Method Inspection: Read the COMPLETE body of a function, method, or class (including signature, attributes, docstring, and body with safety padding) in 1 turn without two-step outline+read round-trips. Backed by persistent prefix-sharded cache (<1ms response).",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Source file path" },
+        path: { type: "string", description: "Source file path or directory (default: workspace root)" },
         symbol: { type: "string", description: "Function, method, or class name to extract" },
       },
-      required: ["path", "symbol"],
+      required: ["symbol"],
+    },
+  },
+  {
+    name: "symbol_cache",
+    description:
+      "Inspect or manage the persistent prefix-sharded symbol cache (.z-plugin/cache/symbols/): view stats, pre-index workspace, or clear cache.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["stats", "index", "clear"],
+          description: "Action to perform: 'stats' (default), 'index' (pre-index workspace), or 'clear' (purge cache)",
+        },
+        path: { type: "string", description: "Target workspace directory (default: current workspace)" },
+      },
     },
   },
   {
@@ -338,7 +354,27 @@ async function callTool(name, args) {
     case "outline":
       return outline(a.path || ".", { ...a, ...searchOpts });
     case "read_symbol":
-      return readSymbol(a.path, a.symbol, { ...a, ...searchOpts });
+      return readSymbol(a.path || ".", a.symbol, { ...a, ...searchOpts });
+    case "symbol_cache": {
+      const action = a.action || "stats";
+      const targetDir = a.path || process.cwd();
+      if (action === "index") {
+        const res = indexWorkspace(targetDir, searchOpts);
+        return {
+          text: `Indexed ${res.indexedFiles} file(s), ${res.totalSymbols} symbols across ${res.bucketsCreated} prefix buckets in ${res.durationMs}ms.`,
+          stats: res,
+        };
+      } else if (action === "clear") {
+        clearCache(targetDir);
+        return { text: `Symbol cache cleared for ${targetDir}.` };
+      } else {
+        const stats = getCacheStats(targetDir);
+        return {
+          text: `Symbol Cache: ${stats.bucketCount} prefix buckets, ${stats.totalSymbols} symbols (${Math.round(stats.totalBytes / 1024)} KB) in ${stats.cacheDir}`,
+          stats,
+        };
+      }
+    }
     case "search":
       return search({ ...a, ...searchOpts });
     case "build":

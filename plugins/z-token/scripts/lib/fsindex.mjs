@@ -12,6 +12,7 @@ import path from "node:path";
 export const SKIP_DIRS = new Set([
   "node_modules", ".git", ".vs", "bin", "obj", "packages", "dist",
   "build", ".next", ".angular", "TestResults", "artifacts", ".idea",
+  ".z-plugin", ".zcode",
 ]);
 
 export const BINARY_EXT = new Set([
