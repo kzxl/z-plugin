@@ -1,6 +1,6 @@
 # Token-diet benchmark
 
-Generated 2026-11-03T16:17:59.278Z | fixtures are synthetic, sized like real-world enterprise files.
+Generated 2026-11-04T00:24:53.151Z | fixtures are synthetic, sized like real-world enterprise files.
 Token estimate: 3.6 chars/token for code, 4 for logs/prose.
 
 | Scenario | Before (tokens) | After (tokens) | Saved |

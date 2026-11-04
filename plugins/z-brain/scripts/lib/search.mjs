@@ -8,6 +8,11 @@ const DEFAULT_SYNONYMS_PATH = path.resolve(__dirname, '..', '..', 'data', 'synon
 
 let _cachedSynonyms = null;
 
+export function reloadSynonymsDictionary(customPath = null) {
+  _cachedSynonyms = null;
+  return getSynonymsDictionary(customPath);
+}
+
 export function getSynonymsDictionary(customPath = null) {
   if (_cachedSynonyms && !customPath) return _cachedSynonyms;
   const dictPath = customPath || process.env.ZBRAIN_SYNONYMS_PATH || DEFAULT_SYNONYMS_PATH;
@@ -45,7 +50,7 @@ export function detectCurrentProject(cwd = process.cwd()) {
 /**
  * Clean search query into safe FTS5 terms
  */
-function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
+export function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
   if (!rawQuery) return "";
   // Normalize developer keywords and compound words
   let normalized = rawQuery

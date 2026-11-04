@@ -117,22 +117,93 @@ export class IntentClassifier {
 }
 
 /**
- * Dynamic Context Token Budgeter
- * Enforces per-turn token ceilings across rules, memory, symbols, and history
+ * Adaptive Dynamic Context Token Budgeter
+ * Automatically scales context ceiling and category weight distribution based on:
+ * - Task category (bugfix, refactor, ui, feature)
+ * - Scope scale (files count, file size, blast radius)
+ * - Task triviality (typo, formatting -> reduced allowance)
  */
 export class TokenBudgeter {
-  constructor(totalAllowance = 10000) {
-    this.totalAllowance = totalAllowance;
+  constructor(totalAllowance = 10000, options = {}) {
+    this.baseAllowance = totalAllowance;
+    this.category = options.category || null;
+    this.scopeMultiplier = options.scopeMultiplier || 1.0;
+    this.totalAllowance = this.calculateAdaptiveAllowance(options);
   }
 
-  getBudgets() {
+  calculateAdaptiveAllowance(options = {}) {
+    let multiplier = 1.0;
+    const cat = options.category || this.category;
+    const prompt = String(options.prompt || '').toLowerCase();
+
+    // 1. Triviality check: small typo / format tasks don't need 10K tokens
+    if (/\b(typo|formatting|comment|docstring|rename single|indent|whitespace)\b/.test(prompt)) {
+      multiplier *= 0.35; // Co lại ~3,500 tokens
+    } else if (cat === INTENT_CATEGORIES.REFACTOR || cat === INTENT_CATEGORIES.ARCHITECTURE) {
+      // 2. High-complexity refactor / architecture tasks scale up
+      multiplier *= 2.2; // Giãn nở ~22,000 tokens
+    } else if (cat === INTENT_CATEGORIES.UI) {
+      multiplier *= 1.25; // ~12,500 tokens
+    }
+
+    // 3. Scope scale (touched files count or large codebase target)
+    if (options.filesCount && options.filesCount > 10) {
+      multiplier *= 1.5;
+    }
+    if (options.fileSizeKb && options.fileSizeKb > 100) {
+      multiplier *= 1.3;
+    }
+
+    const calculated = Math.round(this.baseAllowance * multiplier);
+    // Clamp between floor of 3,000 and hard ceiling of 35,000 tokens
+    return Math.max(3000, Math.min(35000, calculated));
+  }
+
+  getBudgets(taskCategory = this.category) {
+    const total = this.totalAllowance;
+
+    // Adaptive category weight shifting
+    if (taskCategory === INTENT_CATEGORIES.REFACTOR) {
+      // Refactoring needs heavily boosted symbol/AST outline context
+      return {
+        total,
+        rules: Math.round(total * 0.10),     // 10%
+        memory: Math.round(total * 0.10),    // 10%
+        symbols: Math.round(total * 0.40),   // 40% (Boosted for AST outlines)
+        history: Math.round(total * 0.30),   // 30%
+        reserve: Math.round(total * 0.10)    // 10%
+      };
+    } else if (taskCategory === INTENT_CATEGORIES.BUGFIX) {
+      // Bugfix needs heavily boosted episodic memory (gotchas & historical fixes)
+      return {
+        total,
+        rules: Math.round(total * 0.10),     // 10%
+        memory: Math.round(total * 0.30),    // 30% (Boosted for gotchas/lessons)
+        symbols: Math.round(total * 0.20),   // 20%
+        history: Math.round(total * 0.30),   // 30%
+        reserve: Math.round(total * 0.10)    // 10%
+      };
+    } else if (taskCategory === INTENT_CATEGORIES.UI) {
+      // UI needs design system tokens and 4-state matrix context
+      return {
+        total,
+        rules: Math.round(total * 0.10),     // 10%
+        memory: Math.round(total * 0.10),    // 10%
+        symbols: Math.round(total * 0.15),   // 15%
+        history: Math.round(total * 0.35),   // 35%
+        reserve: Math.round(total * 0.10),   // 10%
+        craft: Math.round(total * 0.20)      // 20% (Tokens & Micro-spec)
+      };
+    }
+
+    // Default balanced distribution (Feature / Architecture / General)
     return {
-      total: this.totalAllowance,
-      rules: Math.round(this.totalAllowance * 0.10),     // 10% ~ 1,000 tokens
-      memory: Math.round(this.totalAllowance * 0.15),    // 15% ~ 1,500 tokens
-      symbols: Math.round(this.totalAllowance * 0.25),   // 25% ~ 2,500 tokens
-      history: Math.round(this.totalAllowance * 0.40),   // 40% ~ 4,000 tokens
-      reserve: Math.round(this.totalAllowance * 0.10)    // 10% ~ 1,000 tokens
+      total,
+      rules: Math.round(total * 0.10),     // 10% ~ 1,000 tokens
+      memory: Math.round(total * 0.15),    // 15% ~ 1,500 tokens
+      symbols: Math.round(total * 0.25),   // 25% ~ 2,500 tokens
+      history: Math.round(total * 0.40),   // 40% ~ 4,000 tokens
+      reserve: Math.round(total * 0.10)    // 10% ~ 1,000 tokens
     };
   }
 
@@ -143,7 +214,7 @@ export class TokenBudgeter {
   }
 
   clampPayload(text, category = 'memory') {
-    const budgets = this.getBudgets();
+    const budgets = this.getBudgets(this.category);
     const maxTokens = budgets[category] || 1500;
     const maxChars = Math.floor(maxTokens * 3.8);
 
@@ -161,6 +232,8 @@ export class TokenBudgeter {
     };
   }
 }
+
+export const AdaptiveTokenBudgeter = TokenBudgeter;
 
 /**
  * In-Memory DAG Execution Planner

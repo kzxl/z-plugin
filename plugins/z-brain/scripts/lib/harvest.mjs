@@ -206,3 +206,5 @@ function harvestSingle(db, { input, project, tags, trust_level, evidence, files_
     message: `Harvested atom #${id} successfully into Z-Brain SQLite.`
   };
 }
+
+export { AsyncHarvestQueue, defaultHarvestQueue, enqueueHarvest } from './harvest-queue.mjs';

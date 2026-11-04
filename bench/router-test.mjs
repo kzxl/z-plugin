@@ -73,6 +73,25 @@ ok(hugeRes.clamped === true, 'oversized payload clamped successfully');
 ok(hugeRes.text.includes('[Context truncated by AEOS Token Budgeter]'), 'clamped text includes budgeter notice');
 ok(hugeRes.tokens <= 1600, `clamped tokens within budget ceiling (got: ${hugeRes.tokens})`);
 
+// Adaptive Dynamic Scaling tests
+console.log('z-runtime: adaptive token budgeter - real-world dynamic scaling');
+
+const typoBudget = new TokenBudgeter(10000, { prompt: 'fix typo in header comments' });
+ok(typoBudget.totalAllowance === 3500, `adaptive budget co lại 3,500 tokens for simple typo (got: ${typoBudget.totalAllowance})`);
+
+const refactorBudget = new TokenBudgeter(10000, { category: INTENT_CATEGORIES.REFACTOR });
+ok(refactorBudget.totalAllowance === 22000, `adaptive budget giãn nở 22,000 tokens for complex refactor (got: ${refactorBudget.totalAllowance})`);
+const refactorWeights = refactorBudget.getBudgets(INTENT_CATEGORIES.REFACTOR);
+ok(refactorWeights.symbols === 8800, `boosted symbols allocation to 40% (8,800 tokens) for refactor (got: ${refactorWeights.symbols})`);
+
+const uiBudget = new TokenBudgeter(10000, { category: INTENT_CATEGORIES.UI });
+ok(uiBudget.totalAllowance === 12500, `adaptive budget scales to 12,500 tokens for UI design (got: ${uiBudget.totalAllowance})`);
+const uiWeights = uiBudget.getBudgets(INTENT_CATEGORIES.UI);
+ok(uiWeights.craft === 2500, `allocated 20% (2,500 tokens) for UI tokens and micro-spec (got: ${uiWeights.craft})`);
+
+const multiFileBudget = new TokenBudgeter(10000, { filesCount: 20 });
+ok(multiFileBudget.totalAllowance === 15000, `scaled budget by 1.5x for multi-file scope (got: ${multiFileBudget.totalAllowance})`);
+
 console.log('z-runtime: DAG execution planner & topological layering');
 
 const bugPlan = DAGPlanner.buildPlan(bugIntent, {

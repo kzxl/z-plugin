@@ -6,12 +6,14 @@
 export { EventBus } from './event-bus.mjs';
 export { ServiceRegistry, defaultServiceRegistry } from './service-registry.mjs';
 export { LifecycleState, LifecycleManager, PluginInstance } from './lifecycle-machine.mjs';
-export { CognitiveRouter, TokenBudgeter, IntentClassifier, DAGPlanner, INTENT_CATEGORIES } from './cognitive-router.mjs';
+export { CognitiveRouter, TokenBudgeter, AdaptiveTokenBudgeter, IntentClassifier, DAGPlanner, INTENT_CATEGORIES } from './cognitive-router.mjs';
+export { HotReloadManager } from './hot-reload.mjs';
 
 import { EventBus } from './event-bus.mjs';
 import { defaultServiceRegistry } from './service-registry.mjs';
 import { LifecycleManager } from './lifecycle-machine.mjs';
 import { CognitiveRouter } from './cognitive-router.mjs';
+import { HotReloadManager } from './hot-reload.mjs';
 
 export class ZRuntime {
   constructor(options = {}) {
@@ -26,6 +28,10 @@ export class ZRuntime {
       serviceRegistry: this.services,
       defaultBudget: options.defaultBudget || 10000
     });
+    this.hotReloadManager = new HotReloadManager({
+      runtime: this,
+      eventBus: this.eventBus
+    });
   }
 
   getRouter() {
@@ -34,6 +40,10 @@ export class ZRuntime {
 
   route(prompt, context = {}) {
     return this.router.route(prompt, context);
+  }
+
+  async hotReload() {
+    return this.hotReloadManager.hotReloadAll();
   }
 
   registerPlugin(manifest, entryModule = null) {
