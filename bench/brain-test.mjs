@@ -24,7 +24,7 @@ process.env.ZBRAIN_DB_PATH = tempDbPath;
 console.log("z-brain: first-run auto-initialization (no existing db)");
 ok(!fs.existsSync(tempDbPath), "database file does not exist initially");
 
-const { getDb, countAtoms, closeDb, getDbStats, insertEntityNode, insertEntityEdge, queryEntityGraph, supersedeAtom, getAtomById } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+const { getDb, countAtoms, closeDb, getDbStats, insertEntityNode, insertEntityEdge, queryEntityGraph, getKnowledgeBySymbol, supersedeAtom, getAtomById } = await import("../plugins/z-brain/scripts/lib/db.mjs");
 const { searchKnowledge } = await import("../plugins/z-brain/scripts/lib/search.mjs");
 const { harvestKnowledge } = await import("../plugins/z-brain/scripts/lib/harvest.mjs");
 const { formatL0Progressive, formatDeepView } = await import("../plugins/z-brain/scripts/lib/format.mjs");
@@ -157,6 +157,12 @@ const graphRes = queryEntityGraph(db, { project: "erp", name: "OrderService" });
 ok(graphRes.length === 1, "found 1 edge connected to OrderService");
 ok(graphRes[0].relation_type === "mutates_stock", "graph edge contains correct relation type");
 ok(graphRes[0].target_name === "InventoryLedger", "graph edge correctly resolves target entity name");
+
+// Graphify Relational Code Gotchas lookup
+const symKnowledge = getKnowledgeBySymbol(db, "OrderService", { project: "erp" });
+ok(symKnowledge.symbol === "OrderService", "relational symbol name matches");
+ok(symKnowledge.edges.length >= 1, "found relational graph edges for OrderService");
+ok(symKnowledge.edges[0].target_name === "InventoryLedger", "relational edge links to InventoryLedger");
 
 // Test temporal supersede
 ok(supersedeAtom(db, 1, 2) === true, "atom #1 marked as superseded by atom #2");

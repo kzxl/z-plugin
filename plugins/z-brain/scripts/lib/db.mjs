@@ -306,6 +306,43 @@ export function getKnowledgeByFile(db, filePath, { limit = 5 } = {}) {
   return { atoms, observations };
 }
 
+/**
+ * Graphify: Query Knowledge Atoms and Relational Edges mapped to a specific code symbol
+ */
+export function getKnowledgeBySymbol(db, symbolName, { project = null, limit = 5 } = {}) {
+  const cleanSym = String(symbolName || '').trim();
+  if (!cleanSym) return { symbol: '', atoms: [], edges: [] };
+
+  const pattern = `%${cleanSym}%`;
+  let sql = `
+    SELECT * FROM knowledge_atoms
+    WHERE (tags LIKE ? OR question LIKE ? OR gotcha_fix LIKE ?)
+  `;
+  const params = [pattern, pattern, pattern];
+  if (project && project !== 'global') {
+    sql += " AND (project_id = ? OR project_id = 'global')";
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY id DESC LIMIT ?';
+  params.push(limit);
+
+  const atomRows = db.prepare(sql).all(...params);
+  const atoms = atomRows.map(r => ({
+    ...r,
+    tags: typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : (r.tags || []),
+    evidence: typeof r.evidence === 'string' ? JSON.parse(r.evidence || '[]') : (r.evidence || []),
+    files_touched: typeof r.files_touched === 'string' ? JSON.parse(r.files_touched || '[]') : (r.files_touched || [])
+  }));
+
+  const edges = queryEntityGraph(db, { name: cleanSym, limit: 10 });
+
+  return {
+    symbol: cleanSym,
+    atoms,
+    edges
+  };
+}
+
 export function updateAtom(db, id, updates) {
   const existing = getAtomById(db, id);
   if (!existing) return false;
