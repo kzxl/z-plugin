@@ -1,16 +1,50 @@
 {
   "name": "z-plugin",
   "version": "1.3.0",
-  "private": true,
   "type": "module",
-  "description": "Unified plugin monorepo for Antigravity & ZCode: z-token (context guard), z-brain (episodic memory), z-mind (cognitive engineering OS), z-gate (NEV gate), and z-craft (disciplined vibe-coding & software craftsmanship).",
+  "description": "Agent Engineering Operating System (AEOS) for AI Coding Agents (Antigravity, ZCode, Cursor, Claude Code, Windsurf): Sub-2ms call-graph, taint analysis, episodic memory, and token firewall.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzxl/z-plugin.git"
+  },
+  "homepage": "https://github.com/kzxl/z-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/kzxl/z-plugin/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "antigravity",
+    "zcode",
+    "cursor",
+    "claude-code",
+    "windsurf",
+    "ai-coding-agent",
+    "call-graph",
+    "taint-analysis",
+    "blast-radius",
+    "context-diet",
+    "software-craftsmanship"
+  ],
   "engines": {
     "node": ">=22"
   },
   "bin": {
     "z-plugin": "./bin/z-plugin.mjs"
   },
+  "files": [
+    "bin",
+    "plugins",
+    "packages",
+    "tools",
+    "extensions",
+    "marketplace.json",
+    "install.ps1",
+    "README.md",
+    "LICENSE",
+    "!**/*.sqlite*"
+  ],
   "scripts": {
     "demo": "node tools/visual-demo.mjs",
     "install:plugins": "powershell -ExecutionPolicy Bypass -File install.ps1",
