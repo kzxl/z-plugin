@@ -155,6 +155,19 @@ public class OrderForm {
   const archReport = auditArchitecture(archTmp);
   ok(!archReport.passed, "architecture doctor detected UI -> DbContext leakage");
   ok(archReport.violations.some(v => v.category === "ARCH_LAYER_LEAK"), "flagged ARCH_LAYER_LEAK violation");
+
+  // God Class detection check
+  fs.writeFileSync(path.join(archTmp, "MegaOrchestrator.cs"), `
+public class MegaOrchestrator {
+    public void Run() {
+        new Service1().Do(); new Service2().Do(); new Service3().Do();
+        new Service4().Do(); new Service5().Do(); new Service6().Do();
+        new Service7().Do(); new Service8().Do(); new Service9().Do();
+    }
+}
+`);
+  const godArchReport = auditArchitecture(archTmp);
+  ok(godArchReport.violations.some(v => v.category === "ARCH_GOD_CLASS"), "flagged ARCH_GOD_CLASS high-coupling violation");
 } finally {
   fs.rmSync(archTmp, { recursive: true, force: true });
 }

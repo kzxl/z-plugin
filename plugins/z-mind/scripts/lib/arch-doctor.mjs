@@ -72,6 +72,21 @@ export function auditArchitecture(rootDir = process.cwd()) {
         });
       }
     }
+
+    // Rule 3: God Class / High Coupling (Graphify Centrality & Single Responsibility R_CORE)
+    const newMatches = Array.from(content.matchAll(/\bnew\s+([A-Z][A-Za-z0-9_]+)\s*\(/g), m => m[1]);
+    const serviceInjections = Array.from(content.matchAll(/\b(?:I[A-Z][A-Za-z0-9_]*(?:Service|Repository|Manager|Client))\b/g), m => m[0]);
+    const distinctDependencies = new Set([...newMatches, ...serviceInjections]);
+    if (distinctDependencies.size >= 8) {
+      violations.push({
+        file: relPath,
+        category: 'ARCH_GOD_CLASS',
+        rule: 'Single Responsibility & Low Coupling (R_CORE)',
+        severity: 'warning',
+        message: `High coupling architectural smell: Class coordinates ${distinctDependencies.size} distinct dependencies (${Array.from(distinctDependencies).slice(0, 4).join(', ')}...).`,
+        fix: 'Decompose orchestrator into focused mediator or workflow handlers to respect Single Responsibility.'
+      });
+    }
   }
 
   return {
