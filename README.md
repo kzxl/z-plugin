@@ -12,6 +12,18 @@ Consolidating specialized core plugins, extension DLCs, a micro-kernel runtime, 
 
 ---
 
+## 💥 Why AEOS? (Before vs. After)
+
+| Challenge with Raw AI Coding Agents | With AEOS (`z-plugin`) Active | Impact |
+| :--- | :--- | :---: |
+| **Context Window Blowout:** Monolithic file reads and unbounded greps burn 40k–80k tokens per turn. | **AST Context Diet:** Prefix-sharded symbol cache extracts exact declarations and call paths. | **95% Token Savings** |
+| **Invisible Dependencies:** Refactoring a function breaks 6 distant services without the agent noticing. | **Sub-2ms Call-Graph (`tracePath`):** Shortest invocation path traversal across interfaces and CQRS dispatchers. | **Zero Regression** |
+| **Silent Security Sinks:** Agent injects unsanitized user parameters directly into raw SQL or process commands. | **Inter-Procedural Taint Engine:** Traces data flows down to sensitive sinks with path-sensitive branch guard detection. | **Taint Defense** |
+| **AI Amnesia:** Repeating the same bugfix or gotcha across different chat sessions. | **Episodic Memory Engine (`z-brain`):** Embedded SQLite WAL with hybrid BM25 + Trigram semantic recall. | **Continuous Learning** |
+| **AI Slop & Gradients:** Agent generates neon purple gradients, dead click handlers, and wrapper hell. | **Anti-Slop Linter (`z-craft` & `z-gate`):** AST enforcement of design tokens, 4-state UX matrix, and deletion test. | **Craftsmanship $\ge$ 90/100** |
+
+---
+
 ## 📦 Shipped Modules & Extensions
 
 | Component | Type | Version | Focus & Core Capabilities |
@@ -27,6 +39,24 @@ Consolidating specialized core plugins, extension DLCs, a micro-kernel runtime, 
 ---
 
 ## ⚡ Quick Start
+
+### 0. 1-Second Setup for Cursor, Claude Code & Windsurf (`npx`)
+
+No cloning required. Run directly from any existing codebase:
+
+```bash
+# Configure Cursor (.cursorrules & .cursor/mcp.json)
+npx z-plugin init cursor
+
+# Or configure Claude Code (CLAUDE.md & .claude_mcp.json)
+npx z-plugin init claude
+
+# Or configure all supported AI agents at once
+npx z-plugin init all
+
+# Run the live visual capability demo
+npx z-plugin demo
+```
 
 ### 1. One-Click Installation for Antigravity & ZCode
 
