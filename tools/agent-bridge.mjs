@@ -17,28 +17,42 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 export const SUPPORTED_AGENTS = ['cursor', 'claude', 'windsurf', 'cline', 'continue', 'copilot'];
 
+function resolvePluginScript(pluginName, rootDir = ROOT_DIR) {
+  const local = path.join(rootDir, "plugins", pluginName, "scripts", "mcp-server.mjs");
+  if (fs.existsSync(local)) return local;
+
+  const home = os.homedir();
+  const agy = path.join(home, ".gemini", "config", "plugins", pluginName, "scripts", "mcp-server.mjs");
+  if (fs.existsSync(agy)) return agy;
+
+  const zcode = path.join(home, ".zcode", "plugins", pluginName, "scripts", "mcp-server.mjs");
+  if (fs.existsSync(zcode)) return zcode;
+
+  return local;
+}
+
 export function generateMcpServerConfigs(rootDir = ROOT_DIR) {
   const nodeBin = process.execPath;
   return {
     "z-token": {
       "command": nodeBin,
-      "args": [path.join(rootDir, "plugins", "z-token", "scripts", "mcp-server.mjs")]
+      "args": [resolvePluginScript("z-token", rootDir)]
     },
     "z-brain": {
       "command": nodeBin,
-      "args": [path.join(rootDir, "plugins", "z-brain", "scripts", "mcp-server.mjs")]
+      "args": [resolvePluginScript("z-brain", rootDir)]
     },
     "z-mind": {
       "command": nodeBin,
-      "args": [path.join(rootDir, "plugins", "z-mind", "scripts", "mcp-server.mjs")]
+      "args": [resolvePluginScript("z-mind", rootDir)]
     },
     "z-gate": {
       "command": nodeBin,
-      "args": [path.join(rootDir, "plugins", "z-gate", "scripts", "mcp-server.mjs")]
+      "args": [resolvePluginScript("z-gate", rootDir)]
     },
     "z-craft": {
       "command": nodeBin,
-      "args": [path.join(rootDir, "plugins", "z-craft", "scripts", "mcp-server.mjs")]
+      "args": [resolvePluginScript("z-craft", rootDir)]
     }
   };
 }
