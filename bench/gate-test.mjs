@@ -292,6 +292,42 @@ const godReview = await reviewCode({
 
 ok(godReview.findings.some(f => f.severity === "P0" && f.rule.includes("God Node")), "caught God Node modification as P0");
 
+// 7. Composition Root Exemption Check
+const compRootDir = path.join(tempRepo, "Extensions");
+fs.mkdirSync(compRootDir, { recursive: true });
+const compFile = path.join(compRootDir, "ServiceCollectionExtensions.cs");
+fs.writeFileSync(compFile, "public static class ServiceCollectionExtensions { public static void RegisterServices() {} }", "utf8");
+const compStat = fs.statSync(compFile);
+
+storeSymbolsForFile(tempRepo, "Extensions/ServiceCollectionExtensions.cs", [
+  {
+    name: "RegisterServices",
+    kind: "method",
+    line: 5,
+    signature: "public static void RegisterServices()",
+    calls: ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10"]
+  }
+], compStat.mtimeMs);
+
+const compDiff = `
+diff --git a/Extensions/ServiceCollectionExtensions.cs b/Extensions/ServiceCollectionExtensions.cs
+--- a/Extensions/ServiceCollectionExtensions.cs
++++ b/Extensions/ServiceCollectionExtensions.cs
+@@ -5,3 +5,5 @@
++    public static void RegisterServices() {
++        // Register DI bindings
++    }
+`;
+
+const compReview = await reviewCode({
+  diff: compDiff,
+  commitMessage: "feat(di): wire application services",
+  cwd: tempRepo
+});
+
+ok(!compReview.findings.some(f => f.severity === "P0" && f.rule.includes("God Node")), "composition root NOT misflagged as P0 God Node");
+ok(compReview.findings.some(f => f.severity === "P2" && f.rule.includes("Composition Root")), "composition root flagged as P2 wiring update");
+
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });
 

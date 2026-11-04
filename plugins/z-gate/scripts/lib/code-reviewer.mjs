@@ -110,6 +110,9 @@ async function lookupBrainGotchas(files) {
   return gotchas;
 }
 
+const COMPOSITION_ROOT_RE = /(?:Program|Startup|Registrar|Bootstrapper|ServiceCollectionExtensions?|ServiceExtensions?|Module|Router|ContainerConfig|Registry)\.(?:cs|ts|js|jsx|tsx)$/i;
+const COMPOSITION_DIR_RE = /(?:^|\/|\\)(?:Composition|Bootstrap|Registrations?|DI|Setup)(?:$|\/|\\)/i;
+
 /**
  * Safely analyze Blast Radius & God Node sensitivity via z-token call graph
  */
@@ -142,21 +145,38 @@ async function analyzeBlastRadius(files, addedLines, cwd) {
 
       const res = getBlastRadiusFn(cwd, sym);
       if (res && !res.error) {
-        if (res.isGodNode) {
+        const definingFiles = res.definingFiles || [];
+        const isCompositionRoot = definingFiles.some(f => COMPOSITION_ROOT_RE.test(path.basename(f)) || COMPOSITION_DIR_RE.test(f)) ||
+          files.some(f => COMPOSITION_ROOT_RE.test(path.basename(f)) || COMPOSITION_DIR_RE.test(f));
+
+        if (isCompositionRoot) {
+          if (res.isGodNode || res.totalDegree >= 8) {
+            blastFindings.push({
+              severity: 'P2',
+              category: 'BLAST_RADIUS',
+              file: definingFiles[0] || 'GRAPH',
+              line: 1,
+              rule: 'Composition Root Wiring Update (Graphify Blast Radius)',
+              message: `Composition Root update: '${sym}' wires ${res.outDegree} dependencies (total degree ${res.totalDegree}, risk score ${res.riskScore ?? 0}/100). Exempt from P0 God Node check.`,
+              suggestion: `Verify container lifetime bindings (Transient/Scoped/Singleton) and prevent circular dependency registrations.`
+            });
+          }
+        } else if (res.isGodNode) {
+          const score = res.riskScore ?? Math.min(100, Math.round((res.inDegree * 8) + (res.outDegree * 5) + ((res.impactedFiles?.length || 1) * 5)));
           blastFindings.push({
             severity: 'P0',
             category: 'BLAST_RADIUS',
-            file: res.definingFiles[0] || 'GRAPH',
+            file: definingFiles[0] || 'GRAPH',
             line: 1,
             rule: 'God Node Modification Hazard (Graphify Blast Radius)',
-            message: `High architectural risk: '${sym}' is a God Node with total degree ${res.totalDegree} (calls/called by ${res.impactedSymbols?.length || 0} symbols across ${res.impactedFiles?.length || 0} files).`,
+            message: `High architectural risk (Score: ${score}/100): '${sym}' is a God Node with total degree ${res.totalDegree} (calls/called by ${res.impactedSymbols?.length || 0} symbols across ${res.impactedFiles?.length || 0} files).`,
             suggestion: `Ensure thorough regression tests covering all ${res.impactedFiles?.length || 0} downstream/upstream files before modifying this central hub.`
           });
         } else if (res.impactedFiles && res.impactedFiles.length >= 4) {
           blastFindings.push({
             severity: 'P1',
             category: 'BLAST_RADIUS',
-            file: res.definingFiles[0] || 'GRAPH',
+            file: definingFiles[0] || 'GRAPH',
             line: 1,
             rule: 'Wide Blast Radius Impact (Graphify Blast Radius)',
             message: `Wide blast radius: Modifying '${sym}' impacts ${res.impactedFiles.length} files (${res.impactedFiles.slice(0, 3).join(', ')}...).`,

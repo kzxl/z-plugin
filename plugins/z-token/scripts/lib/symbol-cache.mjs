@@ -220,6 +220,7 @@ export function extractFileSymbols(content) {
   const lines = content.split(/\r?\n/);
   const symbols = [];
   const seenInFile = new Set();
+  let currentTypeSym = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -230,7 +231,8 @@ export function extractFileSymbols(content) {
     // 1. Types: class, interface, struct, enum, record, trait, type
     const typeMatch = line.match(/\b(?:class|interface|struct|enum|record|trait|type)\s+([A-Za-z_$][\w$]*)/);
     if (typeMatch && !KEYWORDS.has(typeMatch[1].toLowerCase())) {
-      sym = { name: typeMatch[1], kind: "type", line: i + 1, signature: line.trim() };
+      sym = { name: typeMatch[1], kind: "type", line: i + 1, signature: line.trim(), members: [], calls: [] };
+      currentTypeSym = sym;
     }
 
     // 2. Keyword functions: function, def, defp, defn, func, fn, sub, proc
@@ -281,12 +283,26 @@ export function extractFileSymbols(content) {
       }
     }
 
+    // 8. Interface method declarations: Task<bool> ProcessOrder(...);
+    if (!sym && currentTypeSym && /interface/i.test(currentTypeSym.signature)) {
+      const ifaceMethodMatch = line.match(/^\s*(?:public\s+)?(?:[\w<>[\],.?*&]+\s+)+([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*;/);
+      if (ifaceMethodMatch && !KEYWORDS.has(ifaceMethodMatch[1].toLowerCase())) {
+        sym = { name: ifaceMethodMatch[1], kind: "method", line: i + 1, signature: line.trim() };
+      }
+    }
+
     if (sym) {
       const key = `${sym.name}:${sym.line}`;
       if (!seenInFile.has(key)) {
         seenInFile.add(key);
         if (sym.kind === "func" || sym.kind === "method") {
           sym.calls = extractCallsFromBody(lines, i, sym.name);
+          if (currentTypeSym && sym !== currentTypeSym) {
+            if (!currentTypeSym.members) currentTypeSym.members = [];
+            if (!currentTypeSym.members.includes(sym.name)) {
+              currentTypeSym.members.push(sym.name);
+            }
+          }
         } else {
           sym.calls = [];
         }
@@ -335,6 +351,7 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
         kind: sym.kind,
         signature: sym.signature,
         calls: sym.calls || [],
+        members: sym.members || [],
         mtime: mtimeMs,
       });
     }
@@ -418,6 +435,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
         validHits.push({
           ...item,
           calls: item.calls || [],
+          members: item.members || [],
           absPath,
         });
       } else {
@@ -436,6 +454,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
               kind: reCheck.kind,
               signature: reCheck.signature,
               calls: reCheck.calls || [],
+              members: reCheck.members || [],
               mtime: stat.mtimeMs,
             });
           }
@@ -526,6 +545,7 @@ export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
         kind: sym.kind,
         signature: sym.signature,
         calls: sym.calls || [],
+        members: sym.members || [],
         mtime: stat.mtimeMs,
       });
     }
@@ -636,9 +656,29 @@ export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, o
     const current = queue.shift();
     if (current.depth >= maxDepth) continue;
 
-    const candidates = lookupSymbol(workspaceRoot, current.name);
+    let candidates = lookupSymbol(workspaceRoot, current.name);
+
+    // Polymorphic Interface Seam Stitching:
+    // If current.name is an interface (e.g. IOrderService), also include concrete class candidates (OrderService)
+    if (current.name.startsWith("I") && current.name.length > 2 && /^[A-Z]/.test(current.name[1])) {
+      const concreteName = current.name.slice(1);
+      const concreteCandidates = lookupSymbol(workspaceRoot, concreteName);
+      if (concreteCandidates.length > 0) {
+        candidates = [...candidates, ...concreteCandidates];
+      }
+    } else if (/(?:Service|Repository|Manager|Client|Store|Handler|Provider)$/.test(current.name)) {
+      const ifaceName = "I" + current.name;
+      const ifaceCandidates = lookupSymbol(workspaceRoot, ifaceName);
+      if (ifaceCandidates.length > 0) {
+        candidates = [...candidates, ...ifaceCandidates];
+      }
+    }
+
     for (const cand of candidates) {
-      const calls = cand.calls || [];
+      const calls = [
+        ...(cand.calls || []),
+        ...(cand.kind === "type" ? (cand.members || []) : [])
+      ];
       for (const callee of calls) {
         const calleeLower = callee.toLowerCase();
         if (calleeLower === toClean.toLowerCase()) {
@@ -650,6 +690,29 @@ export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, o
             durationMs: Date.now() - startTime,
             visitedNodes: visited.size,
           };
+        }
+
+        // Check if callee is an interface (e.g. IInventoryService) that matches toClean concrete class (InventoryService)
+        if (callee.startsWith("I") && callee.length > 2 && /^[A-Z]/.test(callee[1])) {
+          const concreteCallee = callee.slice(1);
+          if (concreteCallee.toLowerCase() === toClean.toLowerCase()) {
+            const fullPath = [...current.path, callee, concreteCallee];
+            return {
+              found: true,
+              path: fullPath,
+              depth: fullPath.length - 1,
+              durationMs: Date.now() - startTime,
+              visitedNodes: visited.size,
+            };
+          }
+          if (!visited.has(concreteCallee.toLowerCase())) {
+            visited.add(concreteCallee.toLowerCase());
+            queue.push({
+              name: concreteCallee,
+              path: [...current.path, callee, concreteCallee],
+              depth: current.depth + 2,
+            });
+          }
         }
 
         if (!visited.has(calleeLower)) {
@@ -681,6 +744,14 @@ export function getCallers(workspaceRoot = process.cwd(), targetSymbol) {
   const cleanTarget = String(targetSymbol || "").trim().toLowerCase();
   if (!cleanTarget) return [];
 
+  // Polymorphic targets: Check both concrete class and interface name
+  const targets = new Set([cleanTarget]);
+  if (targetSymbol.startsWith("I") && targetSymbol.length > 2 && /^[A-Z]/.test(targetSymbol[1])) {
+    targets.add(targetSymbol.slice(1).toLowerCase());
+  } else {
+    targets.add(("i" + targetSymbol).toLowerCase());
+  }
+
   const { cacheDir } = getCachePaths(workspaceRoot);
   if (!fs.existsSync(cacheDir)) return [];
 
@@ -697,7 +768,7 @@ export function getCallers(workspaceRoot = process.cwd(), targetSymbol) {
 
         for (const entry of entries) {
           if (Array.isArray(entry.calls)) {
-            if (entry.calls.some((c) => c.toLowerCase() === cleanTarget)) {
+            if (entry.calls.some((c) => targets.has(c.toLowerCase()))) {
               callers.push({
                 caller: entry.name,
                 file: entry.file,
@@ -737,7 +808,14 @@ export function getBlastRadius(workspaceRoot = process.cwd(), targetSymbol, opts
   const maxDepth = opts.maxDepth ?? 3;
 
   // 1. Direct callees (what this symbol calls)
-  const hits = lookupSymbol(workspaceRoot, cleanTarget);
+  let hits = lookupSymbol(workspaceRoot, cleanTarget);
+  if (cleanTarget.startsWith("I") && cleanTarget.length > 2 && /^[A-Z]/.test(cleanTarget[1])) {
+    const concreteHits = lookupSymbol(workspaceRoot, cleanTarget.slice(1));
+    hits = [...hits, ...concreteHits];
+  } else {
+    const ifaceHits = lookupSymbol(workspaceRoot, "I" + cleanTarget);
+    hits = [...hits, ...ifaceHits];
+  }
   const directCallees = new Set();
   const definingFiles = new Set();
 
@@ -777,6 +855,9 @@ export function getBlastRadius(workspaceRoot = process.cwd(), targetSymbol, opts
   const outDegree = directCallees.size;
   const totalDegree = inDegree + outDegree;
   const isGodNode = totalDegree >= 8;
+  const riskScore = Math.min(100, Math.round(
+    (inDegree * 10) + (outDegree * 5) + (impactedFiles.size * 6)
+  ));
 
   return {
     symbol: cleanTarget,
@@ -785,6 +866,7 @@ export function getBlastRadius(workspaceRoot = process.cwd(), targetSymbol, opts
     outDegree,
     totalDegree,
     isGodNode,
+    riskScore,
     directCallees: Array.from(directCallees),
     impactedSymbols: Array.from(impactedSymbols),
     impactedFiles: Array.from(impactedFiles),

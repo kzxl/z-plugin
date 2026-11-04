@@ -204,7 +204,32 @@ namespace App.Core {
   const godBlast = getBlastRadius(TEST_DIR, "CentralDispatch");
   console.log(`  Blast Radius for CentralDispatch: total degree = ${godBlast.totalDegree}, isGodNode = ${godBlast.isGodNode}`);
   assert.strictEqual(godBlast.isGodNode, true, "CentralDispatch with 10 callees must be detected as God Node");
+  assert.strictEqual(typeof godBlast.riskScore, "number");
+  assert.ok(godBlast.riskScore >= 50, `God node risk score must be high (got: ${godBlast.riskScore})`);
+  console.log(`  CentralDispatch dynamic risk score: ${godBlast.riskScore}/100`);
   console.log("  ok   God Node high-coupling detection verified");
+
+  // 7. Test Polymorphic Interface Seam Stitching
+  console.log("\n[6/6] Testing Polymorphic Interface Seam Stitching...");
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Services/Order", "IOrderService.cs"),
+    `
+namespace App.Services.Order {
+    public interface IOrderService {
+        Task<bool> ProcessOrder(string id, decimal amt);
+    }
+}
+`,
+    "utf8"
+  );
+  indexWorkspace(TEST_DIR);
+
+  const ifaceTrace = tracePath(TEST_DIR, "IOrderService", "AuditLogEntry");
+  console.log(`  Polymorphic trace: ${ifaceTrace.path.join(" -> ")}`);
+  assert.strictEqual(ifaceTrace.found, true, "Must bridge interface seam to concrete implementation");
+  assert.ok(ifaceTrace.path.includes("OrderService") || ifaceTrace.path.includes("ProcessOrder"), "Path must cross concrete OrderService");
+
+  console.log("  ok   polymorphic seam stitching verified");
 
   console.log("\n=== ALL GRAPHIFY CALL-GRAPH TESTS PASSED! ===");
 } finally {

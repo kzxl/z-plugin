@@ -137,6 +137,10 @@ ok(Boolean(graphWidget.html), 'graph canvas generated non-empty HTML');
 ok(graphWidget.nodeCount === 2, 'graph canvas contains 2 nodes');
 ok(graphWidget.html.includes('God Node'), 'graph canvas highlights God Node');
 ok(graphWidget.previewBlock.includes('Enterprise Architecture Topology'), 'graph canvas has antigravity-ui preview');
+ok(Array.isArray(graphWidget.communities), 'graph canvas returns communities array');
+ok(graphWidget.communities.length >= 1, `graph canvas identified at least 1 community (got: ${graphWidget.communities.length})`);
+ok(graphWidget.html.includes('DOMAINS:'), 'graph canvas includes domain community filter pills');
+ok(graphWidget.html.includes('data-community='), 'graph canvas node cards have data-community attributes');
 
 console.log('z-craft: vibe time-machine checks');
 

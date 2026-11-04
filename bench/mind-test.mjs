@@ -168,6 +168,19 @@ public class MegaOrchestrator {
 `);
   const godArchReport = auditArchitecture(archTmp);
   ok(godArchReport.violations.some(v => v.category === "ARCH_GOD_CLASS"), "flagged ARCH_GOD_CLASS high-coupling violation");
+
+  // Composition Root exemption check
+  fs.writeFileSync(path.join(archTmp, "ServiceCollectionExtensions.cs"), `
+public static class ServiceCollectionExtensions {
+    public static void AddAppServices() {
+        new Service1().Do(); new Service2().Do(); new Service3().Do();
+        new Service4().Do(); new Service5().Do(); new Service6().Do();
+        new Service7().Do(); new Service8().Do(); new Service9().Do();
+    }
+}
+`);
+  const compArchReport = auditArchitecture(archTmp);
+  ok(!compArchReport.violations.some(v => v.file.includes("ServiceCollectionExtensions") && v.category === "ARCH_GOD_CLASS"), "composition root exempt from ARCH_GOD_CLASS violation");
 } finally {
   fs.rmSync(archTmp, { recursive: true, force: true });
 }

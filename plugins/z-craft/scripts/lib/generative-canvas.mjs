@@ -140,6 +140,55 @@ export function generateCanvasWidget({
 }
 
 /**
+ * Extracts architectural domain community from file path or symbol name (Leiden Community analog)
+ */
+export function extractDomainCommunity(filePath = "", symbolName = "") {
+  const norm = String(filePath || "").replace(/\\/g, "/");
+  const parts = norm.split("/").filter(Boolean);
+
+  for (const p of parts) {
+    if (/order|checkout|cart/i.test(p)) return "Order";
+    if (/inventory|stock|warehouse|bin/i.test(p)) return "Inventory";
+    if (/customer|client|partner|crm/i.test(p)) return "Customer";
+    if (/payment|billing|invoice|finance/i.test(p)) return "Billing";
+    if (/auth|identity|user|security|permission/i.test(p)) return "Auth";
+    if (/catalog|product|item|material/i.test(p)) return "Catalog";
+    if (/views|forms|ui|components|pages/i.test(p)) return "Presentation";
+    if (/composition|di|bootstrap|extensions/i.test(p)) return "Composition";
+    if (/core|shared|common|utils|helpers/i.test(p)) return "Core";
+  }
+
+  const s = String(symbolName || "");
+  if (/order|checkout/i.test(s)) return "Order";
+  if (/inventory|stock|warehouse/i.test(s)) return "Inventory";
+  if (/customer|client/i.test(s)) return "Customer";
+  if (/payment|billing/i.test(s)) return "Billing";
+  if (/auth|user|token/i.test(s)) return "Auth";
+  if (/product|material/i.test(s)) return "Catalog";
+
+  if (parts.length >= 2) {
+    const parent = parts[parts.length - 2];
+    if (parent && !['src', 'app', 'lib', 'scripts', 'bench', 'services'].includes(parent.toLowerCase())) {
+      return parent.charAt(0).toUpperCase() + parent.slice(1);
+    }
+  }
+
+  return "Core";
+}
+
+const COMMUNITY_COLORS = {
+  Order: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  Inventory: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  Billing: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  Auth: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  Customer: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+  Presentation: "bg-pink-500/20 text-pink-300 border-pink-500/30",
+  Composition: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  Catalog: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+  Core: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+/**
  * Graphify: Generates an interactive Architecture Topology Canvas preview
  */
 export function generateGraphCanvasWidget({
@@ -186,6 +235,16 @@ export function generateGraphCanvasWidget({
     if (!uniqueNodesMap.has(n.id)) uniqueNodesMap.set(n.id, n);
   }
   const topNodes = Array.from(uniqueNodesMap.values()).slice(0, 60);
+  for (const n of topNodes) {
+    n.community = n.community || extractDomainCommunity(n.file, n.name);
+  }
+
+  const communityCounts = new Map();
+  for (const n of topNodes) {
+    communityCounts.set(n.community, (communityCounts.get(n.community) || 0) + 1);
+  }
+  const communities = Array.from(communityCounts.entries()).map(([name, count]) => ({ name, count }));
+
   const nodeIds = new Set(topNodes.map(n => n.id));
   const topEdges = graphEdges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to)).slice(0, 100);
 
@@ -211,42 +270,74 @@ export function generateGraphCanvasWidget({
         <h2 class="text-lg font-bold text-white flex items-center gap-2">
           <span>🕸️</span> ${safeTitle}
         </h2>
-        <p class="text-xs text-slate-400">Graphify Architecture Topology • ${topNodes.length} nodes, ${topEdges.length} call edges</p>
+        <p class="text-xs text-slate-400">Graphify Architecture Topology • ${topNodes.length} nodes, ${topEdges.length} call edges, ${communities.length} bounded communities</p>
       </div>
       <div class="flex items-center gap-2">
         <span class="px-2.5 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">Interactive Topology</span>
       </div>
     </div>
 
+    <!-- Community Filter Pills (Leiden Community Analogy) -->
+    <div class="my-3 flex flex-wrap items-center gap-2">
+      <span class="text-xs text-slate-400 font-mono mr-1">DOMAINS:</span>
+      <button onclick="setCommunityFilter('ALL')" id="pill-ALL" class="px-2.5 py-1 rounded text-xs font-medium bg-blue-600 text-white transition">All (${topNodes.length})</button>
+      ${communities.map(c => `
+        <button onclick="setCommunityFilter('${escapeHtml(c.name)}')" id="pill-${escapeHtml(c.name)}" class="px-2.5 py-1 rounded text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60 transition">
+          ${escapeHtml(c.name)} (${c.count})
+        </button>
+      `).join('')}
+    </div>
+
     <!-- Search filter -->
-    <div class="my-4 flex items-center gap-3">
+    <div class="my-3 flex items-center gap-3">
       <input type="text" id="filterInput" placeholder="Filter symbol or file..." class="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 w-64" oninput="filterGraph()">
       <span class="text-xs text-slate-400" id="filterStats">Showing all nodes</span>
     </div>
 
     <!-- Node Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" id="nodesContainer">
-      ${topNodes.map(n => `
-        <div class="node-box p-3 rounded-lg border ${n.isGodNode ? 'bg-amber-950/20 border-amber-600/50 hover:border-amber-400' : 'bg-slate-950/60 border-slate-800 hover:border-blue-500/50'} text-xs" data-name="${escapeHtml(n.name)}" data-file="${escapeHtml(n.file || '')}">
+      ${topNodes.map(n => {
+        const badgeColor = COMMUNITY_COLORS[n.community] || "bg-slate-800 text-slate-300 border-slate-700";
+        return `
+        <div class="node-box p-3 rounded-lg border ${n.isGodNode ? 'bg-amber-950/20 border-amber-600/50 hover:border-amber-400' : 'bg-slate-950/60 border-slate-800 hover:border-blue-500/50'} text-xs" data-name="${escapeHtml(n.name)}" data-file="${escapeHtml(n.file || '')}" data-community="${escapeHtml(n.community)}">
           <div class="flex items-center justify-between">
             <span class="font-mono font-semibold ${n.isGodNode ? 'text-amber-400' : 'text-blue-400'}">${escapeHtml(n.name)}</span>
-            <span class="px-1.5 py-0.5 rounded text-[10px] ${n.isGodNode ? 'bg-amber-500/20 text-amber-300 font-bold' : 'bg-slate-800 text-slate-400'}">${n.isGodNode ? 'God Node (Deg: ' + n.degree + ')' : (n.kind || 'symbol')}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeColor}">${escapeHtml(n.community)}</span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] ${n.isGodNode ? 'bg-amber-500/20 text-amber-300 font-bold' : 'bg-slate-800 text-slate-400'}">${n.isGodNode ? 'God Node (Deg: ' + n.degree + ')' : (n.kind || 'symbol')}</span>
+            </div>
           </div>
           <div class="text-[11px] text-slate-400 truncate mt-1">${escapeHtml(n.file || 'unknown')}</div>
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
   </div>
 
   <script>
+    let currentCommunity = 'ALL';
+    function setCommunityFilter(comm) {
+      currentCommunity = comm;
+      document.querySelectorAll('[id^="pill-"]').forEach(btn => {
+        if (btn.id === 'pill-' + comm) {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-medium bg-blue-600 text-white transition';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60 transition';
+        }
+      });
+      filterGraph();
+    }
+
     function filterGraph() {
-      const q = document.getElementById('filterInput').value.toLowerCase();
+      const q = (document.getElementById('filterInput').value || '').toLowerCase();
       const boxes = document.querySelectorAll('.node-box');
       let visible = 0;
       boxes.forEach(b => {
         const name = b.getAttribute('data-name').toLowerCase();
         const file = b.getAttribute('data-file').toLowerCase();
-        const match = !q || name.includes(q) || file.includes(q);
+        const comm = b.getAttribute('data-community');
+        const commMatch = currentCommunity === 'ALL' || comm === currentCommunity;
+        const textMatch = !q || name.includes(q) || file.includes(q);
+        const match = commMatch && textMatch;
         b.style.display = match ? 'block' : 'none';
         if (match) visible++;
       });
@@ -260,6 +351,7 @@ export function generateGraphCanvasWidget({
     title,
     nodeCount: topNodes.length,
     edgeCount: topEdges.length,
+    communities,
     html: fullHtml,
     previewBlock: `<antigravity-ui title="${safeTitle}">\n${fullHtml}\n</antigravity-ui>`
   };
