@@ -188,6 +188,18 @@ const COMMUNITY_COLORS = {
   Core: "bg-slate-800 text-slate-300 border-slate-700",
 };
 
+const COMMUNITY_HEX = {
+  Order: "#3b82f6",
+  Inventory: "#10b981",
+  Billing: "#f59e0b",
+  Auth: "#a855f7",
+  Customer: "#06b6d4",
+  Presentation: "#ec4899",
+  Composition: "#6366f1",
+  Catalog: "#14b8a6",
+  Core: "#64748b",
+};
+
 /**
  * Graphify: Generates an interactive Architecture Topology Canvas preview
  */
@@ -277,21 +289,45 @@ export function generateGraphCanvasWidget({
       </div>
     </div>
 
-    <!-- Community Filter Pills (Leiden Community Analogy) -->
-    <div class="my-3 flex flex-wrap items-center gap-2">
-      <span class="text-xs text-slate-400 font-mono mr-1">DOMAINS:</span>
-      <button onclick="setCommunityFilter('ALL')" id="pill-ALL" class="px-2.5 py-1 rounded text-xs font-medium bg-blue-600 text-white transition">All (${topNodes.length})</button>
-      ${communities.map(c => `
-        <button onclick="setCommunityFilter('${escapeHtml(c.name)}')" id="pill-${escapeHtml(c.name)}" class="px-2.5 py-1 rounded text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60 transition">
-          ${escapeHtml(c.name)} (${c.count})
-        </button>
-      `).join('')}
+    <!-- View Switcher & Communities Bar -->
+    <div class="my-3 flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs text-slate-400 font-mono mr-1">DOMAINS:</span>
+        <button onclick="setCommunityFilter('ALL')" id="pill-ALL" class="px-2.5 py-1 rounded text-xs font-medium bg-blue-600 text-white transition">All (${topNodes.length})</button>
+        ${communities.map(c => `
+          <button onclick="setCommunityFilter('${escapeHtml(c.name)}')" id="pill-${escapeHtml(c.name)}" class="px-2.5 py-1 rounded text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60 transition">
+            ${escapeHtml(c.name)} (${c.count})
+          </button>
+        `).join('')}
+      </div>
+      <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+        <button id="viewBtnCards" onclick="switchView('cards')" class="px-2.5 py-1 rounded bg-blue-600 text-white font-medium transition">🗂️ Cards</button>
+        <button id="viewBtnForce" onclick="switchView('force')" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition">🕸️ Force Graph</button>
+      </div>
     </div>
 
     <!-- Search filter -->
     <div class="my-3 flex items-center gap-3">
       <input type="text" id="filterInput" placeholder="Filter symbol or file..." class="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-white focus:outline-none focus:border-blue-500 w-64" oninput="filterGraph()">
       <span class="text-xs text-slate-400" id="filterStats">Showing all nodes</span>
+    </div>
+
+    <!-- Force-Directed Interactive SVG Canvas -->
+    <div id="forceContainer" class="hidden relative my-3">
+      <svg id="forceSvg" viewBox="0 0 900 520" class="w-full h-[520px] bg-slate-950 rounded-lg border border-slate-800 cursor-grab">
+        <defs>
+          <marker id="arrow" viewBox="0 -5 10 10" refX="18" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,-5L10,0L0,5" fill="#475569"></path>
+          </marker>
+        </defs>
+        <g id="svgLinks"></g>
+        <g id="svgNodes"></g>
+      </svg>
+      <div id="nodePopover" class="absolute bottom-3 left-3 bg-slate-900/90 border border-slate-700 backdrop-blur-sm p-3 rounded-lg text-xs text-white max-w-xs hidden shadow-xl pointer-events-none">
+        <div id="popoverTitle" class="font-bold text-blue-400"></div>
+        <div id="popoverSub" class="text-[11px] text-slate-400"></div>
+        <div id="popoverDeg" class="text-[10px] text-slate-500 mt-1"></div>
+      </div>
     </div>
 
     <!-- Node Grid -->
@@ -314,7 +350,172 @@ export function generateGraphCanvasWidget({
   </div>
 
   <script>
+    const RAW_NODES = ${JSON.stringify(topNodes.map(n => ({
+      id: n.id,
+      name: n.name,
+      file: n.file,
+      community: n.community,
+      degree: n.degree || 0,
+      isGodNode: Boolean(n.isGodNode)
+    })))};
+    const RAW_EDGES = ${JSON.stringify(topEdges.map(e => ({ from: e.from, to: e.to })))};
+    const HEX_COLORS = ${JSON.stringify(COMMUNITY_HEX)};
+
     let currentCommunity = 'ALL';
+    let currentView = 'cards';
+    let forceInitialized = false;
+
+    function switchView(mode) {
+      currentView = mode;
+      const isCards = mode === 'cards';
+      document.getElementById('nodesContainer').classList.toggle('hidden', !isCards);
+      document.getElementById('forceContainer').classList.toggle('hidden', isCards);
+      document.getElementById('viewBtnCards').className = isCards
+        ? 'px-2.5 py-1 rounded bg-blue-600 text-white font-medium transition'
+        : 'px-2.5 py-1 rounded text-slate-400 hover:text-white transition';
+      document.getElementById('viewBtnForce').className = !isCards
+        ? 'px-2.5 py-1 rounded bg-blue-600 text-white font-medium transition'
+        : 'px-2.5 py-1 rounded text-slate-400 hover:text-white transition';
+
+      if (!isCards && !forceInitialized) {
+        initForcePhysics();
+        forceInitialized = true;
+      }
+    }
+
+    function initForcePhysics() {
+      const svg = document.getElementById('forceSvg');
+      const gLinks = document.getElementById('svgLinks');
+      const gNodes = document.getElementById('svgNodes');
+      const popover = document.getElementById('nodePopover');
+
+      const width = 900;
+      const height = 520;
+      const cx = width / 2;
+      const cy = height / 2;
+
+      const simNodes = RAW_NODES.map((n, i) => {
+        const angle = i * 0.5;
+        const r = 40 + i * 4.5;
+        return {
+          ...n,
+          x: cx + r * Math.cos(angle) + (Math.random() - 0.5) * 20,
+          y: cy + r * Math.sin(angle) + (Math.random() - 0.5) * 20,
+          vx: 0,
+          vy: 0,
+          radius: n.isGodNode ? 14 : Math.max(6, Math.min(12, 6 + n.degree)),
+          color: HEX_COLORS[n.community] || '#64748b'
+        };
+      });
+
+      const nodeMap = new Map(simNodes.map(n => [n.id, n]));
+      const simLinks = RAW_EDGES
+        .filter(e => nodeMap.has(e.from) && nodeMap.has(e.to))
+        .map(e => ({ source: nodeMap.get(e.from), target: nodeMap.get(e.to) }));
+
+      gLinks.innerHTML = simLinks.map((l, i) =>
+        '<line id="link-' + i + '" stroke="#334155" stroke-width="1.2" stroke-opacity="0.6" marker-end="url(#arrow)"/>'
+      ).join('');
+
+      gNodes.innerHTML = simNodes.map((n, i) =>
+        '<g id="node-grp-' + i + '" class="cursor-pointer">' +
+        (n.isGodNode ? '<circle r="' + (n.radius + 6) + '" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="3,3" opacity="0.8"/>' : '') +
+        '<circle id="node-cir-' + i + '" r="' + n.radius + '" fill="' + n.color + '" stroke="#0f172a" stroke-width="2"/>' +
+        '<text font-size="10" fill="#94a3b8" text-anchor="middle" dy="' + (n.radius + 12) + '">' + n.name + '</text>' +
+        '</g>'
+      ).join('');
+
+      let stepCount = 0;
+      function tick() {
+        for (let i = 0; i < simNodes.length; i++) {
+          const n1 = simNodes[i];
+          for (let j = i + 1; j < simNodes.length; j++) {
+            const n2 = simNodes[j];
+            const dx = n1.x - n2.x;
+            const dy = n1.y - n2.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist < 260) {
+              const f = (1200 / (dist * dist));
+              const fx = (dx / dist) * f;
+              const fy = (dy / dist) * f;
+              n1.vx += fx; n1.vy += fy;
+              n2.vx -= fx; n2.vy -= fy;
+            }
+          }
+        }
+
+        for (const l of simLinks) {
+          const dx = l.target.x - l.source.x;
+          const dy = l.target.y - l.source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const targetDist = 70;
+          const f = (dist - targetDist) * 0.035;
+          const fx = (dx / dist) * f;
+          const fy = (dy / dist) * f;
+          l.source.vx += fx; l.source.vy += fy;
+          l.target.vx -= fx; l.target.vy -= fy;
+        }
+
+        for (const n of simNodes) {
+          n.vx += (cx - n.x) * 0.015;
+          n.vy += (cy - n.y) * 0.015;
+          n.vx *= 0.82;
+          n.vy *= 0.82;
+          n.x += n.vx;
+          n.y += n.vy;
+          n.x = Math.max(30, Math.min(width - 30, n.x));
+          n.y = Math.max(30, Math.min(height - 30, n.y));
+        }
+
+        simLinks.forEach((l, i) => {
+          const lineEl = document.getElementById('link-' + i);
+          if (lineEl) {
+            lineEl.setAttribute('x1', l.source.x);
+            lineEl.setAttribute('y1', l.source.y);
+            lineEl.setAttribute('x2', l.target.x);
+            lineEl.setAttribute('y2', l.target.y);
+          }
+        });
+
+        simNodes.forEach((n, i) => {
+          const grp = document.getElementById('node-grp-' + i);
+          if (grp) grp.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
+        });
+
+        stepCount++;
+        if (stepCount < 120) requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+
+      simNodes.forEach((n, i) => {
+        const grp = document.getElementById('node-grp-' + i);
+        if (!grp) return;
+
+        grp.addEventListener('mouseenter', () => {
+          document.getElementById('popoverTitle').textContent = n.name + (n.isGodNode ? ' [GOD NODE]' : '');
+          document.getElementById('popoverSub').textContent = (n.file || 'unknown') + ' • Domain: ' + n.community;
+          document.getElementById('popoverDeg').textContent = 'Connections: ' + n.degree;
+          popover.classList.remove('hidden');
+
+          simNodes.forEach((other, oi) => {
+            const isSelf = other.id === n.id;
+            const isNeigh = simLinks.some(l => (l.source.id === n.id && l.target.id === other.id) || (l.target.id === n.id && l.source.id === other.id));
+            const otherGrp = document.getElementById('node-grp-' + oi);
+            if (otherGrp) otherGrp.style.opacity = (isSelf || isNeigh) ? '1' : '0.2';
+          });
+        });
+
+        grp.addEventListener('mouseleave', () => {
+          popover.classList.add('hidden');
+          simNodes.forEach((other, oi) => {
+            const otherGrp = document.getElementById('node-grp-' + oi);
+            if (otherGrp) otherGrp.style.opacity = '1';
+          });
+        });
+      });
+    }
+
     function setCommunityFilter(comm) {
       currentCommunity = comm;
       document.querySelectorAll('[id^="pill-"]').forEach(btn => {

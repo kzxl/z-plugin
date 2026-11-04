@@ -328,6 +328,50 @@ const compReview = await reviewCode({
 ok(!compReview.findings.some(f => f.severity === "P0" && f.rule.includes("God Node")), "composition root NOT misflagged as P0 God Node");
 ok(compReview.findings.some(f => f.severity === "P2" && f.rule.includes("Composition Root")), "composition root flagged as P2 wiring update");
 
+// 8. Taint Sink Hazard Review Check
+const exportDir = path.join(tempRepo, "Controllers");
+fs.mkdirSync(exportDir, { recursive: true });
+const exportFile = path.join(exportDir, "ExportController.cs");
+fs.writeFileSync(exportFile, "public class ExportController { public void UnsafeExport(string id) { ExecuteSqlRaw(id); } public void ExecuteSqlRaw(string s) {} }", "utf8");
+const exportStat = fs.statSync(exportFile);
+
+storeSymbolsForFile(tempRepo, "Controllers/ExportController.cs", [
+  {
+    name: "UnsafeExport",
+    kind: "method",
+    line: 2,
+    signature: "public void UnsafeExport(string id)",
+    calls: ["ExecuteSqlRaw"],
+    params: ["id"]
+  },
+  {
+    name: "ExecuteSqlRaw",
+    kind: "method",
+    line: 5,
+    signature: "public void ExecuteSqlRaw(string s)",
+    calls: [],
+    params: ["s"]
+  }
+], exportStat.mtimeMs);
+
+const taintDiff = `
+diff --git a/Controllers/ExportController.cs b/Controllers/ExportController.cs
+--- a/Controllers/ExportController.cs
++++ b/Controllers/ExportController.cs
+@@ -2,3 +2,5 @@
++    public void UnsafeExport(string id) {
++        ExecuteSqlRaw(id);
++    }
+`;
+
+const taintReview = await reviewCode({
+  diff: taintDiff,
+  commitMessage: "feat(export): direct raw sql export",
+  cwd: tempRepo
+});
+
+ok(taintReview.findings.some(f => f.category === "SECURITY" && f.rule.includes("Taint Sink Hazard")), "caught untrusted parameter data-flow to SQL sink as P1 security hazard");
+
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });
 

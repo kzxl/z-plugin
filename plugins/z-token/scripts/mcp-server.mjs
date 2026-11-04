@@ -15,6 +15,7 @@ import {
   tracePath,
   getCallers,
   getBlastRadius,
+  traceDataFlow,
 } from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
 import { dietReport, smartDiff } from "./lib/diet.mjs";
@@ -312,6 +313,25 @@ const TOOLS = [
     },
   },
   {
+    name: "trace_data_flow",
+    description:
+      "Graphify & Security: Trace inter-procedural data-flow and taint propagation from an entrypoint down to sensitive sinks (SQL, Command, File I/O).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Entry function, method, or controller action name" },
+        path: { type: "string", description: "Workspace directory (default: current workspace)" },
+        sinks: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of sinks to inspect: SQL_INJECTION, COMMAND_INJECTION, PATH_TRAVERSAL, WEAK_CRYPTO, or ALL",
+        },
+        maxDepth: { type: "number", description: "Maximum traversal hops (default: 5)" },
+      },
+      required: ["symbol"],
+    },
+  },
+  {
     name: "search",
     description:
       "Search text or /regex/ under a path. Returns file:line with 2 context lines, capped at 8 KB. Use instead of grep -r.",
@@ -439,6 +459,20 @@ async function callTool(name, args) {
         `• Impacted Files (${res.impactedFiles?.length || 0}):`,
         ...(res.impactedFiles?.slice(0, 8).map((f) => `  - ${f}`) || []),
       ].filter(Boolean).join("\n");
+      return { text, data: res };
+    }
+    case "trace_data_flow": {
+      const targetDir = a.path || process.cwd();
+      const res = traceDataFlow(targetDir, a.symbol, a);
+      const taintWarning = res.taintedSinksCount > 0
+        ? ` ⚠️ [SECURITY HAZARD: ${res.taintedSinksCount} TAINTED SINK(S) REACHED]`
+        : " ✅ [CLEAN / SANITIZED DATA-FLOW]";
+      const text = [
+        `Data-Flow Taint Report for '${res.source}'${taintWarning}:`,
+        `• Detected Parameters: [${(res.params || []).join(", ")}]`,
+        `• Reachable Sensitive Sinks: ${res.reachableSinksCount} (Tainted: ${res.taintedSinksCount})`,
+        ...(res.sinks?.map((s) => `  - [${s.sinkType}] ${s.path.join(" -> ")} ${s.isTainted ? "🚨 (UNSANITIZED)" : "🛡️ (Sanitized)"}`) || []),
+      ].join("\n");
       return { text, data: res };
     }
     case "search":

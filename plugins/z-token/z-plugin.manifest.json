@@ -46,7 +46,8 @@
         "diet",
         "symbol_cache",
         "trace_path",
-        "blast_radius"
+        "blast_radius",
+        "trace_data_flow"
       ]
     }
   }

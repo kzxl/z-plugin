@@ -80,6 +80,9 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
   }
 
   const CALL_RE = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+  const CQRS_RE = /\b(?:Send|Publish|Dispatch|Raise)\s*(?:<[^>]+>)?\s*\(\s*(?:new\s+)?([A-Za-z0-9_]+)/g;
+  const REFLECT_RE = /\.GetMethod\s*\(\s*["']([A-Za-z0-9_]+)["']\s*\)/g;
+
   for (let k = startLineIdx; k <= endIdx; k++) {
     const row = lines[k];
     if (COMMENT_RE.test(row)) continue;
@@ -88,13 +91,52 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
       const called = match[1];
       if (called !== symName && !KEYWORDS.has(called.toLowerCase()) && !COMMON_CALL_EXCLUDES.has(called)) {
         calls.add(called);
-        if (calls.size >= 20) break;
+        if (calls.size >= 30) break;
       }
     }
-    if (calls.size >= 20) break;
+    let cqrsMatch;
+    while ((cqrsMatch = CQRS_RE.exec(row)) !== null) {
+      const cmd = cqrsMatch[1];
+      if (cmd && !KEYWORDS.has(cmd.toLowerCase())) {
+        calls.add(cmd);
+        calls.add(cmd + "Handler");
+        if (calls.size >= 30) break;
+      }
+    }
+    let refMatch;
+    while ((refMatch = REFLECT_RE.exec(row)) !== null) {
+      const refMethod = refMatch[1];
+      if (refMethod && !KEYWORDS.has(refMethod.toLowerCase())) {
+        calls.add(refMethod);
+        if (calls.size >= 30) break;
+      }
+    }
+    if (calls.size >= 30) break;
   }
 
   return Array.from(calls);
+}
+
+/**
+ * Extracts parameter identifiers from a method signature string.
+ */
+export function extractParamNames(signature) {
+  if (!signature || typeof signature !== "string") return [];
+  const paramMatch = signature.match(/\(([^)]*)\)/);
+  if (!paramMatch || !paramMatch[1].trim()) return [];
+  const rawParams = paramMatch[1].split(",");
+  const params = [];
+  for (const p of rawParams) {
+    const trimmed = p.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    const lastPart = parts[parts.length - 1].replace(/[:=].*$/, "").trim();
+    const cleanParam = lastPart.replace(/[^A-Za-z0-9_$]/g, "");
+    if (cleanParam && !KEYWORDS.has(cleanParam.toLowerCase())) {
+      params.push(cleanParam);
+    }
+  }
+  return params;
 }
 
 // ---------------------------------------------------------------- Prefix & Paths
@@ -297,6 +339,7 @@ export function extractFileSymbols(content) {
         seenInFile.add(key);
         if (sym.kind === "func" || sym.kind === "method") {
           sym.calls = extractCallsFromBody(lines, i, sym.name);
+          sym.params = extractParamNames(sym.signature);
           if (currentTypeSym && sym !== currentTypeSym) {
             if (!currentTypeSym.members) currentTypeSym.members = [];
             if (!currentTypeSym.members.includes(sym.name)) {
@@ -305,6 +348,7 @@ export function extractFileSymbols(content) {
           }
         } else {
           sym.calls = [];
+          sym.params = [];
         }
         symbols.push(sym);
       }
@@ -352,6 +396,7 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
         signature: sym.signature,
         calls: sym.calls || [],
         members: sym.members || [],
+        params: sym.params || [],
         mtime: mtimeMs,
       });
     }
@@ -436,6 +481,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
           ...item,
           calls: item.calls || [],
           members: item.members || [],
+          params: item.params || [],
           absPath,
         });
       } else {
@@ -455,6 +501,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
               signature: reCheck.signature,
               calls: reCheck.calls || [],
               members: reCheck.members || [],
+              params: reCheck.params || [],
               mtime: stat.mtimeMs,
             });
           }
@@ -483,7 +530,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
 export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
   const startTime = Date.now();
   const { cacheDir, workspaceRoot: root } = ensureCacheDirs(workspaceRoot);
-  const { files, error } = collectFiles(root, CODE_EXT, opts);
+  const { files, error } = collectFiles(root, CODE_EXT, { cacheTtlMs: 0, ...opts });
 
   if (error || !files || files.length === 0) {
     return {
@@ -546,6 +593,7 @@ export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
         signature: sym.signature,
         calls: sym.calls || [],
         members: sym.members || [],
+        params: sym.params || [],
         mtime: stat.mtimeMs,
       });
     }
@@ -647,7 +695,7 @@ export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, o
     return { found: true, path: [fromClean], depth: 0, durationMs: 0, visitedNodes: 1 };
   }
 
-  const maxDepth = opts.maxDepth ?? 5;
+  const maxDepth = opts.maxDepth ?? 8;
   const queue = [{ name: fromClean, path: [fromClean], depth: 0 }];
   const visited = new Set([fromClean.toLowerCase()]);
   const startTime = Date.now();
@@ -672,6 +720,13 @@ export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, o
       if (ifaceCandidates.length > 0) {
         candidates = [...candidates, ...ifaceCandidates];
       }
+    } else if (/(?:Command|Event|Notification|Query)$/.test(current.name)) {
+      // CQRS / MediatR Seam Stitching
+      const handlerName = current.name + "Handler";
+      const hCandidates = lookupSymbol(workspaceRoot, handlerName);
+      if (hCandidates.length > 0) {
+        candidates = [...candidates, ...hCandidates];
+      }
     }
 
     for (const cand of candidates) {
@@ -690,6 +745,29 @@ export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, o
             durationMs: Date.now() - startTime,
             visitedNodes: visited.size,
           };
+        }
+
+        // CQRS / MediatR: Check if callee is a Command/Event leading to a Handler
+        if (/(?:Command|Event|Notification|Query)$/.test(callee)) {
+          const handlerName = callee + "Handler";
+          if (handlerName.toLowerCase() === toClean.toLowerCase()) {
+            const fullPath = [...current.path, callee, handlerName];
+            return {
+              found: true,
+              path: fullPath,
+              depth: fullPath.length - 1,
+              durationMs: Date.now() - startTime,
+              visitedNodes: visited.size,
+            };
+          }
+          if (!visited.has(handlerName.toLowerCase())) {
+            visited.add(handlerName.toLowerCase());
+            queue.push({
+              name: handlerName,
+              path: [...current.path, callee, handlerName],
+              depth: current.depth + 2,
+            });
+          }
         }
 
         // Check if callee is an interface (e.g. IInventoryService) that matches toClean concrete class (InventoryService)
@@ -871,6 +949,120 @@ export function getBlastRadius(workspaceRoot = process.cwd(), targetSymbol, opts
     impactedSymbols: Array.from(impactedSymbols),
     impactedFiles: Array.from(impactedFiles),
     edges: callerEdges,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+// ---------------------------------------------------------------- Data-Flow & Taint Tracking
+
+export const SENSITIVE_SINKS = {
+  SQL_INJECTION: [
+    "ExecuteSql", "ExecuteSqlRaw", "FromSqlRaw", "ExecuteAsync",
+    "ExecuteNonQuery", "ExecuteReader", "SqlQuery", "rawQuery"
+  ],
+  COMMAND_INJECTION: [
+    "Process.Start", "exec", "execSync", "spawn", "fork"
+  ],
+  PATH_TRAVERSAL: [
+    "File.Open", "File.ReadAllText", "File.WriteAllText", "File.Delete",
+    "readFileSync", "writeFileSync", "unlinkSync"
+  ],
+  WEAK_CRYPTO: [
+    "MD5.Create", "SHA1.Create", "DES.Create"
+  ]
+};
+
+const SANITIZER_PATTERNS = [
+  /validate/i, /sanitize/i, /clean/i, /parse/i, /regex/i, /guard/i, /check/i
+];
+
+/**
+ * Traces inter-procedural data-flow from an entry symbol down to sensitive sinks.
+ * Identifies if unvalidated data flows into database, process, or file sinks.
+ */
+export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts = {}) {
+  const cleanEntry = String(entrySymbol || "").trim();
+  if (!cleanEntry) return { error: "entrySymbol is required" };
+
+  const startTime = Date.now();
+  const maxDepth = opts.maxDepth ?? 8;
+  const targetSinks = opts.sinks || Object.keys(SENSITIVE_SINKS);
+
+  // Flatten sink triggers for fast lookup
+  const sinkMap = new Map();
+  for (const [sinkType, methods] of Object.entries(SENSITIVE_SINKS)) {
+    if (!targetSinks.includes(sinkType) && !targetSinks.includes("ALL")) continue;
+    for (const m of methods) {
+      sinkMap.set(m.toLowerCase(), { sinkType, method: m });
+    }
+  }
+
+  const hits = lookupSymbol(workspaceRoot, cleanEntry);
+  const entryParams = hits.length > 0 ? (hits[0].params || []) : [];
+
+  const queue = [{ name: cleanEntry, path: [cleanEntry], depth: 0, sanitized: false }];
+  const visited = new Set([cleanEntry.toLowerCase()]);
+  const discoveredSinks = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current.depth >= maxDepth) continue;
+
+    let candidates = lookupSymbol(workspaceRoot, current.name);
+    // Polymorphic and CQRS stitching:
+    if (current.name.startsWith("I") && current.name.length > 2 && /^[A-Z]/.test(current.name[1])) {
+      const concreteCandidates = lookupSymbol(workspaceRoot, current.name.slice(1));
+      if (concreteCandidates.length > 0) candidates = [...candidates, ...concreteCandidates];
+    } else if (/(?:Command|Event|Notification)$/.test(current.name)) {
+      const hCandidates = lookupSymbol(workspaceRoot, current.name + "Handler");
+      if (hCandidates.length > 0) candidates = [...candidates, ...hCandidates];
+    }
+
+    for (const cand of candidates) {
+      const callees = [
+        ...(cand.calls || []),
+        ...(cand.kind === "type" ? (cand.members || []) : [])
+      ];
+
+      for (const callee of callees) {
+        const calleeLower = callee.toLowerCase();
+        const isSanitizerCall = SANITIZER_PATTERNS.some(re => re.test(callee));
+        const currentSanitized = current.sanitized || isSanitizerCall;
+
+        if (sinkMap.has(calleeLower)) {
+          const { sinkType, method } = sinkMap.get(calleeLower);
+          discoveredSinks.push({
+            sinkType,
+            sinkMethod: method,
+            file: cand.file,
+            path: [...current.path, callee],
+            depth: current.depth + 1,
+            isTainted: !currentSanitized,
+            hazard: currentSanitized
+              ? "Reachable sink with detected sanitizer"
+              : `Untrusted data-flow from '${cleanEntry}' reaches '${sinkType}' without explicit validation.`
+          });
+        }
+
+        if (!visited.has(calleeLower)) {
+          visited.add(calleeLower);
+          queue.push({
+            name: callee,
+            path: [...current.path, callee],
+            depth: current.depth + 1,
+            sanitized: currentSanitized,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    source: cleanEntry,
+    params: entryParams,
+    reachableSinksCount: discoveredSinks.length,
+    taintedSinksCount: discoveredSinks.filter(s => s.isTainted).length,
+    sinks: discoveredSinks,
     durationMs: Date.now() - startTime,
   };
 }

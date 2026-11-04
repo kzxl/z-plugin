@@ -120,9 +120,11 @@ async function analyzeBlastRadius(files, addedLines, cwd) {
   const blastFindings = [];
   try {
     let getBlastRadiusFn = null;
+    let traceDataFlowFn = null;
     try {
       const tokenMod = await import('../../../z-token/scripts/lib/symbol-cache.mjs');
       getBlastRadiusFn = tokenMod.getBlastRadius;
+      traceDataFlowFn = tokenMod.traceDataFlow;
     } catch {}
 
     if (typeof getBlastRadiusFn !== 'function') return blastFindings;
@@ -182,6 +184,25 @@ async function analyzeBlastRadius(files, addedLines, cwd) {
             message: `Wide blast radius: Modifying '${sym}' impacts ${res.impactedFiles.length} files (${res.impactedFiles.slice(0, 3).join(', ')}...).`,
             suggestion: `Run integration tests across impacted modules: ${res.impactedFiles.slice(0, 4).join(', ')}.`
           });
+        }
+
+        // Inter-procedural Data-Flow Taint Hazard Check
+        if (typeof traceDataFlowFn === 'function') {
+          const taintRes = traceDataFlowFn(cwd, sym);
+          if (taintRes && taintRes.taintedSinksCount > 0) {
+            const worstSink = taintRes.sinks.find(s => s.isTainted);
+            if (worstSink) {
+              blastFindings.push({
+                severity: 'P1',
+                category: 'SECURITY',
+                file: definingFiles[0] || 'GRAPH',
+                line: 1,
+                rule: `Taint Sink Hazard (Graphify Data-Flow: ${worstSink.sinkType})`,
+                message: `Untrusted data-flow: Symbol '${sym}' reaches sensitive sink '${worstSink.sinkMethod}' (${worstSink.sinkType}) via [${worstSink.path.join(' -> ')}] without detected validation.`,
+                suggestion: `Add parameter validation, type parsing, or parameterized query binding along call path to sanitize tainted inputs.`
+              });
+            }
+          }
         }
       }
     }

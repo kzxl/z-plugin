@@ -141,6 +141,9 @@ ok(Array.isArray(graphWidget.communities), 'graph canvas returns communities arr
 ok(graphWidget.communities.length >= 1, `graph canvas identified at least 1 community (got: ${graphWidget.communities.length})`);
 ok(graphWidget.html.includes('DOMAINS:'), 'graph canvas includes domain community filter pills');
 ok(graphWidget.html.includes('data-community='), 'graph canvas node cards have data-community attributes');
+ok(graphWidget.html.includes('viewBtnForce'), 'graph canvas includes force graph view toggle');
+ok(graphWidget.html.includes('id="forceSvg"'), 'graph canvas includes interactive SVG force canvas');
+ok(graphWidget.html.includes('initForcePhysics'), 'graph canvas includes force physics simulation script');
 
 console.log('z-craft: vibe time-machine checks');
 

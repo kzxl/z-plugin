@@ -23,6 +23,7 @@ import {
   tracePath,
   getCallers,
   getBlastRadius,
+  traceDataFlow,
 } from "./symbol-cache.mjs";
 
 export {
@@ -35,6 +36,7 @@ export {
   tracePath,
   getCallers,
   getBlastRadius,
+  traceDataFlow,
 };
 
 const CODE_EXT = new Set([

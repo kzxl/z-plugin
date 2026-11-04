@@ -18,6 +18,7 @@ import {
   tracePath,
   getCallers,
   getBlastRadius,
+  traceDataFlow,
 } from "../plugins/z-token/scripts/lib/symbol-cache.mjs";
 
 console.log("=== z-token: Graphify Call-Graph & Blast Radius Benchmark ===");
@@ -160,6 +161,7 @@ namespace App.Core {
 
   // 4. Test tracePath (BFS Graph Traversal)
   console.log("\n[3/5] Testing tracePath (BFS Shortest Path Traversal)...");
+  tracePath(TEST_DIR, "HandleCheckout", "AuditLogEntry"); // warm-up
   const tTrace0 = performance.now();
   const trace = tracePath(TEST_DIR, "HandleCheckout", "AuditLogEntry");
   const traceDur = performance.now() - tTrace0;
@@ -230,6 +232,95 @@ namespace App.Services.Order {
   assert.ok(ifaceTrace.path.includes("OrderService") || ifaceTrace.path.includes("ProcessOrder"), "Path must cross concrete OrderService");
 
   console.log("  ok   polymorphic seam stitching verified");
+
+  // 8. Test CQRS & MediatR Decoupled Seam Stitching
+  console.log("\n[7/8] Testing MediatR & CQRS Dispatch Seam Stitching...");
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Controllers", "CheckoutController.cs"),
+    `
+namespace App.Controllers {
+    public class CheckoutController {
+        public async Task<bool> SubmitOrder(string cartId) {
+            await _mediator.Send(new CheckoutCartCommand(cartId));
+            return true;
+        }
+    }
+}
+`,
+    "utf8"
+  );
+
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Services/Order", "CheckoutCartCommandHandler.cs"),
+    `
+namespace App.Services.Order {
+    public class CheckoutCartCommandHandler {
+        public async Task<bool> Handle(CheckoutCartCommand cmd) {
+            var ok = await ProcessOrder(cmd.Id, 100);
+            return ok;
+        }
+    }
+}
+`,
+    "utf8"
+  );
+
+  indexWorkspace(TEST_DIR);
+
+  const cqrsTrace = tracePath(TEST_DIR, "SubmitOrder", "AuditLogEntry");
+  console.log(`  CQRS Trace: ${cqrsTrace.path.join(" -> ")}`);
+  assert.strictEqual(cqrsTrace.found, true, "Must trace across MediatR decoupled command to handler");
+  assert.ok(cqrsTrace.path.includes("CheckoutCartCommandHandler"), "Path must cross CheckoutCartCommandHandler");
+  console.log("  ok   MediatR & CQRS decoupled seam stitching verified");
+
+  // 9. Test Inter-procedural Data-Flow & Taint Tracking
+  console.log("\n[8/8] Testing Inter-procedural Data-Flow & Taint Tracking...");
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Services/Audit", "AuditService.cs"),
+    `
+namespace App.Services.Audit {
+    public class AuditService {
+        public void AuditLogEntry(string domain, string id) {
+            ExecuteSqlRaw("INSERT INTO AuditLog VALUES (" + id + ")");
+        }
+        public void ExecuteSqlRaw(string sql) {}
+    }
+}
+`,
+    "utf8"
+  );
+
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Controllers", "ExportController.cs"),
+    `
+namespace App.Controllers {
+    public class ExportController {
+        public void UnsafeAuditExport(string rawFilter) {
+            AuditLogEntry("EXPORT", rawFilter);
+        }
+    }
+}
+`,
+    "utf8"
+  );
+
+  indexWorkspace(TEST_DIR);
+
+  // Sanitized data flow (SubmitOrder path has ValidateCart)
+  const cleanReport = traceDataFlow(TEST_DIR, "SubmitOrder");
+  console.log(`  SubmitOrder flow: reachable = ${cleanReport.reachableSinksCount}, tainted = ${cleanReport.taintedSinksCount}`);
+  assert.strictEqual(cleanReport.reachableSinksCount >= 1, true, "Must detect reachable SQL sink");
+  assert.strictEqual(cleanReport.taintedSinksCount === 0, true, "ValidateCart along path must mark sink as sanitized");
+
+  // Tainted data flow (UnsafeAuditExport path has NO sanitizer)
+  const unsafeReport = traceDataFlow(TEST_DIR, "UnsafeAuditExport");
+  console.log(`  UnsafeAuditExport flow: reachable = ${unsafeReport.reachableSinksCount}, tainted = ${unsafeReport.taintedSinksCount}`);
+  assert.strictEqual(unsafeReport.reachableSinksCount >= 1, true, "Must reach SQL sink");
+  assert.strictEqual(unsafeReport.taintedSinksCount >= 1, true, "Must flag untrusted sink without validation as tainted");
+  assert.strictEqual(unsafeReport.sinks[0].sinkType, "SQL_INJECTION");
+  console.log(`    Taint Sink: ${unsafeReport.sinks[0].sinkMethod} (${unsafeReport.sinks[0].sinkType})`);
+  console.log(`    Path: ${unsafeReport.sinks[0].path.join(" -> ")}`);
+  console.log("  ok   inter-procedural data-flow taint tracking verified (sanitized & tainted paths)");
 
   console.log("\n=== ALL GRAPHIFY CALL-GRAPH TESTS PASSED! ===");
 } finally {
