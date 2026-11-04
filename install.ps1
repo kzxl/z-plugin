@@ -123,6 +123,71 @@ foreach ($pName in $pluginsToProcess) {
     }
 }
 
+# 2.5 Process extension DLCs
+$extensionsDir = Join-Path $repoRoot "extensions"
+if (Test-Path $extensionsDir) {
+    $availableExtensions = Get-ChildItem -Path $extensionsDir -Directory | Select-Object -ExpandProperty Name
+    $extensionRoots = @(
+        @{ Name = "Antigravity"; Path = (Join-Path $env:USERPROFILE ".gemini\config\extensions") },
+        @{ Name = "ZCode";       Path = (Join-Path $env:USERPROFILE ".zcode\extensions") }
+    )
+
+    foreach ($extName in $availableExtensions) {
+        $extSrc = Join-Path $extensionsDir $extName
+        Write-Host "`n=== Processing Extension DLC: $extName ===" -ForegroundColor Magenta
+
+        foreach ($ide in $extensionRoots) {
+            $extTarget = Join-Path $ide.Path $extName
+
+            if ($Uninstall) {
+                if (Test-Path $extTarget) {
+                    Write-Host "[$($ide.Name)] Removing extension link: $extTarget" -ForegroundColor Yellow
+                    $item = Get-Item $extTarget -Force
+                    if ($item.Attributes -match "ReparsePoint") {
+                        [System.IO.Directory]::Delete($extTarget)
+                    } else {
+                        Remove-Item -Path $extTarget -Recurse -Force
+                    }
+                }
+                continue
+            }
+
+            if (!(Test-Path $ide.Path)) {
+                New-Item -Path $ide.Path -ItemType Directory -Force | Out-Null
+            }
+
+            if ($Development) {
+                try {
+                    if (Test-Path $extTarget) {
+                        $item = Get-Item $extTarget -Force
+                        if ($item.Attributes -match "ReparsePoint") {
+                            [System.IO.Directory]::Delete($extTarget)
+                        } else {
+                            Remove-Item -Path $extTarget -Recurse -Force
+                        }
+                    }
+                    New-Item -ItemType Junction -Path $extTarget -Target $extSrc -Force -ErrorAction Stop | Out-Null
+                    Write-Host "[$($ide.Name)] Linked development extension junction: $extTarget -> $extSrc" -ForegroundColor Green
+                    continue
+                } catch {
+                    Write-Warning "Could not link extension junction: $_. Falling back to copy sync."
+                }
+            }
+
+            try {
+                if (!(Test-Path $extTarget)) {
+                    New-Item -Path $extTarget -ItemType Directory -Force | Out-Null
+                }
+                robocopy $extSrc $extTarget /MIR /XD .git node_modules /NP /NFL /NDL /NJH /NJS | Out-Null
+                Write-Host "[$($ide.Name)] Synchronized extension: $extTarget" -ForegroundColor Green
+            } catch {
+                Copy-Item -Path $extSrc -Destination $extTarget -Recurse -Force
+                Write-Host "[$($ide.Name)] Copied extension: $extTarget" -ForegroundColor Green
+            }
+        }
+    }
+}
+
 # 3. Synchronize MCP configs and enabled plugins state for Antigravity & ZCode
 $antigravityConfigPath = Join-Path $env:USERPROFILE ".gemini\config\config.json"
 if (Test-Path $antigravityConfigPath) {

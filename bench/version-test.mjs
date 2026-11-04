@@ -66,10 +66,17 @@ const extDir = path.join(root, "extensions");
 if (fs.existsSync(extDir)) {
   const extFolders = fs.readdirSync(extDir).filter(f => fs.statSync(path.join(extDir, f)).isDirectory());
   for (const dlcName of extFolders) {
-    const dlcManifestPath = path.join(extDir, dlcName, "z-plugin.manifest.json");
+    const dlcFolder = path.join(extDir, dlcName);
+    const dlcManifestPath = path.join(dlcFolder, "z-plugin.manifest.json");
     if (fs.existsSync(dlcManifestPath)) {
       const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
       ok(dlcManifest.version === releaseVersion, `extensions/${dlcName}/z-plugin.manifest.json version (${dlcManifest.version}) matches release (${releaseVersion})`);
+    }
+
+    const dlcPkgPath = path.join(dlcFolder, "package.json");
+    if (fs.existsSync(dlcPkgPath)) {
+      const dlcPkg = JSON.parse(fs.readFileSync(dlcPkgPath, "utf8"));
+      ok(dlcPkg.version === releaseVersion, `extensions/${dlcName}/package.json version (${dlcPkg.version}) matches release (${releaseVersion})`);
     }
   }
 }

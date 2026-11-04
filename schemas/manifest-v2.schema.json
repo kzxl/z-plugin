@@ -33,6 +33,11 @@
       "type": "string",
       "enum": ["core-kernel", "domain-module", "extension-dlc", "tool-pack"]
     },
+    "dlcType": {
+      "type": "string",
+      "enum": ["domain-suite", "rule-pack", "linter-pack", "knowledge-pack", "integration-pack"],
+      "description": "Specific archetype of the DLC extension"
+    },
     "main": {
       "type": "string"
     },

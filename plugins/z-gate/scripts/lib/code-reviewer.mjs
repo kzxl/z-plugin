@@ -22,9 +22,16 @@ export const customLineReviewers = [];
  * Register custom line reviewers contributed by extension DLCs (e.g. dlc-erp)
  */
 export function registerLineReviewer(reviewerFn) {
-  if (typeof reviewerFn === 'function') {
+  if (typeof reviewerFn === 'function' && !customLineReviewers.includes(reviewerFn)) {
     customLineReviewers.push(reviewerFn);
   }
+}
+
+/**
+ * Clear all registered custom line reviewers (used by hot-reload to prevent duplicates)
+ */
+export function clearCustomLineReviewers() {
+  customLineReviewers.length = 0;
 }
 
 /**

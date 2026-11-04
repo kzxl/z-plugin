@@ -13,19 +13,61 @@ import { fileURLToPath } from 'node:url';
 
 import { findHelpers } from './lib/helper-discovery.mjs';
 import { auditDiff } from './lib/nev-auditor.mjs';
-import { reviewCode } from './lib/code-reviewer.mjs';
+import { reviewCode, registerLineReviewer } from './lib/code-reviewer.mjs';
 import { formatReviewReport } from './lib/review-formatter.mjs';
 import { installPreCommitHook } from './lib/git-hook.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let pluginMeta = { name: 'z-gate', version: '1.1.0' };
+let pluginMeta = { name: 'z-gate', version: '1.2.0' };
 try {
   const metaPath = path.resolve(__dirname, '..', 'plugin.json');
   if (fs.existsSync(metaPath)) {
     pluginMeta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   }
 } catch {}
+
+async function autoLoadExtensions() {
+  const candidateDirs = [
+    path.resolve(__dirname, '..', '..', '..', 'extensions'),
+    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'extensions'),
+    path.resolve(process.env.USERPROFILE || '', '.zcode', 'extensions')
+  ];
+
+  for (const extDir of candidateDirs) {
+    if (fs.existsSync(extDir)) {
+      try {
+        const entries = fs.readdirSync(extDir, { withFileTypes: true });
+        for (const ent of entries) {
+          if (ent.isDirectory() && ent.name.startsWith('dlc-')) {
+            const manifestPath = path.join(extDir, ent.name, 'z-plugin.manifest.json');
+            if (fs.existsSync(manifestPath)) {
+              try {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                if (manifest.contributions?.gateChecks) {
+                  const entryFile = path.resolve(extDir, ent.name, manifest.main || 'index.mjs');
+                  if (fs.existsSync(entryFile)) {
+                    const dlcModule = await import(`file://${entryFile}`);
+                    if (dlcModule.gateChecks) {
+                      for (const gc of manifest.contributions.gateChecks) {
+                        const fn = dlcModule.gateChecks[gc.handler];
+                        if (typeof fn === 'function') {
+                          registerLineReviewer(fn);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+}
+
+autoLoadExtensions().catch(() => {});
 
 function getStagedDiff(cwd) {
   try {

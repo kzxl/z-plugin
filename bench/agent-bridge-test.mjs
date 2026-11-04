@@ -78,6 +78,18 @@ async function runTests() {
   });
   testAssert(lockedExecution === true, 'withLock executed successfully');
 
+  // Stream Rotation & Compaction check
+  const rotatingBridge = new LocalIpcBridge({
+    ipcDir: path.join(tempDir, 'rotate_ipc'),
+    maxStreamSize: 200, // Very small byte ceiling for test
+    keepLinesOnRotate: 2
+  });
+  for (let i = 0; i < 10; i++) {
+    rotatingBridge.broadcast('test:ping', { seq: i });
+  }
+  const linesInStream = fs.readFileSync(rotatingBridge.eventStreamPath, 'utf8').split('\n').filter(Boolean);
+  testAssert(linesInStream.length <= 4, `Stream rotated and kept bounded lines (got: ${linesInStream.length})`);
+
   agent2.stopListening();
 
   // 5. Semantic Trigram Similarity

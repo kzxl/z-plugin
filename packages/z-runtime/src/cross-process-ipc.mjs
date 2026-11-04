@@ -14,6 +14,8 @@ import os from 'node:os';
 const DEFAULT_IPC_DIR = path.join(os.homedir(), '.zcode', 'ipc');
 const EVENT_STREAM_FILE = 'event_stream.jsonl';
 const LOCK_DIR = 'locks';
+const DEFAULT_MAX_STREAM_SIZE = 2 * 1024 * 1024; // 2MB
+const DEFAULT_KEEP_LINES = 500;
 
 export class LocalIpcBridge {
   constructor(options = {}) {
@@ -22,6 +24,8 @@ export class LocalIpcBridge {
     this.lockDir = path.join(this.ipcDir, LOCK_DIR);
     this.processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.eventBus = options.eventBus || null;
+    this.maxStreamSize = options.maxStreamSize || DEFAULT_MAX_STREAM_SIZE;
+    this.keepLinesOnRotate = options.keepLinesOnRotate || DEFAULT_KEEP_LINES;
     this.watcher = null;
     this.lastReadOffset = 0;
     this.isWatching = false;
@@ -59,10 +63,31 @@ export class LocalIpcBridge {
     const line = JSON.stringify(envelope) + '\n';
     try {
       fs.appendFileSync(this.eventStreamPath, line, 'utf8');
+      this.rotateStream();
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Compact and rotate event stream file when exceeding maxStreamSize
+   */
+  rotateStream(maxBytes = this.maxStreamSize, keepLines = this.keepLinesOnRotate) {
+    try {
+      if (!fs.existsSync(this.eventStreamPath)) return false;
+      const stats = fs.statSync(this.eventStreamPath);
+      if (stats.size > maxBytes) {
+        const content = fs.readFileSync(this.eventStreamPath, 'utf8');
+        const lines = content.split('\n').filter(Boolean);
+        const kept = lines.slice(-keepLines);
+        const newContent = kept.length > 0 ? kept.join('\n') + '\n' : '';
+        fs.writeFileSync(this.eventStreamPath, newContent, 'utf8');
+        this.lastReadOffset = Buffer.byteLength(newContent, 'utf8');
+        return true;
+      }
+    } catch {}
+    return false;
   }
 
   /**
@@ -160,13 +185,19 @@ export class LocalIpcBridge {
         if (err.code === 'EEXIST') {
           // Check if lock is stale (>5000ms old)
           try {
-            const data = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+            const raw = fs.readFileSync(lockFile, 'utf8');
+            const data = JSON.parse(raw);
             if (Date.now() - data.acquiredAt > 5000) {
-              fs.unlinkSync(lockFile);
+              // Ensure we only unlink if the lock hasn't been re-acquired by someone else
+              const currentRaw = fs.readFileSync(lockFile, 'utf8');
+              const currentData = JSON.parse(currentRaw);
+              if (currentData.acquiredAt === data.acquiredAt && currentData.pid === data.pid) {
+                fs.unlinkSync(lockFile);
+              }
               continue;
             }
           } catch {
-            try { fs.unlinkSync(lockFile); } catch {}
+            // Lock file may have been unlinked or overwritten concurrently
           }
           await new Promise(r => setTimeout(r, 20 + Math.random() * 30));
         } else {

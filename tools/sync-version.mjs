@@ -99,13 +99,36 @@ const extDir = path.join(root, "extensions");
 if (fs.existsSync(extDir)) {
   const extFolders = fs.readdirSync(extDir).filter(f => fs.statSync(path.join(extDir, f)).isDirectory());
   for (const dlcName of extFolders) {
-    const dlcManifestPath = path.join(extDir, dlcName, "z-plugin.manifest.json");
+    const dlcFolder = path.join(extDir, dlcName);
+    const dlcManifestPath = path.join(dlcFolder, "z-plugin.manifest.json");
     if (fs.existsSync(dlcManifestPath)) {
       const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
       if (dlcManifest.version !== targetVersion) {
         dlcManifest.version = targetVersion;
         fs.writeFileSync(dlcManifestPath, JSON.stringify(dlcManifest, null, 2) + "\n", "utf8");
         console.log(`  ✓ Updated extensions/${dlcName}/z-plugin.manifest.json -> ${targetVersion}`);
+      }
+    }
+
+    // Update extension package.json
+    const dlcPkgPath = path.join(dlcFolder, "package.json");
+    if (fs.existsSync(dlcPkgPath)) {
+      const dlcPkg = JSON.parse(fs.readFileSync(dlcPkgPath, "utf8"));
+      if (dlcPkg.version !== targetVersion) {
+        dlcPkg.version = targetVersion;
+        fs.writeFileSync(dlcPkgPath, JSON.stringify(dlcPkg, null, 2) + "\n", "utf8");
+        console.log(`  ✓ Updated extensions/${dlcName}/package.json -> ${targetVersion}`);
+      }
+    }
+
+    // Update version strings in index.mjs if present
+    const dlcIndexPath = path.join(dlcFolder, "index.mjs");
+    if (fs.existsSync(dlcIndexPath)) {
+      const oldIndex = fs.readFileSync(dlcIndexPath, "utf8");
+      const updatedIndex = oldIndex.replace(/version:\s*['"]\d+\.\d+\.\d+(-[a-zA-Z0-9\.\-_]+)?['"]/g, `version: '${targetVersion}'`);
+      if (updatedIndex !== oldIndex) {
+        fs.writeFileSync(dlcIndexPath, updatedIndex, "utf8");
+        console.log(`  ✓ Updated extensions/${dlcName}/index.mjs -> ${targetVersion}`);
       }
     }
   }

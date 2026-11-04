@@ -43,6 +43,7 @@ export function scaffoldDlc(rawName, options = {}) {
   fs.mkdirSync(path.join(targetDir, 'linters'), { recursive: true });
 
   const slot = options.slot || 'domain-rules';
+  const dlcType = options.type || (slot === 'gate-checks' ? 'linter-pack' : (slot === 'synonyms' ? 'knowledge-pack' : 'domain-suite'));
   const desc = options.desc || `${cleanName.toUpperCase()} domain rules, linters, and invariants for AEOS.`;
 
   // 1. package.json
@@ -63,10 +64,11 @@ export function scaffoldDlc(rawName, options = {}) {
     name: `${cleanName.charAt(0).toUpperCase() + cleanName.slice(1)} Engineering DLC`,
     version: '1.0.0',
     kind: 'extension-dlc',
+    dlcType: dlcType,
     description: desc,
     main: 'index.mjs',
     extends: {
-      plugin: 'z-mind',
+      plugin: dlcType === 'linter-pack' ? 'z-gate' : (dlcType === 'knowledge-pack' ? 'z-brain' : 'z-mind'),
       slot: slot
     },
     dependencies: {
@@ -240,7 +242,9 @@ if (isDirectRun) {
 AEOS DLC CLI Tool
 
 Commands:
-  create <name> [--slot=<slot>] [--desc=<desc>]  Scaffold a new Extension DLC
+  create <name> [--type=<type>] [--slot=<slot>] [--desc=<desc>]
+                                                 Scaffold a new Extension DLC
+                                                 Types: domain-suite, rule-pack, linter-pack, knowledge-pack
   validate <path>                                Validate DLC manifest and structure
   list                                           List installed DLCs in extensions/
 `);
@@ -254,13 +258,15 @@ Commands:
         console.error('Error: DLC name is required (e.g. node tools/dlc-cli.mjs create database)');
         process.exit(1);
       }
+      const typeArg = args.find(a => a.startsWith('--type='));
       const slotArg = args.find(a => a.startsWith('--slot='));
       const descArg = args.find(a => a.startsWith('--desc='));
-      const slot = slotArg ? slotArg.split('=')[1] : 'domain-rules';
+      const type = typeArg ? typeArg.split('=')[1] : 'domain-suite';
+      const slot = slotArg ? slotArg.split('=')[1] : (type === 'linter-pack' ? 'gate-checks' : (type === 'knowledge-pack' ? 'synonyms' : 'domain-rules'));
       const desc = descArg ? descArg.split('=')[1] : undefined;
 
-      const res = scaffoldDlc(name, { slot, desc });
-      console.log(`\n[SUCCESS] Created Extension DLC: ${res.dlcId}`);
+      const res = scaffoldDlc(name, { type, slot, desc });
+      console.log(`\n[SUCCESS] Created Extension DLC: ${res.dlcId} (archetype: ${type})`);
       console.log(`Directory: ${res.targetDir}`);
       console.log(`Contributed Rule: ${res.ruleKey}\n`);
     } else if (command === 'validate') {
@@ -278,7 +284,7 @@ Commands:
       const dlcs = listDlcs();
       console.log(`\nInstalled AEOS Extension DLCs (${dlcs.length}):`);
       for (const d of dlcs) {
-        console.log(` • ${d.id} (v${d.version}) -> extends ${d.extends?.plugin} [${d.extends?.slot}]`);
+        console.log(` • ${d.id} (v${d.version}) [type: ${d.dlcType || 'domain-suite'}] -> extends ${d.extends?.plugin} [${d.extends?.slot}]`);
       }
       console.log('');
     } else {

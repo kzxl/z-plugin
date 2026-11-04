@@ -5,11 +5,53 @@
  */
 
 import readline from "node:readline";
-import { queryRules, auditPlan } from "./lib/rules.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { queryRules, auditPlan, registerRulesPack } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
 import { runDoctor } from "./lib/doctor.mjs";
 import { synthesizePlan } from "./lib/plan-generator.mjs";
 import { auditArchitecture } from "./lib/arch-doctor.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function autoLoadExtensions() {
+  const candidateDirs = [
+    path.resolve(__dirname, "..", "..", "..", "extensions"),
+    path.resolve(process.env.USERPROFILE || "", ".gemini", "config", "extensions"),
+    path.resolve(process.env.USERPROFILE || "", ".zcode", "extensions")
+  ];
+
+  for (const extDir of candidateDirs) {
+    if (fs.existsSync(extDir)) {
+      try {
+        const entries = fs.readdirSync(extDir, { withFileTypes: true });
+        for (const ent of entries) {
+          if (ent.isDirectory() && ent.name.startsWith("dlc-")) {
+            const manifestPath = path.join(extDir, ent.name, "z-plugin.manifest.json");
+            if (fs.existsSync(manifestPath)) {
+              try {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+                if (manifest.contributions?.rules) {
+                  for (const rRel of manifest.contributions.rules) {
+                    const rFull = path.resolve(extDir, ent.name, rRel);
+                    if (fs.existsSync(rFull)) {
+                      const ruleData = JSON.parse(fs.readFileSync(rFull, "utf8"));
+                      registerRulesPack(ruleData);
+                    }
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+}
+
+autoLoadExtensions();
 
 const TOOLS = [
   {
@@ -122,7 +164,7 @@ rl.on("line", (line) => {
         sendResponse(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "z-mind", version: "1.0.0" }
+          serverInfo: { name: "z-mind", version: "1.2.0" }
         });
         break;
 

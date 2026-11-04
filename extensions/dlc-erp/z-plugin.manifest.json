@@ -4,6 +4,7 @@
   "name": "ERP & Financial Engineering DLC",
   "version": "1.2.0",
   "kind": "extension-dlc",
+  "dlcType": "domain-suite",
   "description": "Enterprise Resource Planning invariants, financial precision linters, and bilingual ERP synonyms.",
   "main": "index.mjs",
   "extends": {

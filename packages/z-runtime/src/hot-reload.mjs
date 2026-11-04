@@ -48,6 +48,9 @@ export class HotReloadManager {
     try {
       const gateModule = await import('../../../plugins/z-gate/scripts/lib/code-reviewer.mjs');
       registerLineReviewer = gateModule.registerLineReviewer;
+      if (typeof gateModule.clearCustomLineReviewers === 'function') {
+        gateModule.clearCustomLineReviewers();
+      }
     } catch {}
 
     for (const ent of entries) {

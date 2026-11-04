@@ -36,6 +36,12 @@ async function runHotReloadTests() {
   const erpRules = queryRules('erp');
   testAssert(erpRules.length >= 1, 'queryRules returns contributed ERP rules');
 
+  // Verify DLC reviewer deduplication in z-gate
+  const { customLineReviewers } = await import('../plugins/z-gate/scripts/lib/code-reviewer.mjs');
+  testAssert(customLineReviewers.length === 2, `Reviewers registered without duplicates (got: ${customLineReviewers.length})`);
+  await manager.reloadDlcs(path.join(ROOT_DIR, 'extensions'));
+  testAssert(customLineReviewers.length === 2, `Reviewers stay deduplicated after subsequent reload (got: ${customLineReviewers.length})`);
+
   // Test 3: reloadSynonyms updates z-brain bilingual dictionary
   const synDict = await manager.reloadSynonyms();
   testAssert(typeof synDict === 'object' && Object.keys(synDict).length > 0, 'reloadSynonyms returns non-empty dictionary');

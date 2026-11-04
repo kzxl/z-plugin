@@ -16,13 +16,7 @@ export function reloadSynonymsDictionary(customPath = null) {
 export function getSynonymsDictionary(customPath = null) {
   if (_cachedSynonyms && !customPath) return _cachedSynonyms;
   const dictPath = customPath || process.env.ZBRAIN_SYNONYMS_PATH || DEFAULT_SYNONYMS_PATH;
-  try {
-    if (fs.existsSync(dictPath)) {
-      _cachedSynonyms = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-      return _cachedSynonyms;
-    }
-  } catch {}
-  return {
+  let dict = {
     "ton kho": ["inventory", "stock", "ton_kho", "lot"],
     "tồn kho": ["inventory", "stock", "ton_kho", "lot"],
     "inventory": ["stock", "ton_kho", "lot", "tồn kho"],
@@ -32,6 +26,41 @@ export function getSynonymsDictionary(customPath = null) {
     "phieu nhap": ["goods_receipt", "purchase_order", "phieu_nhap"],
     "phiếu nhập": ["goods_receipt", "purchase_order", "phieu_nhap"]
   };
+  try {
+    if (fs.existsSync(dictPath)) {
+      dict = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
+    }
+  } catch {}
+
+  // Auto-merge contributed synonyms from installed DLC extensions
+  if (!customPath) {
+    const extDir = path.resolve(__dirname, '..', '..', '..', '..', 'extensions');
+    if (fs.existsSync(extDir)) {
+      try {
+        const entries = fs.readdirSync(extDir, { withFileTypes: true });
+        for (const ent of entries) {
+          if (ent.isDirectory() && ent.name.startsWith('dlc-')) {
+            const manifestPath = path.join(extDir, ent.name, 'z-plugin.manifest.json');
+            if (fs.existsSync(manifestPath)) {
+              try {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                if (manifest.contributions?.synonyms) {
+                  const synFile = path.resolve(extDir, ent.name, manifest.contributions.synonyms);
+                  if (fs.existsSync(synFile)) {
+                    const extSyns = JSON.parse(fs.readFileSync(synFile, 'utf8'));
+                    Object.assign(dict, extSyns);
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  _cachedSynonyms = dict;
+  return _cachedSynonyms;
 }
 
 export function detectCurrentProject(cwd = process.cwd()) {
