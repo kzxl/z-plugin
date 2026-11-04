@@ -31,7 +31,7 @@
     "node": ">=22"
   },
   "bin": {
-    "z-plugin": "./bin/z-plugin.mjs"
+    "z-plugin": "bin/z-plugin.mjs"
   },
   "files": [
     "bin",
