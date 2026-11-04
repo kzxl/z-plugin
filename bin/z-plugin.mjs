@@ -12,7 +12,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exportAgentConfig, SUPPORTED_AGENTS } from '../tools/agent-bridge.mjs';
 import {
   tracePath,
@@ -172,7 +172,7 @@ async function main() {
       break;
     case 'demo': {
       const demoPath = path.join(ROOT_DIR, 'tools', 'visual-demo.mjs');
-      const { runDemo } = await import(demoPath);
+      const { runDemo } = await import(pathToFileURL(demoPath).href);
       await runDemo();
       break;
     }
