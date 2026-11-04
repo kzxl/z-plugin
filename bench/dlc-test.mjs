@@ -7,10 +7,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { ZRuntime } from '../packages/z-runtime/src/index.mjs';
 import { registerLineReviewer, reviewCode } from '../plugins/z-gate/scripts/lib/code-reviewer.mjs';
+import { scaffoldDlc, validateDlc, listDlcs } from '../tools/dlc-cli.mjs';
 import dlcErp, { rules, synonyms, gateChecks, activateDlc } from '../extensions/dlc-erp/index.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,4 +101,38 @@ ok(reviewResult.findings.length > 0, 'reviewCode caught ERP decimal violation vi
 ok(reviewResult.findings.some(f => f.category === 'DOMAIN_ERP'), 'review findings include DOMAIN_ERP category');
 ok(reviewResult.score < 100, `score was deducted due to ERP violation (got: ${reviewResult.score})`);
 
-console.log('\nall dlc-erp tests passed!');
+console.log('dlc-cli: scaffolding, validation, and listing tooling');
+
+// 1. List installed DLCs
+const installedDlcs = listDlcs();
+ok(installedDlcs.length >= 1, `found at least 1 installed DLC (got: ${installedDlcs.length})`);
+ok(installedDlcs.some(d => d.id === 'dlc-erp'), 'listDlcs includes dlc-erp');
+
+// 2. Validate existing dlc-erp package
+const erpValidation = validateDlc(path.join(root, 'extensions', 'dlc-erp'));
+ok(erpValidation.valid === true, 'validateDlc passes on dlc-erp');
+ok(erpValidation.dlcId === 'dlc-erp', 'validated DLC ID matches dlc-erp');
+
+// 3. Test scaffolding new DLC in temporary folder
+const tempDlcDir = path.join(os.tmpdir(), `test-dlc-sec-${Date.now()}`);
+const scaffoldRes = scaffoldDlc('security', {
+  targetDir: tempDlcDir,
+  slot: 'security-linters',
+  desc: 'Security auditing linters and secrets scanner.'
+});
+
+ok(scaffoldRes.success === true, 'scaffoldDlc created DLC successfully');
+ok(scaffoldRes.dlcId === 'dlc-security', 'scaffoldDlc assigned dlc-security ID');
+ok(fs.existsSync(path.join(tempDlcDir, 'z-plugin.manifest.json')), 'scaffolded manifest exists on disk');
+ok(fs.existsSync(path.join(tempDlcDir, 'rules', 'security-rules.json')), 'scaffolded rules file exists');
+ok(fs.existsSync(path.join(tempDlcDir, 'index.mjs')), 'scaffolded entrypoint index.mjs exists');
+
+// Validate scaffolded DLC against schema
+const scaffoldValidation = validateDlc(tempDlcDir);
+ok(scaffoldValidation.valid === true, 'validateDlc passes on freshly scaffolded DLC');
+ok(scaffoldValidation.dlcId === 'dlc-security', 'scaffolded DLC validated as dlc-security');
+
+// Cleanup temporary folder
+fs.rmSync(tempDlcDir, { recursive: true, force: true });
+
+console.log('\nall dlc-erp and dlc-cli tests passed!');
