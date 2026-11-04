@@ -1,6 +1,6 @@
 {
   "name": "z-mind",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cognitive engineering framework & thinking discipline for AI coding agents: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
   "author": {
     "name": "kzxl"

@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-token",
   "name": "Z-Token Context Firewall",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Compact-context tools and guards: code outline, capped search, compact .NET builds, oversized-read blocking, and token budgeting.",
   "author": "kzxl",
   "license": "MIT",
@@ -11,7 +11,11 @@
   "runtime": {
     "node": ">=22.0.0",
     "aeos": "^2.0.0",
-    "os": ["win32", "linux", "darwin"]
+    "os": [
+      "win32",
+      "linux",
+      "darwin"
+    ]
   },
   "capabilities": {
     "provides": [
@@ -30,8 +34,17 @@
   "mcp": {
     "server": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
-      "tools": ["outline", "read_symbol", "search", "build", "run", "diet"]
+      "args": [
+        "${PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
+      "tools": [
+        "outline",
+        "read_symbol",
+        "search",
+        "build",
+        "run",
+        "diet"
+      ]
     }
   }
 }

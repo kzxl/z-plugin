@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "dlc-erp",
   "name": "ERP & Financial Engineering DLC",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "kind": "extension-dlc",
   "description": "Enterprise Resource Planning invariants, financial precision linters, and bilingual ERP synonyms.",
   "main": "index.mjs",

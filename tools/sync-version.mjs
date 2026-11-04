@@ -94,7 +94,24 @@ for (const dirName of folders) {
   }
 }
 
-// 4. README.md Shipped Plugins table
+// 4. extensions/* DLC manifests
+const extDir = path.join(root, "extensions");
+if (fs.existsSync(extDir)) {
+  const extFolders = fs.readdirSync(extDir).filter(f => fs.statSync(path.join(extDir, f)).isDirectory());
+  for (const dlcName of extFolders) {
+    const dlcManifestPath = path.join(extDir, dlcName, "z-plugin.manifest.json");
+    if (fs.existsSync(dlcManifestPath)) {
+      const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
+      if (dlcManifest.version !== targetVersion) {
+        dlcManifest.version = targetVersion;
+        fs.writeFileSync(dlcManifestPath, JSON.stringify(dlcManifest, null, 2) + "\n", "utf8");
+        console.log(`  ✓ Updated extensions/${dlcName}/z-plugin.manifest.json -> ${targetVersion}`);
+      }
+    }
+  }
+}
+
+// 5. README.md Shipped Plugins table
 const readmePath = path.join(root, "README.md");
 let readme = fs.readFileSync(readmePath, "utf8");
 const updatedReadme = readme.replace(/\| \[?\*\*`z-[a-z]+`\*\*\]?\([^\)]+\) \| `[^`]+` \|/g, (match) => {

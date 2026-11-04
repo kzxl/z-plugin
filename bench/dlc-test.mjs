@@ -32,8 +32,9 @@ const manifestPath = path.join(root, 'extensions', 'dlc-erp', 'z-plugin.manifest
 ok(fs.existsSync(manifestPath), 'extensions/dlc-erp/z-plugin.manifest.json exists');
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+const expectedVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 ok(manifest.id === 'dlc-erp', 'manifest id matches dlc-erp');
-ok(manifest.version === '1.1.0', 'manifest version is 1.1.0');
+ok(manifest.version === expectedVersion, `manifest version matches release version (${expectedVersion})`);
 ok(manifest.kind === 'extension-dlc', 'manifest kind is extension-dlc');
 ok(manifest.extends && manifest.extends.plugin === 'z-mind', 'extends z-mind plugin');
 ok(manifest.extends.slot === 'domain-rules', 'extends domain-rules slot');

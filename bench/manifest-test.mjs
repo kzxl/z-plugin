@@ -16,6 +16,9 @@ function ok(cond, msg) {
 
 console.log("z-plugin: manifest v2 schema & structure tests");
 
+const rootPkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const expectedVersion = rootPkg.version;
+
 const schemaPath = path.join(root, "schemas", "manifest-v2.schema.json");
 ok(fs.existsSync(schemaPath), "manifest-v2.schema.json exists");
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
@@ -29,7 +32,7 @@ for (const pName of expectedPlugins) {
 
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   ok(manifest.id === pName, `${pName} manifest id matches folder name`);
-  ok(manifest.version === "1.1.0", `${pName} version matches suite release version`);
+  ok(manifest.version === expectedVersion, `${pName} version matches suite release version (${expectedVersion})`);
   ok(manifest.kind === "domain-module", `${pName} kind is domain-module`);
   ok(typeof manifest.main === "string", `${pName} has main entrypoint`);
   ok(manifest.capabilities && Array.isArray(manifest.capabilities.provides), `${pName} declares provided capabilities`);
@@ -42,7 +45,7 @@ const dlcManifestPath = path.join(root, "extensions", "dlc-erp", "z-plugin.manif
 ok(fs.existsSync(dlcManifestPath), "extensions/dlc-erp/z-plugin.manifest.json exists on disk");
 const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
 ok(dlcManifest.id === "dlc-erp", "dlc-erp manifest id matches");
-ok(dlcManifest.version === "1.1.0", "dlc-erp version matches suite release version");
+ok(dlcManifest.version === expectedVersion, `dlc-erp version matches suite release version (${expectedVersion})`);
 ok(dlcManifest.kind === "extension-dlc", "dlc-erp kind is extension-dlc");
 ok(dlcManifest.extends && dlcManifest.extends.plugin === "z-mind", "dlc-erp extends z-mind");
 ok(dlcManifest.contributions && Array.isArray(dlcManifest.contributions.rules), "dlc-erp has contributed rules");

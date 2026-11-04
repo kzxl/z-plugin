@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-gate",
   "name": "Z-Gate Unified Quality & Code Review Gate",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Unified quality, security and code review gate: NEV audit, wrapper hell check, helper discovery, and ERP domain invariants.",
   "author": "kzxl",
   "license": "MIT",
@@ -11,7 +11,11 @@
   "runtime": {
     "node": ">=22.0.0",
     "aeos": "^2.0.0",
-    "os": ["win32", "linux", "darwin"]
+    "os": [
+      "win32",
+      "linux",
+      "darwin"
+    ]
   },
   "capabilities": {
     "provides": [
@@ -35,12 +39,16 @@
     ]
   },
   "events": {
-    "publishes": ["quality.review.completed"]
+    "publishes": [
+      "quality.review.completed"
+    ]
   },
   "mcp": {
     "server": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "args": [
+        "${PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
       "tools": [
         "zgate_review",
         "zgate_find_helpers",

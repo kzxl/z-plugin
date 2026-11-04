@@ -1,6 +1,6 @@
 {
   "name": "z-token",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Compact-context tools and guards: code outline, capped search, compact builds, oversized-read blocking, repeated-call detection.",
   "author": {
     "name": "kzxl"

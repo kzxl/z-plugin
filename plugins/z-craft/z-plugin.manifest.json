@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-craft",
   "name": "Z-Craft Software Craftsmanship & Disciplined Vibe-Coding",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Software craftsmanship engine: anti-slop linter, 4-state UX micro-contract generator, generative canvas preview, and vibe time-machine.",
   "author": "kzxl",
   "license": "MIT",
@@ -11,7 +11,11 @@
   "runtime": {
     "node": ">=22.0.0",
     "aeos": "^2.0.0",
-    "os": ["win32", "linux", "darwin"]
+    "os": [
+      "win32",
+      "linux",
+      "darwin"
+    ]
   },
   "capabilities": {
     "provides": [
@@ -42,7 +46,9 @@
   "mcp": {
     "server": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/scripts/mcp-server.mjs"],
+      "args": [
+        "${PLUGIN_ROOT}/scripts/mcp-server.mjs"
+      ],
       "tools": [
         "zcraft_spec",
         "zcraft_lint_ui",

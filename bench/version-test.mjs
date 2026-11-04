@@ -61,4 +61,17 @@ for (const dirName of pluginFolders) {
   }
 }
 
+// 3. Check Extension DLC manifests
+const extDir = path.join(root, "extensions");
+if (fs.existsSync(extDir)) {
+  const extFolders = fs.readdirSync(extDir).filter(f => fs.statSync(path.join(extDir, f)).isDirectory());
+  for (const dlcName of extFolders) {
+    const dlcManifestPath = path.join(extDir, dlcName, "z-plugin.manifest.json");
+    if (fs.existsSync(dlcManifestPath)) {
+      const dlcManifest = JSON.parse(fs.readFileSync(dlcManifestPath, "utf8"));
+      ok(dlcManifest.version === releaseVersion, `extensions/${dlcName}/z-plugin.manifest.json version (${dlcManifest.version}) matches release (${releaseVersion})`);
+    }
+  }
+}
+
 console.log("\nall version consistency checks passed");
