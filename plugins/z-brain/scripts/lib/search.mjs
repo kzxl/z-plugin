@@ -88,6 +88,25 @@ export function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
   return allTerms.map(w => `"${w}"*`).join(" OR ");
 }
 
+export function calculateSemanticSimilarity(textA, textB) {
+  if (!textA || !textB) return 0;
+  const strA = String(textA).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const strB = String(textB).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  if (strA.includes(strB) || strB.includes(strA)) return 0.85;
+
+  const getTrigrams = (s) => {
+    const set = new Set();
+    for (let i = 0; i < s.length - 2; i++) set.add(s.slice(i, i + 3));
+    return set;
+  };
+  const setA = getTrigrams(strA);
+  const setB = getTrigrams(strB);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let matches = 0;
+  for (const t of setA) if (setB.has(t)) matches++;
+  return (2 * matches) / (setA.size + setB.size);
+}
+
 /**
  * Two-tier hybrid search with BM25 + Trust ranking + Scope filtering
  */
@@ -201,6 +220,18 @@ export function searchKnowledge({
       const rowTags = typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : (row.tags || []);
       const matched = searchTags.filter(t => rowTags.map(x => String(x).toLowerCase()).includes(t)).length;
       score += matched * 10;
+    }
+
+    // Semantic trigram similarity boost (up to +30 points)
+    const semanticSim = calculateSemanticSimilarity(query, `${row.question} ${row.gotcha_fix || ''}`);
+    score += semanticSim * 30;
+
+    // Temporal recency boost (<30 days = +5 points)
+    if (row.created_at) {
+      try {
+        const daysOld = (Date.now() - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysOld < 30) score += 5;
+      } catch {}
     }
 
     return {

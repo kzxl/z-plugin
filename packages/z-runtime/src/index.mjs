@@ -8,12 +8,14 @@ export { ServiceRegistry, defaultServiceRegistry } from './service-registry.mjs'
 export { LifecycleState, LifecycleManager, PluginInstance } from './lifecycle-machine.mjs';
 export { CognitiveRouter, TokenBudgeter, AdaptiveTokenBudgeter, IntentClassifier, DAGPlanner, INTENT_CATEGORIES } from './cognitive-router.mjs';
 export { HotReloadManager } from './hot-reload.mjs';
+export { LocalIpcBridge } from './cross-process-ipc.mjs';
 
 import { EventBus } from './event-bus.mjs';
 import { defaultServiceRegistry } from './service-registry.mjs';
 import { LifecycleManager } from './lifecycle-machine.mjs';
 import { CognitiveRouter } from './cognitive-router.mjs';
 import { HotReloadManager } from './hot-reload.mjs';
+import { LocalIpcBridge } from './cross-process-ipc.mjs';
 
 export class ZRuntime {
   constructor(options = {}) {
@@ -32,10 +34,15 @@ export class ZRuntime {
       runtime: this,
       eventBus: this.eventBus
     });
+    this.ipcBridge = options.enableIpc !== false ? new LocalIpcBridge({ eventBus: this.eventBus }) : null;
   }
 
   getRouter() {
     return this.router;
+  }
+
+  getIpcBridge() {
+    return this.ipcBridge;
   }
 
   route(prompt, context = {}) {

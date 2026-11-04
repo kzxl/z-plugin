@@ -21,35 +21,60 @@ export const INTENT_CATEGORIES = {
 const INTENT_PATTERNS = [
   {
     category: INTENT_CATEGORIES.BUGFIX,
-    re: /\b(?:fix|bug|error|exception|fail|failing|crash|deadlock|hang|timeout|infinite|leak|regression|broken)\b/i,
+    re: /\b(?:fix|bug|error|exception|fail|failing|crash|deadlock|hang|timeout|infinite|leak|regression|broken|tạch|sửa\s*lỗi|lỗi|hỏng|bị\s*đứng|đơ|văng|xung\s*đột|không\s*chạy)\b/i,
     weight: 0.95
   },
   {
     category: INTENT_CATEGORIES.REVIEW,
-    re: /\b(?:review|audit|gate|check\s*diff|pr\s*check|inspect\s*diff|verify\s*diff)\b/i,
+    re: /\b(?:review|audit|gate|check\s*diff|pr\s*check|inspect\s*diff|verify\s*diff|soát\s*code|soát\s*lại|kiểm\s*tra|bảo\s*mật|thủng\s*bảo\s*mật)\b/i,
     weight: 0.90
   },
   {
     category: INTENT_CATEGORIES.REFACTOR,
-    re: /\b(?:refactor|clean\s*up|modularize|split|extract|inline|wrapper|simplify|modernize|prune|restructure)\b/i,
+    re: /\b(?:refactor|clean\s*up|modularize|split|extract|inline|wrapper|simplify|modernize|prune|restructure|dọn\s*dẹp|tối\s*ưu|tách\s*hàm|tách\s*class|tái\s*cấu\s*trúc|gọt\s*giũa)\b/i,
     weight: 0.88
   },
   {
     category: INTENT_CATEGORIES.UI,
-    re: /\b(?:component|modal|form|css|tailwind|screen|view|ui|ux|frontend|dialog|canvas|widget|palette|theme|skin)\b/i,
+    re: /\b(?:component|modal|form|css|tailwind|screen|view|ui|ux|frontend|dialog|canvas|widget|palette|theme|skin|giao\s*diện|nút|bảng|nút\s*bấm|màn\s*hình)\b/i,
     weight: 0.85
   },
   {
     category: INTENT_CATEGORIES.ARCHITECTURE,
-    re: /\b(?:architecture|adr|architectural|subsystem|boundary|layer|microservices|domain\s*model|invariants)\b/i,
+    re: /\b(?:architecture|adr|architectural|subsystem|boundary|layer|microservices|domain\s*model|invariants|kiến\s*trúc|thiết\s*kế\s*hệ\s*thống)\b/i,
     weight: 0.85
   },
   {
     category: INTENT_CATEGORIES.FEATURE,
-    re: /\b(?:add|create|implement|build|feature|endpoint|service|support|extend|scaffold)\b/i,
+    re: /\b(?:add|create|implement|build|feature|endpoint|service|support|extend|scaffold|thêm|tạo\s*mới|phát\s*triển)\b/i,
     weight: 0.80
   }
 ];
+
+const INTENT_CENTROIDS = {
+  [INTENT_CATEGORIES.BUGFIX]: 'fix bug error fail exception deadlock crash broken sua loi hong tach do vang khong chay',
+  [INTENT_CATEGORIES.REFACTOR]: 'refactor clean modularize split extract inline wrapper simplify don dep toi uu tach ham tai cau truc',
+  [INTENT_CATEGORIES.UI]: 'component modal form css tailwind screen view dialog canvas widget giao dien nut bang man hinh',
+  [INTENT_CATEGORIES.REVIEW]: 'review audit gate diff inspect verify security soat code kiem tra bao mat thung bao mat',
+  [INTENT_CATEGORIES.ARCHITECTURE]: 'architecture adr subsystem boundary layer domain model invariants kien truc thiet ke he thong'
+};
+
+function calculateTrigramDice(a, b) {
+  if (!a || !b) return 0;
+  const strA = a.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const strB = b.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const getTrigrams = (s) => {
+    const set = new Set();
+    for (let i = 0; i < s.length - 2; i++) set.add(s.slice(i, i + 3));
+    return set;
+  };
+  const setA = getTrigrams(strA);
+  const setB = getTrigrams(strB);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let matches = 0;
+  for (const t of setA) if (setB.has(t)) matches++;
+  return (2 * matches) / (setA.size + setB.size);
+}
 
 const DOMAIN_PATTERNS = [
   { tag: 'wms', re: /\b(?:wms|warehouse|inventory|stock|bin|transfer|handover|tồn\s*kho|kho)\b/i },
@@ -92,6 +117,24 @@ export class IntentClassifier {
           detectedCategory = rule.category;
           matchedRule = rule;
         }
+      }
+    }
+
+    // If no exact regex rule matched, perform fuzzy semantic trigram matching
+    if (!matchedRule) {
+      let highestSimilarity = 0;
+      let bestCentroidCategory = null;
+      for (const [cat, centroid] of Object.entries(INTENT_CENTROIDS)) {
+        const sim = calculateTrigramDice(text, centroid);
+        if (sim > highestSimilarity) {
+          highestSimilarity = sim;
+          bestCentroidCategory = cat;
+        }
+      }
+      if (highestSimilarity >= 0.18 && bestCentroidCategory) {
+        detectedCategory = bestCentroidCategory;
+        maxWeight = Math.min(0.85, 0.65 + highestSimilarity * 0.5);
+        matchedRule = { category: bestCentroidCategory, semantic: true, similarity: highestSimilarity };
       }
     }
 
