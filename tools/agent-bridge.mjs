@@ -43,30 +43,46 @@ export function generateMcpServerConfigs(rootDir = ROOT_DIR) {
   };
 }
 
-export function generateUniversalRules(targetFormat = 'markdown') {
-  const ruleEntries = Object.entries(ENGINEERING_RULES);
-  const header = `# AEOS Universal Agent Engineering Rules\n# Generated automatically from z-mind SSoT\n\n`;
+export function generateUniversalRules(mode = 'compact') {
+  if (mode === 'full') {
+    const ruleEntries = Object.entries(ENGINEERING_RULES);
+    const header = `# AEOS Universal Agent Engineering Rules\n# Generated automatically from z-mind SSoT (Full Unabridged)\n\n`;
 
-  let body = '';
-  for (const [code, r] of ruleEntries) {
-    body += `## [${code}] ${r.title}\n`;
-    body += `- Category: ${r.category}\n`;
-    if (r.tags && r.tags.length) {
-      body += `- Tags: ${r.tags.join(', ')}\n`;
+    let body = '';
+    for (const [code, r] of ruleEntries) {
+      body += `## [${code}] ${r.title}\n`;
+      body += `- Category: ${r.category}\n`;
+      if (r.tags && r.tags.length) {
+        body += `- Tags: ${r.tags.join(', ')}\n`;
+      }
+      body += `- Invariant: ${r.summary}\n\n`;
     }
-    body += `- Invariant: ${r.summary}\n\n`;
+
+    return header + body;
   }
 
-  return header + body;
+  // Default: Context Diet Compact Index (~300 tokens instead of ~6,500 tokens)
+  return `# AEOS Universal Engineering Invariants
+# Generated automatically from z-mind SSoT (Progressive Disclosure Mode)
+
+Canonical invariants are strictly enforced via the \`z-mind\` and \`z-gate\` MCP servers:
+- **Core & Invariants:** [R_CORE] SOLID & Deep Modules, [R_TDD] Bugfix Reproduction Test First, [R_NEV] Net Engineering Value & Deletion Test, [R_PERF] Zero-Waste Allocations, [R_PROOF] Level 3+ Empirical Verification, [R_REUSE] Asset-First Discovery, [R_GIT] Conventional Commits & Targeted Staging.
+- **Languages & Frameworks:** [R_CSHARP], [R_NODE], [R_REACT], [R_TS], [R_WPF], [R_WINFORMS], [R_GO], [R_PY], [R_RUST], [R_PHP].
+- **UI & Software Craftsmanship:** [R_ANTI_SLOP] Zero AI Slop & Token Discipline, [R_UX_MATRIX] 4-State UX (Default, Loading skeleton, Empty data, Error with retry).
+- **Domain Invariants (ERP & WMS):** [R_DOMAIN_FIN] Accounting Period Lock, [R_DOMAIN_WMS] Two-Step Handover, [R_DOMAIN_INV] Physical Stock Sync.
+
+> **Instruction to AI Agent:** Adhere to canonical invariants during execution. Fetch full invariant details, rationale, and examples dynamically on-demand using MCP tool \`mcp__z-mind__zmind_rules(topic: "<rule_or_topic>")\`. Audit plans or diffs via \`mcp__z-mind__zmind_audit\`.
+`;
 }
 
-export function exportAgentConfig(agentName, targetDir = process.cwd()) {
+export function exportAgentConfig(agentName, targetDir = process.cwd(), mode = 'compact') {
   const norm = String(agentName || '').trim().toLowerCase();
   const mcpServers = generateMcpServerConfigs();
+  const rulesContent = generateUniversalRules(mode);
 
   if (norm === 'cursor') {
     const cursorRulesPath = path.join(targetDir, '.cursorrules');
-    fs.writeFileSync(cursorRulesPath, generateUniversalRules('cursor'), 'utf8');
+    fs.writeFileSync(cursorRulesPath, rulesContent, 'utf8');
 
     const cursorMcpDir = path.join(targetDir, '.cursor');
     if (!fs.existsSync(cursorMcpDir)) fs.mkdirSync(cursorMcpDir, { recursive: true });
@@ -78,7 +94,7 @@ export function exportAgentConfig(agentName, targetDir = process.cwd()) {
 
   if (norm === 'claude') {
     const claudeMdPath = path.join(targetDir, 'CLAUDE.md');
-    fs.writeFileSync(claudeMdPath, generateUniversalRules('claude'), 'utf8');
+    fs.writeFileSync(claudeMdPath, rulesContent, 'utf8');
 
     const claudeMcpPath = path.join(targetDir, '.claude_mcp.json');
     fs.writeFileSync(claudeMcpPath, JSON.stringify({ mcpServers }, null, 2), 'utf8');
@@ -88,7 +104,7 @@ export function exportAgentConfig(agentName, targetDir = process.cwd()) {
 
   if (norm === 'windsurf') {
     const windsurfRulesPath = path.join(targetDir, '.windsurfrules');
-    fs.writeFileSync(windsurfRulesPath, generateUniversalRules('windsurf'), 'utf8');
+    fs.writeFileSync(windsurfRulesPath, rulesContent, 'utf8');
 
     const windsurfMcpPath = path.join(targetDir, '.codeium_mcp.json');
     fs.writeFileSync(windsurfMcpPath, JSON.stringify({ mcpServers }, null, 2), 'utf8');
@@ -106,7 +122,7 @@ export function exportAgentConfig(agentName, targetDir = process.cwd()) {
     const githubDir = path.join(targetDir, '.github');
     if (!fs.existsSync(githubDir)) fs.mkdirSync(githubDir, { recursive: true });
     const copilotPath = path.join(githubDir, 'copilot-instructions.md');
-    fs.writeFileSync(copilotPath, generateUniversalRules('copilot'), 'utf8');
+    fs.writeFileSync(copilotPath, rulesContent, 'utf8');
     return { agent: 'copilot', files: [copilotPath] };
   }
 

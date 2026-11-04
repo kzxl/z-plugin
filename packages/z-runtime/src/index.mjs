@@ -4,14 +4,14 @@
  */
 
 export { EventBus } from './event-bus.mjs';
-export { ServiceRegistry, defaultServiceRegistry } from './service-registry.mjs';
+export { ServiceRegistry, defaultServiceRegistry, autoBootstrapCoreServices } from './service-registry.mjs';
 export { LifecycleState, LifecycleManager, PluginInstance } from './lifecycle-machine.mjs';
 export { CognitiveRouter, TokenBudgeter, AdaptiveTokenBudgeter, IntentClassifier, DAGPlanner, INTENT_CATEGORIES } from './cognitive-router.mjs';
 export { HotReloadManager } from './hot-reload.mjs';
 export { LocalIpcBridge } from './cross-process-ipc.mjs';
 
 import { EventBus } from './event-bus.mjs';
-import { defaultServiceRegistry } from './service-registry.mjs';
+import { defaultServiceRegistry, autoBootstrapCoreServices } from './service-registry.mjs';
 import { LifecycleManager } from './lifecycle-machine.mjs';
 import { CognitiveRouter } from './cognitive-router.mjs';
 import { HotReloadManager } from './hot-reload.mjs';
@@ -58,6 +58,7 @@ export class ZRuntime {
   }
 
   async bootAll() {
+    await autoBootstrapCoreServices(this.services);
     const plugins = this.lifecycle.getAllPlugins();
     for (const p of plugins) {
       await this.lifecycle.bootPlugin(p.id);

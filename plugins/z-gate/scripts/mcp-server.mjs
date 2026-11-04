@@ -9,6 +9,7 @@ import readline from 'node:readline';
 import cp from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { findHelpers } from './lib/helper-discovery.mjs';
@@ -28,10 +29,11 @@ try {
 } catch {}
 
 async function autoLoadExtensions() {
+  const homeDir = os.homedir();
   const candidateDirs = [
     path.resolve(__dirname, '..', '..', '..', 'extensions'),
-    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'extensions'),
-    path.resolve(process.env.USERPROFILE || '', '.zcode', 'extensions')
+    path.resolve(homeDir, '.gemini', 'config', 'extensions'),
+    path.resolve(homeDir, '.zcode', 'extensions')
   ];
 
   for (const extDir of candidateDirs) {

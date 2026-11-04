@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 // Lazy load inter-plugin peers gracefully via Service Registry or dynamic locator
@@ -12,16 +13,20 @@ let findHelpers = null;
 let searchKnowledge = null;
 
 try {
-  const { defaultServiceRegistry } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+  const { defaultServiceRegistry, autoBootstrapCoreServices } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+  if (typeof autoBootstrapCoreServices === 'function') {
+    await autoBootstrapCoreServices(defaultServiceRegistry);
+  }
   findHelpers = defaultServiceRegistry.get('IHelperDiscoveryService')?.findHelpers || null;
   searchKnowledge = defaultServiceRegistry.get('IKnowledgeEngine')?.searchKnowledge || null;
 } catch {}
 
 if (!findHelpers) {
+  const homeDir = os.homedir();
   const gatePaths = [
     process.env.ZGATE_MODULE_PATH,
-    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
-    path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
+    path.resolve(homeDir, '.gemini', 'config', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
+    path.resolve(homeDir, '.zcode', 'plugins', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs'),
     path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-gate', 'scripts', 'lib', 'helper-discovery.mjs')
   ].filter(Boolean);
   for (const p of gatePaths) {
@@ -36,10 +41,11 @@ if (!findHelpers) {
 }
 
 if (!searchKnowledge) {
+  const homeDir = os.homedir();
   const brainPaths = [
     process.env.ZBRAIN_SEARCH_PATH,
-    path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
-    path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
+    path.resolve(homeDir, '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
+    path.resolve(homeDir, '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'search.mjs'),
     path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-brain', 'scripts', 'lib', 'search.mjs')
   ].filter(Boolean);
   for (const p of brainPaths) {

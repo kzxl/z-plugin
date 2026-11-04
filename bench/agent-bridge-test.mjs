@@ -28,11 +28,16 @@ async function runTests() {
   testAssert(mcp['z-gate'] && mcp['z-gate'].command, 'z-gate MCP entry generated');
   testAssert(mcp['z-craft'] && mcp['z-craft'].command, 'z-craft MCP entry generated');
 
-  // 2. Universal Rules Generation
-  const rulesMd = generateUniversalRules();
-  testAssert(rulesMd.includes('# AEOS Universal Agent Engineering Rules'), 'Rules header generated');
-  testAssert(rulesMd.includes('[R_CORE]'), 'R_CORE invariant present in rules');
-  testAssert(rulesMd.includes('[R_TDD]'), 'R_TDD invariant present in rules');
+  // 2. Universal Rules Generation (Compact Diet & Full Unabridged)
+  const compactRules = generateUniversalRules('compact');
+  testAssert(compactRules.includes('# AEOS Universal Engineering Invariants'), 'Compact rules header generated');
+  testAssert(compactRules.includes('[R_CORE]'), 'R_CORE invariant present in compact rules');
+  testAssert(compactRules.includes('[R_TDD]'), 'R_TDD invariant present in compact rules');
+  testAssert(compactRules.length < 2000, `Compact rules are <2000 chars for token diet (got: ${compactRules.length})`);
+
+  const fullRules = generateUniversalRules('full');
+  testAssert(fullRules.includes('# AEOS Universal Agent Engineering Rules'), 'Full rules header generated');
+  testAssert(fullRules.length > 20000, 'Full rules contain complete specifications');
 
   // 3. Export Configurations for Cursor, Claude, Windsurf, Copilot
   const cursorExport = exportAgentConfig('cursor', tempDir);

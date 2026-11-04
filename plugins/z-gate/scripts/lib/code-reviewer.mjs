@@ -10,6 +10,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { parseDiff } from './diff-parser.mjs';
 import { findHelpers } from './helper-discovery.mjs';
@@ -44,7 +45,10 @@ async function lookupBrainGotchas(files) {
 
     // 1. Check Service Registry if active
     try {
-      const { defaultServiceRegistry } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+      const { defaultServiceRegistry, autoBootstrapCoreServices } = await import('../../../../packages/z-runtime/src/service-registry.mjs');
+      if (typeof autoBootstrapCoreServices === 'function') {
+        await autoBootstrapCoreServices(defaultServiceRegistry);
+      }
       const knowledgeEngine = defaultServiceRegistry.get('IKnowledgeEngine') || defaultServiceRegistry.get('z-brain');
       if (knowledgeEngine && typeof knowledgeEngine.getKnowledgeByFile === 'function') {
         for (const file of files) {
@@ -68,10 +72,11 @@ async function lookupBrainGotchas(files) {
     } catch {}
 
     // 2. Discover via environment or standard installed plugin locations
+    const homeDir = os.homedir();
     const candidatePaths = [
       process.env.ZBRAIN_MODULE_PATH,
-      path.resolve(process.env.USERPROFILE || '', '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
-      path.resolve(process.env.USERPROFILE || '', '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
+      path.resolve(homeDir, '.gemini', 'config', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
+      path.resolve(homeDir, '.zcode', 'plugins', 'z-brain', 'scripts', 'lib', 'db.mjs'),
       path.resolve(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'z-brain', 'scripts', 'lib', 'db.mjs')
     ].filter(Boolean);
 

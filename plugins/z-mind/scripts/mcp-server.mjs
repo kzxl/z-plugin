@@ -7,6 +7,7 @@
 import readline from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { queryRules, auditPlan, registerRulesPack } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
@@ -17,10 +18,11 @@ import { auditArchitecture } from "./lib/arch-doctor.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function autoLoadExtensions() {
+  const homeDir = os.homedir();
   const candidateDirs = [
     path.resolve(__dirname, "..", "..", "..", "extensions"),
-    path.resolve(process.env.USERPROFILE || "", ".gemini", "config", "extensions"),
-    path.resolve(process.env.USERPROFILE || "", ".zcode", "extensions")
+    path.resolve(homeDir, ".gemini", "config", "extensions"),
+    path.resolve(homeDir, ".zcode", "extensions")
   ];
 
   for (const extDir of candidateDirs) {

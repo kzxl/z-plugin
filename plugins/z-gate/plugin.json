@@ -1,7 +1,7 @@
 {
   "name": "z-gate",
   "displayName": "Z-Gate",
-  "description": "Net Engineering Value (NEV) gate, codebase asset discovery (R_REUSE), wrapper hell prevention, and pre-commit diff auditor.",
+  "description": "Unified quality, security and code review gate: NEV audit, wrapper hell check, helper discovery, and ERP domain invariants.",
   "version": "1.2.0",
   "author": "kzxl",
   "suggestedPrompts": [

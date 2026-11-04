@@ -1,7 +1,7 @@
 {
   "name": "z-mind",
   "displayName": "Z-Mind",
-  "description": "Cognitive engineering framework & thinking discipline for AI coding agents: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
+  "description": "Cognitive engineering OS: 56 engineering invariants across 6 pillars, plan synthesis, and workspace doctor.",
   "version": "1.2.0",
   "author": "kzxl",
   "suggestedPrompts": [
