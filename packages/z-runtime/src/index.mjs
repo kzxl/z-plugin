@@ -70,6 +70,10 @@ export class ZRuntime {
     for (const p of plugins) {
       await this.lifecycle.shutdownPlugin(p.id);
     }
+    if (this.ipcBridge) {
+      this.ipcBridge.stopListening();
+    }
+    this.hotReloadManager.stopWatching();
     this.eventBus.clear();
     this.services.clear();
   }
