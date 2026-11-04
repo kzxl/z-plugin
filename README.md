@@ -46,16 +46,16 @@ No cloning required. Run directly from any existing codebase:
 
 ```bash
 # Configure Cursor (.cursorrules & .cursor/mcp.json)
-npx kzxl/z-plugin init cursor
+npx @kzxl/z-plugin init cursor
 
 # Or configure Claude Code (CLAUDE.md & .claude_mcp.json)
-npx kzxl/z-plugin init claude
+npx @kzxl/z-plugin init claude
 
 # Or configure all supported AI agents at once
-npx kzxl/z-plugin init all
+npx @kzxl/z-plugin init all
 
 # Run the live visual capability demo
-npx kzxl/z-plugin demo
+npx @kzxl/z-plugin demo
 ```
 
 ### 1. One-Click Installation for Antigravity & ZCode
