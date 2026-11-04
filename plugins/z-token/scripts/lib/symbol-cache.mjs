@@ -48,11 +48,19 @@ const COMMON_CALL_EXCLUDES = new Set([
   "Exception", "Delay", "FromResult", "Run", "Add", "Clear", "Contains", "Wait", "Result"
 ]);
 
+const GUARD_RE = /\b(?:if\s*\(.*\)\s*(?:return\b|throw\b|\{\s*(?:return\b|throw\b))|Guard\.[A-Za-z0-9_]+|ThrowIfNull|ArgumentNullException\.)/i;
+const TYPE_INST_RE = /\b(?:new\s+([A-Z][A-Za-z0-9_]+)\s*\(|([A-Z][A-Za-z0-9_]+)\s+[A-Za-z0-9_]+\s*=)/g;
+const COMMON_TYPE_EXCLUDES = new Set([
+  "Task", "List", "Dictionary", "HashSet", "IEnumerable", "IList", "String", "Int32", "Boolean",
+  "Action", "Func", "Exception", "StringBuilder", "CancellationToken", "Object", "DateTime", "Guid"
+]);
+
 function extractCallsFromBody(lines, startLineIdx, symName) {
   const calls = new Set();
   const declLine = lines[startLineIdx];
   const maxScanLines = 150;
   let endIdx = startLineIdx;
+  let hasGuard = false;
 
   if (/=>[^;]+;/.test(declLine)) {
     endIdx = startLineIdx;
@@ -86,6 +94,22 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
   for (let k = startLineIdx; k <= endIdx; k++) {
     const row = lines[k];
     if (COMMENT_RE.test(row)) continue;
+
+    if (!hasGuard) {
+      if (GUARD_RE.test(row)) {
+        hasGuard = true;
+      } else if (/^\s*if\s*\(/.test(row)) {
+        for (let peek = k + 1; peek <= Math.min(k + 3, endIdx); peek++) {
+          const nextRow = lines[peek].trim();
+          if (!nextRow || COMMENT_RE.test(nextRow) || nextRow === "{" || nextRow === "}") continue;
+          if (/^(?:return\b|throw\b|\{\s*(?:return\b|throw\b))/.test(nextRow)) {
+            hasGuard = true;
+          }
+          break;
+        }
+      }
+    }
+
     let match;
     while ((match = CALL_RE.exec(row)) !== null) {
       const called = match[1];
@@ -111,10 +135,18 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
         if (calls.size >= 30) break;
       }
     }
+    let instMatch;
+    while ((instMatch = TYPE_INST_RE.exec(row)) !== null) {
+      const tName = instMatch[1] || instMatch[2];
+      if (tName && !KEYWORDS.has(tName.toLowerCase()) && !COMMON_TYPE_EXCLUDES.has(tName)) {
+        calls.add(tName);
+        if (calls.size >= 30) break;
+      }
+    }
     if (calls.size >= 30) break;
   }
 
-  return Array.from(calls);
+  return { calls: Array.from(calls), hasGuard };
 }
 
 /**
@@ -338,7 +370,9 @@ export function extractFileSymbols(content) {
       if (!seenInFile.has(key)) {
         seenInFile.add(key);
         if (sym.kind === "func" || sym.kind === "method") {
-          sym.calls = extractCallsFromBody(lines, i, sym.name);
+          const bodyData = extractCallsFromBody(lines, i, sym.name);
+          sym.calls = bodyData.calls;
+          sym.hasGuard = Boolean(bodyData.hasGuard);
           sym.params = extractParamNames(sym.signature);
           if (currentTypeSym && sym !== currentTypeSym) {
             if (!currentTypeSym.members) currentTypeSym.members = [];
@@ -349,6 +383,7 @@ export function extractFileSymbols(content) {
         } else {
           sym.calls = [];
           sym.params = [];
+          sym.hasGuard = false;
         }
         symbols.push(sym);
       }
@@ -397,6 +432,7 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
         calls: sym.calls || [],
         members: sym.members || [],
         params: sym.params || [],
+        hasGuard: Boolean(sym.hasGuard),
         mtime: mtimeMs,
       });
     }
@@ -482,6 +518,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
           calls: item.calls || [],
           members: item.members || [],
           params: item.params || [],
+          hasGuard: Boolean(item.hasGuard),
           absPath,
         });
       } else {
@@ -502,6 +539,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
               calls: reCheck.calls || [],
               members: reCheck.members || [],
               params: reCheck.params || [],
+              hasGuard: Boolean(reCheck.hasGuard),
               mtime: stat.mtimeMs,
             });
           }
@@ -594,6 +632,7 @@ export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
         calls: sym.calls || [],
         members: sym.members || [],
         params: sym.params || [],
+        hasGuard: Boolean(sym.hasGuard),
         mtime: stat.mtimeMs,
       });
     }
@@ -1000,7 +1039,7 @@ export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts =
   const hits = lookupSymbol(workspaceRoot, cleanEntry);
   const entryParams = hits.length > 0 ? (hits[0].params || []) : [];
 
-  const queue = [{ name: cleanEntry, path: [cleanEntry], depth: 0, sanitized: false }];
+  const queue = [{ name: cleanEntry, path: [cleanEntry], depth: 0, sanitized: false, sanitizeReason: null }];
   const visited = new Set([cleanEntry.toLowerCase()]);
   const discoveredSinks = [];
 
@@ -1019,6 +1058,7 @@ export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts =
     }
 
     for (const cand of candidates) {
+      const hasGuardClause = Boolean(cand.hasGuard);
       const callees = [
         ...(cand.calls || []),
         ...(cand.kind === "type" ? (cand.members || []) : [])
@@ -1027,10 +1067,12 @@ export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts =
       for (const callee of callees) {
         const calleeLower = callee.toLowerCase();
         const isSanitizerCall = SANITIZER_PATTERNS.some(re => re.test(callee));
-        const currentSanitized = current.sanitized || isSanitizerCall;
+        const currentSanitized = current.sanitized || isSanitizerCall || hasGuardClause;
+        const currentReason = current.sanitizeReason || (hasGuardClause ? "guard" : (isSanitizerCall ? "sanitizer" : null));
 
         if (sinkMap.has(calleeLower)) {
           const { sinkType, method } = sinkMap.get(calleeLower);
+          const isGuardProtected = currentReason === "guard" || hasGuardClause;
           discoveredSinks.push({
             sinkType,
             sinkMethod: method,
@@ -1039,7 +1081,7 @@ export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts =
             depth: current.depth + 1,
             isTainted: !currentSanitized,
             hazard: currentSanitized
-              ? "Reachable sink with detected sanitizer"
+              ? (isGuardProtected ? "Reachable sink protected by branch guard clause" : "Reachable sink with detected sanitizer")
               : `Untrusted data-flow from '${cleanEntry}' reaches '${sinkType}' without explicit validation.`
           });
         }
@@ -1051,6 +1093,7 @@ export function traceDataFlow(workspaceRoot = process.cwd(), entrySymbol, opts =
             path: [...current.path, callee],
             depth: current.depth + 1,
             sanitized: currentSanitized,
+            sanitizeReason: currentReason,
           });
         }
       }

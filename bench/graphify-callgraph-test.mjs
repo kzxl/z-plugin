@@ -298,6 +298,19 @@ namespace App.Controllers {
         public void UnsafeAuditExport(string rawFilter) {
             AuditLogEntry("EXPORT", rawFilter);
         }
+
+        public void GuardedAuditExport(string rawFilter) {
+            if (string.IsNullOrEmpty(rawFilter))
+            {
+                return;
+            }
+            AuditLogEntry("EXPORT_SAFE", rawFilter);
+        }
+
+        public void ThrowGuardAuditExport(string rawFilter) {
+            ArgumentNullException.ThrowIfNull(rawFilter);
+            AuditLogEntry("EXPORT_GUARDED", rawFilter);
+        }
     }
 }
 `,
@@ -321,6 +334,69 @@ namespace App.Controllers {
   console.log(`    Taint Sink: ${unsafeReport.sinks[0].sinkMethod} (${unsafeReport.sinks[0].sinkType})`);
   console.log(`    Path: ${unsafeReport.sinks[0].path.join(" -> ")}`);
   console.log("  ok   inter-procedural data-flow taint tracking verified (sanitized & tainted paths)");
+
+  // 10. Test Path-Sensitive Branch Guard Detection (Feature B)
+  console.log("\n[9/10] Testing Path-Sensitive Branch Guard Detection...");
+  const guardedReport = traceDataFlow(TEST_DIR, "GuardedAuditExport");
+  console.log(`  GuardedAuditExport flow: reachable = ${guardedReport.reachableSinksCount}, tainted = ${guardedReport.taintedSinksCount}`);
+  assert.strictEqual(guardedReport.reachableSinksCount >= 1, true, "Must reach SQL sink");
+  assert.strictEqual(guardedReport.taintedSinksCount, 0, "Early return guard clause must sanitize sink");
+  assert.ok(guardedReport.sinks[0].hazard.includes("guard"), "Hazard must indicate guard protection");
+
+  const throwGuardReport = traceDataFlow(TEST_DIR, "ThrowGuardAuditExport");
+  console.log(`  ThrowGuardAuditExport flow: reachable = ${throwGuardReport.reachableSinksCount}, tainted = ${throwGuardReport.taintedSinksCount}`);
+  assert.strictEqual(throwGuardReport.reachableSinksCount >= 1, true, "Must reach SQL sink");
+  assert.strictEqual(throwGuardReport.taintedSinksCount, 0, "ArgumentNullException.ThrowIfNull must sanitize sink");
+  console.log("  ok   path-sensitive branch guard clauses verified (if return & ThrowIfNull)");
+
+  // 11. Test Type-Aware Chained Invocation & Instantiation (Feature A)
+  console.log("\n[10/10] Testing Type-Aware Chained Invocation & Instantiation...");
+  fs.writeFileSync(
+    path.join(TEST_DIR, "src/Services/Order", "DirectProcessor.cs"),
+    `
+namespace App.Services.Order {
+    public class DirectOrderProcessor {
+        public async Task<bool> ExecuteWorkflow(string batchId) {
+            var validator = new OrderValidator();
+            var res = await validator.PerformVerification(batchId);
+            return res;
+        }
+
+        public void DelegateToValidator(string batchId) {
+            var validator = new OrderValidator();
+        }
+    }
+
+    public class OrderValidator {
+        public async Task<bool> PerformVerification(string id) {
+            AuditLogEntry("VALIDATION", id);
+            return true;
+        }
+    }
+}
+`,
+    "utf8"
+  );
+
+  indexWorkspace(TEST_DIR);
+
+  const directHits = lookupSymbol(TEST_DIR, "ExecuteWorkflow");
+  assert.ok(directHits.length > 0, "ExecuteWorkflow must be indexed");
+  assert.ok(directHits[0].calls.includes("OrderValidator"), "Must capture type instantiation in calls");
+  console.log(`  ExecuteWorkflow calls: [${directHits[0].calls.join(", ")}]`);
+
+  // Direct instantiation to type lookup
+  const toTypeTrace = tracePath(TEST_DIR, "ExecuteWorkflow", "OrderValidator");
+  assert.strictEqual(toTypeTrace.found, true, "Must trace to instantiated type directly");
+  assert.strictEqual(toTypeTrace.depth, 1);
+
+  // Indirect traversal through instantiated type's members
+  const indirectTrace = tracePath(TEST_DIR, "DelegateToValidator", "AuditLogEntry");
+  console.log(`  Indirect Type-chain Trace: ${indirectTrace.path.join(" -> ")}`);
+  assert.strictEqual(indirectTrace.found, true, "Must trace across type instantiation to member execution");
+  assert.ok(indirectTrace.path.includes("OrderValidator"), "Path must cross instantiated OrderValidator type");
+  assert.ok(indirectTrace.path.includes("PerformVerification"), "Path must cross OrderValidator member");
+  console.log("  ok   type-aware chained instantiation verified");
 
   console.log("\n=== ALL GRAPHIFY CALL-GRAPH TESTS PASSED! ===");
 } finally {
