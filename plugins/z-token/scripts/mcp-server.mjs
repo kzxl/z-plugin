@@ -5,7 +5,17 @@ import readline from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { outline, search, readSymbol, indexWorkspace, getCacheStats, clearCache } from "./lib/scan.mjs";
+import {
+  outline,
+  search,
+  readSymbol,
+  indexWorkspace,
+  getCacheStats,
+  clearCache,
+  tracePath,
+  getCallers,
+  getBlastRadius,
+} from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
 import { dietReport, smartDiff } from "./lib/diet.mjs";
 import { runAction } from "./lib/run.mjs";
@@ -273,6 +283,35 @@ const TOOLS = [
     },
   },
   {
+    name: "trace_path",
+    description:
+      "Graphify: Find the shortest call-graph path between two functions/methods across the workspace using BFS over persistent symbol cache.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Starting function/method name" },
+        to: { type: "string", description: "Target function/method name" },
+        path: { type: "string", description: "Workspace directory (default: current workspace)" },
+        maxDepth: { type: "number", description: "Maximum search hops (default: 5)" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "blast_radius",
+    description:
+      "Graphify: Calculate the impact blast radius of modifying a function/method (upstream callers, downstream callees, affected files, and God Node detection).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Function, method, or class name to analyze" },
+        path: { type: "string", description: "Workspace directory (default: current workspace)" },
+        maxDepth: { type: "number", description: "Transitive caller depth (default: 3)" },
+      },
+      required: ["symbol"],
+    },
+  },
+  {
     name: "search",
     description:
       "Search text or /regex/ under a path. Returns file:line with 2 context lines, capped at 8 KB. Use instead of grep -r.",
@@ -374,6 +413,33 @@ async function callTool(name, args) {
           stats,
         };
       }
+    }
+    case "trace_path": {
+      const targetDir = a.path || process.cwd();
+      const res = tracePath(targetDir, a.from, a.to, a);
+      if (res.found) {
+        return {
+          text: `Trace Path Found (${res.depth} hops, ${res.durationMs}ms):\n${res.path.join(" -> ")}`,
+          data: res,
+        };
+      }
+      return {
+        text: `No call path found between '${a.from}' and '${a.to}' within depth ${a.maxDepth || 5} (${res.visitedNodes || 0} nodes visited).`,
+        data: res,
+      };
+    }
+    case "blast_radius": {
+      const targetDir = a.path || process.cwd();
+      const res = getBlastRadius(targetDir, a.symbol, a);
+      const godNodeNotice = res.isGodNode ? " ⚠️ [GOD NODE - HIGH ARCHITECTURAL COUPLING]" : "";
+      const text = [
+        `Blast Radius for '${res.symbol}'${godNodeNotice}:`,
+        `• Degree Centrality: ${res.totalDegree} (In: ${res.inDegree}, Out: ${res.outDegree})`,
+        `• Impacted Symbols (${res.impactedSymbols?.length || 0}): ${res.impactedSymbols?.slice(0, 8).join(", ") || "none"}`,
+        `• Impacted Files (${res.impactedFiles?.length || 0}):`,
+        ...(res.impactedFiles?.slice(0, 8).map((f) => `  - ${f}`) || []),
+      ].filter(Boolean).join("\n");
+      return { text, data: res };
     }
     case "search":
       return search({ ...a, ...searchOpts });

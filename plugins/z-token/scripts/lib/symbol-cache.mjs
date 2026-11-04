@@ -37,6 +37,66 @@ const KEYWORDS = new Set([
   "async", "await", "yield", "sizeof", "typeof", "nameof", "is", "in"
 ]);
 
+const COMMON_CALL_EXCLUDES = new Set([
+  "console", "log", "warn", "error", "info", "debug",
+  "parseInt", "parseFloat", "toString", "valueOf", "toJSON",
+  "String", "Number", "Boolean", "Array", "Object", "Function", "Promise", "Task",
+  "Math", "min", "max", "floor", "ceil", "round", "abs",
+  "push", "pop", "shift", "unshift", "slice", "splice", "filter", "map", "reduce", "forEach",
+  "split", "join", "replace", "replaceAll", "trim", "toLowerCase", "toUpperCase", "startsWith", "endsWith", "includes",
+  "sizeof", "typeof", "nameof", "ArgumentNullException", "ArgumentException", "ArgumentOutOfRangeException", "InvalidOperationException",
+  "Exception", "Delay", "FromResult", "Run", "Add", "Clear", "Contains", "Wait", "Result"
+]);
+
+function extractCallsFromBody(lines, startLineIdx, symName) {
+  const calls = new Set();
+  const declLine = lines[startLineIdx];
+  const maxScanLines = 150;
+  let endIdx = startLineIdx;
+
+  if (/=>[^;]+;/.test(declLine)) {
+    endIdx = startLineIdx;
+  } else {
+    let braceCount = 0;
+    let foundOpen = false;
+    for (let j = startLineIdx; j < lines.length && j - startLineIdx < maxScanLines; j++) {
+      const line = lines[j];
+      for (let c = 0; c < line.length; c++) {
+        const char = line[c];
+        if (char === "{") {
+          braceCount++;
+          foundOpen = true;
+        } else if (char === "}") {
+          braceCount--;
+          if (foundOpen && braceCount === 0) {
+            endIdx = j;
+            break;
+          }
+        }
+      }
+      if (foundOpen && braceCount === 0) break;
+      endIdx = j;
+    }
+  }
+
+  const CALL_RE = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+  for (let k = startLineIdx; k <= endIdx; k++) {
+    const row = lines[k];
+    if (COMMENT_RE.test(row)) continue;
+    let match;
+    while ((match = CALL_RE.exec(row)) !== null) {
+      const called = match[1];
+      if (called !== symName && !KEYWORDS.has(called.toLowerCase()) && !COMMON_CALL_EXCLUDES.has(called)) {
+        calls.add(called);
+        if (calls.size >= 20) break;
+      }
+    }
+    if (calls.size >= 20) break;
+  }
+
+  return Array.from(calls);
+}
+
 // ---------------------------------------------------------------- Prefix & Paths
 
 /**
@@ -225,6 +285,11 @@ export function extractFileSymbols(content) {
       const key = `${sym.name}:${sym.line}`;
       if (!seenInFile.has(key)) {
         seenInFile.add(key);
+        if (sym.kind === "func" || sym.kind === "method") {
+          sym.calls = extractCallsFromBody(lines, i, sym.name);
+        } else {
+          sym.calls = [];
+        }
         symbols.push(sym);
       }
     }
@@ -269,6 +334,7 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
         line: sym.line,
         kind: sym.kind,
         signature: sym.signature,
+        calls: sym.calls || [],
         mtime: mtimeMs,
       });
     }
@@ -351,6 +417,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
       if (Math.abs(stat.mtimeMs - item.mtime) < 5) {
         validHits.push({
           ...item,
+          calls: item.calls || [],
           absPath,
         });
       } else {
@@ -368,6 +435,7 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
               line: reCheck.line,
               kind: reCheck.kind,
               signature: reCheck.signature,
+              calls: reCheck.calls || [],
               mtime: stat.mtimeMs,
             });
           }
@@ -457,6 +525,7 @@ export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
         line: sym.line,
         kind: sym.kind,
         signature: sym.signature,
+        calls: sym.calls || [],
         mtime: stat.mtimeMs,
       });
     }
@@ -539,4 +608,187 @@ export function clearCache(workspaceRoot = process.cwd()) {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------- Graphify: Call-Graph & Blast Radius
+
+/**
+ * Traces shortest call path from fromSymbol to toSymbol using BFS over prefix-sharded cache.
+ * Returns: { found: boolean, path: string[], depth: number, durationMs: number, visitedNodes: number }
+ */
+export function tracePath(workspaceRoot = process.cwd(), fromSymbol, toSymbol, opts = {}) {
+  const fromClean = String(fromSymbol || "").trim();
+  const toClean = String(toSymbol || "").trim();
+  if (!fromClean || !toClean) {
+    return { found: false, error: "Both fromSymbol and toSymbol are required", path: [] };
+  }
+
+  if (fromClean.toLowerCase() === toClean.toLowerCase()) {
+    return { found: true, path: [fromClean], depth: 0, durationMs: 0, visitedNodes: 1 };
+  }
+
+  const maxDepth = opts.maxDepth ?? 5;
+  const queue = [{ name: fromClean, path: [fromClean], depth: 0 }];
+  const visited = new Set([fromClean.toLowerCase()]);
+  const startTime = Date.now();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current.depth >= maxDepth) continue;
+
+    const candidates = lookupSymbol(workspaceRoot, current.name);
+    for (const cand of candidates) {
+      const calls = cand.calls || [];
+      for (const callee of calls) {
+        const calleeLower = callee.toLowerCase();
+        if (calleeLower === toClean.toLowerCase()) {
+          const fullPath = [...current.path, callee];
+          return {
+            found: true,
+            path: fullPath,
+            depth: fullPath.length - 1,
+            durationMs: Date.now() - startTime,
+            visitedNodes: visited.size,
+          };
+        }
+
+        if (!visited.has(calleeLower)) {
+          visited.add(calleeLower);
+          queue.push({
+            name: callee,
+            path: [...current.path, callee],
+            depth: current.depth + 1,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    found: false,
+    path: [],
+    depth: 0,
+    durationMs: Date.now() - startTime,
+    visitedNodes: visited.size,
+  };
+}
+
+/**
+ * Finds all functions/methods calling targetSymbol across the workspace symbol cache.
+ * Returns array of: [{ caller: string, file: string, line: number, kind: string }]
+ */
+export function getCallers(workspaceRoot = process.cwd(), targetSymbol) {
+  const cleanTarget = String(targetSymbol || "").trim().toLowerCase();
+  if (!cleanTarget) return [];
+
+  const { cacheDir } = getCachePaths(workspaceRoot);
+  if (!fs.existsSync(cacheDir)) return [];
+
+  const callers = [];
+  try {
+    const bucketFiles = fs.readdirSync(cacheDir).filter((f) => f.endsWith(".json"));
+    for (const bf of bucketFiles) {
+      const bucket = loadBucket(cacheDir, bf.replace(".json", ""));
+      if (!bucket.symbols) continue;
+
+      for (const symKey of Object.keys(bucket.symbols)) {
+        const entries = bucket.symbols[symKey];
+        if (!Array.isArray(entries)) continue;
+
+        for (const entry of entries) {
+          if (Array.isArray(entry.calls)) {
+            if (entry.calls.some((c) => c.toLowerCase() === cleanTarget)) {
+              callers.push({
+                caller: entry.name,
+                file: entry.file,
+                line: entry.line,
+                kind: entry.kind,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // Deduplicate callers
+  const unique = [];
+  const seen = new Set();
+  for (const c of callers) {
+    const k = `${c.caller}:${c.file}:${c.line}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      unique.push(c);
+    }
+  }
+
+  return unique;
+}
+
+/**
+ * Calculates the blast radius (upstream callers, downstream callees, and impacted files)
+ * for a modified symbol. Identifies if the symbol is a "God Node" (high centrality).
+ */
+export function getBlastRadius(workspaceRoot = process.cwd(), targetSymbol, opts = {}) {
+  const cleanTarget = String(targetSymbol || "").trim();
+  if (!cleanTarget) return { error: "targetSymbol is required" };
+
+  const startTime = Date.now();
+  const maxDepth = opts.maxDepth ?? 3;
+
+  // 1. Direct callees (what this symbol calls)
+  const hits = lookupSymbol(workspaceRoot, cleanTarget);
+  const directCallees = new Set();
+  const definingFiles = new Set();
+
+  for (const h of hits) {
+    definingFiles.add(h.file);
+    if (Array.isArray(h.calls)) {
+      for (const c of h.calls) directCallees.add(c);
+    }
+  }
+
+  // 2. Upstream callers traversal (BFS to find all transitively dependent symbols)
+  const queue = [{ name: cleanTarget, depth: 0 }];
+  const visitedCallers = new Set([cleanTarget.toLowerCase()]);
+  const impactedSymbols = new Set([cleanTarget]);
+  const impactedFiles = new Set([...definingFiles]);
+  const callerEdges = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current.depth >= maxDepth) continue;
+
+    const callers = getCallers(workspaceRoot, current.name);
+    for (const c of callers) {
+      impactedSymbols.add(c.caller);
+      impactedFiles.add(c.file);
+      callerEdges.push({ from: c.caller, to: current.name, file: c.file });
+
+      const cLower = c.caller.toLowerCase();
+      if (!visitedCallers.has(cLower)) {
+        visitedCallers.add(cLower);
+        queue.push({ name: c.caller, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  const inDegree = getCallers(workspaceRoot, cleanTarget).length;
+  const outDegree = directCallees.size;
+  const totalDegree = inDegree + outDegree;
+  const isGodNode = totalDegree >= 8;
+
+  return {
+    symbol: cleanTarget,
+    definingFiles: Array.from(definingFiles),
+    inDegree,
+    outDegree,
+    totalDegree,
+    isGodNode,
+    directCallees: Array.from(directCallees),
+    impactedSymbols: Array.from(impactedSymbols),
+    impactedFiles: Array.from(impactedFiles),
+    edges: callerEdges,
+    durationMs: Date.now() - startTime,
+  };
 }

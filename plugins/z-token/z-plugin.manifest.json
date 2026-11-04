@@ -44,7 +44,9 @@
         "build",
         "run",
         "diet",
-        "symbol_cache"
+        "symbol_cache",
+        "trace_path",
+        "blast_radius"
       ]
     }
   }

@@ -20,6 +20,9 @@ import {
   indexWorkspace,
   getCacheStats,
   clearCache,
+  tracePath,
+  getCallers,
+  getBlastRadius,
 } from "./symbol-cache.mjs";
 
 export {
@@ -29,6 +32,9 @@ export {
   indexWorkspace,
   getCacheStats,
   clearCache,
+  tracePath,
+  getCallers,
+  getBlastRadius,
 };
 
 const CODE_EXT = new Set([
