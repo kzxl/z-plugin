@@ -111,6 +111,66 @@ async function lookupBrainGotchas(files) {
 }
 
 /**
+ * Safely analyze Blast Radius & God Node sensitivity via z-token call graph
+ */
+async function analyzeBlastRadius(files, addedLines, cwd) {
+  const blastFindings = [];
+  try {
+    let getBlastRadiusFn = null;
+    try {
+      const tokenMod = await import('../../../z-token/scripts/lib/symbol-cache.mjs');
+      getBlastRadiusFn = tokenMod.getBlastRadius;
+    } catch {}
+
+    if (typeof getBlastRadiusFn !== 'function') return blastFindings;
+
+    const targetSymbols = new Set();
+    for (const l of addedLines) {
+      const code = l.code;
+      const methodMatch = code.match(/(?:public|private|protected|internal|static|async|virtual|override)\s+(?:[\w<>[\],.?*&]+\s+)+([A-Za-z_$][\w$]*)\s*\(/);
+      if (methodMatch) targetSymbols.add(methodMatch[1]);
+      const fnMatch = code.match(/\b(?:function|def|defp|defn|func|fn)\s+([A-Za-z_$][\w$]*)/);
+      if (fnMatch) targetSymbols.add(fnMatch[1]);
+      const clsMatch = code.match(/\b(?:class|interface|record)\s+([A-Za-z_$][\w$]*)/);
+      if (clsMatch) targetSymbols.add(clsMatch[1]);
+    }
+
+    const analyzed = new Set();
+    for (const sym of targetSymbols) {
+      if (analyzed.has(sym.toLowerCase())) continue;
+      analyzed.add(sym.toLowerCase());
+
+      const res = getBlastRadiusFn(cwd, sym);
+      if (res && !res.error) {
+        if (res.isGodNode) {
+          blastFindings.push({
+            severity: 'P0',
+            category: 'BLAST_RADIUS',
+            file: res.definingFiles[0] || 'GRAPH',
+            line: 1,
+            rule: 'God Node Modification Hazard (Graphify Blast Radius)',
+            message: `High architectural risk: '${sym}' is a God Node with total degree ${res.totalDegree} (calls/called by ${res.impactedSymbols?.length || 0} symbols across ${res.impactedFiles?.length || 0} files).`,
+            suggestion: `Ensure thorough regression tests covering all ${res.impactedFiles?.length || 0} downstream/upstream files before modifying this central hub.`
+          });
+        } else if (res.impactedFiles && res.impactedFiles.length >= 4) {
+          blastFindings.push({
+            severity: 'P1',
+            category: 'BLAST_RADIUS',
+            file: res.definingFiles[0] || 'GRAPH',
+            line: 1,
+            rule: 'Wide Blast Radius Impact (Graphify Blast Radius)',
+            message: `Wide blast radius: Modifying '${sym}' impacts ${res.impactedFiles.length} files (${res.impactedFiles.slice(0, 3).join(', ')}...).`,
+            suggestion: `Run integration tests across impacted modules: ${res.impactedFiles.slice(0, 4).join(', ')}.`
+          });
+        }
+      }
+    }
+  } catch {}
+
+  return blastFindings;
+}
+
+/**
  * Main review function
  */
 export async function reviewCode({
@@ -421,7 +481,17 @@ export async function reviewCode({
   }
 
   // -------------------------------------------------------------
-  // 5. Score Calculation
+  // 5. Cross-Plugin Mesh: Graphify Blast Radius & God Node Detection (z-token)
+  // -------------------------------------------------------------
+  if (focus === 'all' || focus === 'architecture' || focus === 'blast') {
+    const blastFindings = await analyzeBlastRadius(parsed.files, parsed.addedLines, cwd);
+    for (const b of blastFindings) {
+      findings.push(b);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 6. Score Calculation
   // -------------------------------------------------------------
   let score = 100;
   for (const f of findings) {

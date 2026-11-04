@@ -255,6 +255,43 @@ const hookRes = installPreCommitHook(tempRepo);
 ok(hookRes.success, "installed pre-commit hook successfully");
 ok(fs.existsSync(path.join(hookGitDir, "hooks", "pre-commit")), "pre-commit file exists on disk");
 
+// 6. Graphify Blast Radius & God Node Sensitivity Check
+console.log("z-gate: blast radius & god node review (Graphify mesh)");
+const coreHubDir = path.join(tempRepo, "Services");
+fs.mkdirSync(coreHubDir, { recursive: true });
+const coreHubFile = path.join(coreHubDir, "CoreHub.cs");
+fs.writeFileSync(coreHubFile, "public class CoreHub { public void MasterDispatch() {} }", "utf8");
+const coreHubStat = fs.statSync(coreHubFile);
+
+const { storeSymbolsForFile } = await import("../plugins/z-token/scripts/lib/symbol-cache.mjs");
+storeSymbolsForFile(tempRepo, "Services/CoreHub.cs", [
+  {
+    name: "MasterDispatch",
+    kind: "method",
+    line: 10,
+    signature: "public void MasterDispatch()",
+    calls: ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10"]
+  }
+], coreHubStat.mtimeMs);
+
+const godDiff = `
+diff --git a/Services/CoreHub.cs b/Services/CoreHub.cs
+--- a/Services/CoreHub.cs
++++ b/Services/CoreHub.cs
+@@ -10,3 +10,5 @@
++    public void MasterDispatch() {
++        // Modified core dispatch
++    }
+`;
+
+const godReview = await reviewCode({
+  diff: godDiff,
+  commitMessage: "refactor(core): modify master dispatch",
+  cwd: tempRepo
+});
+
+ok(godReview.findings.some(f => f.severity === "P0" && f.rule.includes("God Node")), "caught God Node modification as P0");
+
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });
 
