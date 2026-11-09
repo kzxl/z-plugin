@@ -60,6 +60,18 @@ These rules govern coding standards, architectural invariants, cognitive discipl
 - **Definition:**
   > Multi-Agent Teamwork & Adversarial Orchestration: Partition complex engineering tasks across isolated subagent roles (Orchestrator, Explorer, Worker, Adversarial Reviewer, Empirical Challenger, Victory Auditor) with explicit Zero-Collision File Ownership contracts, structured handoff artifacts, and mandatory multi-stage verification gates before synthesis. Refer to architecture/multi-agent-teamwork-protocol.md.
 
+### `R_CACHE`: Prefix Cache Invariance & KV Preservation
+- **Category:** `invariants`
+- **Tags:** `cache`, `prefix-cache`, `kv-cache`, `prompt-layout`, `invariance`
+- **Definition:**
+  > Prefix Cache Invariance & Left-to-Right Layout: In any LLM, AI Agent, or prompt-assembly codebase, static directives (system personas, core invariants, tool schemas, and SOPs) MUST form an immutable prefix. Strictly prohibit concatenating volatile runtime tokens (DateTime.Now, seconds timestamps, random nonces, transient GUIDs) at the top of system instructions. Ephemeral metadata (current screen, active document ID, server clock) MUST be encapsulated in the latest user turn envelope to ensure >=90-95% KV-cache hit rate.
+
+### `R_ACP`: Active Context Pruning & LSM Multi-Tier Memory
+- **Category:** `invariants`
+- **Tags:** `context`, `acp`, `lsm-tree`, `memory`, `compaction`
+- **Definition:**
+  > Active Context Pruning (ACP) & LSM Memory Hierarchy: Forbid passive blunt history truncation and monolithic lossy rolling summaries. Structure long-running session contexts into multi-tier LSM architecture: Tier 1 Raw Active Window (recent 5-8 turns), Tier 2 Frozen Immutable Blocks (compacted once, never rewritten), and Tier 3 Cold Searchable Archive. Equip agents with internal on-demand search and block-expansion tools (ACP) to retrieve historical context with zero degradation across marathon sessions.
+
 ## 2. Languages & Runtime Stacks
 
 ### `R_NODE`: Node.js Enterprise API Architecture

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+
+- **Prefix Cache Invariance (`R_CACHE`)**: Canonical rule and automated audit checks preventing volatile tokens (dynamic timestamps, random nonces, session GUIDs) from breaking LLM KV-cache.
+- **Active Context Pruning (`R_ACP`)**: LSM-Tree multi-tier memory architecture (T1 Raw Active Window, T2 Frozen Blocks, T3 Cold Archive) with on-demand retrieval tools replacing blunt history truncation.
+- **Z-Gate AST Linter**: Added `[P1] Cache Invalidation Trap Detection` into code reviewer engine to flag anti-patterns in C# and TypeScript codebases.
+- **Z-Brain Generational Compaction**: Structured guidelines for distilling recurring atomic lessons into immutable canonical domain knowledge blocks.
+- **Z-Token Prefix Preservation**: Standardized left-to-right deterministic prefix layout across all prompt templates and agent workflows.
+
 ## 0.7.0
 
 - Rebrand: Renamed project from `token-diet` to `zero-token`.

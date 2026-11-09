@@ -343,6 +343,19 @@ export async function reviewCode({
           suggestion: 'Use BaseForm with explicit PopulateControls() and CollectData() manual mapping.'
         });
       }
+
+      // E. [P1] Cache Invalidation Trap / Volatile Prefix Concatenation (R_CACHE)
+      if (/(SystemPrompt|SystemContext|system_prompt|system_instruction)\s*[:=]\s*.*\b(DateTime\.Now|Date\.now\(\)|new Date\(\)|Guid\.NewGuid\(\)|randomUUID\(\))/i.test(code)) {
+        findings.push({
+          severity: 'P1',
+          category: 'PERFORMANCE',
+          file: currentFile,
+          line: lineIndex,
+          rule: 'Prefix Cache Invariance (R_CACHE)',
+          message: 'Dynamic timestamp or volatile nonce concatenated into System Prompt breaks 100% LLM KV-cache.',
+          suggestion: 'Isolate System Prompt into an immutable prefix and pass dynamic context inside the latest user message envelope.'
+        });
+      }
     }
 
     // E. [P1] Concurrency & Async Deadlock Defense (.Result, .Wait(), async void)

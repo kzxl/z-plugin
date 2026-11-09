@@ -16,3 +16,8 @@
 - **Requirements**:
   - Must include at least 1 domain tag and 1 technical tag.
   - Set `trust_level="verified_fact"` only when backed by passing build/test evidence.
+
+## 4. LSM Generational Compaction & Knowledge Hit Tracking (R_ACP)
+- **Generational Compaction**: Atoms sharing recurring patterns (>=3 occurrences) must be distilled into immutable domain knowledge blocks and promoted into canonical rules.
+- **Lossless Retrieval**: Episodic atoms preserve root-cause traces and exact code diffs in cold storage for on-demand inspection via `zbrain_view`.
+- **Knowledge Hit Rate (ROK)**: Track re-used atoms that prevent repeated errors and regression loops.

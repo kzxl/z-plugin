@@ -43,4 +43,9 @@ Z-MIND COGNITIVE ENGINEERING RULES ARE ACTIVE. Every technical action, code modi
 ## 8. Multi-Agent Teamwork (R_TEAM)
 - Subagent teams must maintain **zero-collision file ownership contracts**.
 - Parallelize research and execution partitions; enforce adversarial review gates before merging branches.
+
+## 9. Prefix Cache Invariance & Active Context Pruning (R_CACHE, R_ACP)
+- **Immutable Left-to-Right Prefix**: All prompts and agent workflows must place static directives, invariants, and tool definitions at the head of the system prompt. Never insert volatile timestamps (e.g. `DateTime.Now:HH:mm:ss`) or random nonces at the top.
+- **Ephemeral User Envelope**: Encapsulate dynamic runtime metadata (current screen, active document ID, server clock) inside the latest user message envelope to preserve >=90-95% KV-cache hit rate.
+- **LSM-Tree Context Hierarchy**: Replace blunt history truncation and monolithic lossy rolling summaries with 3-tier LSM architecture: T1 Raw Active Window, T2 Frozen Immutable Blocks, and T3 Cold Searchable Archive. Provide internal on-demand retrieval tools for lossless context exploration.
 <!-- z-mind:end -->

@@ -38,4 +38,9 @@ Z-TOKEN MODE IS ACTIVE. Cut wasted words, unnecessary round-trips, and bloated c
 1. **Never sacrifice correctness**: Deep thinking and rigorous validation must not be traded for brevity.
 2. **Never compromise security or critical logic**: Money, authentication, authorization, and data-integrity paths must be verified thoroughly.
 3. **Exact precision**: Code snippets, commands, file paths, identifiers, and error strings must remain verbatim and fully functional.
+
+## 7. Prefix Cache Preservation & Context Pruning (R_CACHE, R_ACP)
+- **Immutable Left-to-Right Prefix**: All prompts and agent workflows must place static directives, invariants, and tool definitions at the head of the system prompt. Never insert volatile timestamps (e.g. `DateTime.Now:HH:mm:ss`) or random nonces at the top.
+- **Ephemeral User Envelope**: Encapsulate dynamic runtime metadata (current screen, active document ID, server clock) inside the latest user message envelope to preserve >=90-95% KV-cache hit rate.
+- **LSM-Tree Context Hierarchy**: Replace blunt history truncation and monolithic lossy rolling summaries with 3-tier LSM architecture: T1 Raw Active Window, T2 Frozen Immutable Blocks, and T3 Cold Searchable Archive. Provide internal on-demand retrieval tools for lossless context exploration.
 <!-- z-token:end -->

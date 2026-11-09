@@ -701,6 +701,30 @@ export const ENGINEERING_RULES = {
       "no-fluff"
     ],
     "summary": "Quiet, dense UI and self-documenting code. Read standards/universal/ui-anti-ai-slop-standard.md before writing or reviewing UI styles, colors, motion, grids, badges, or UI copy, and before adding comments or abstractions."
+  },
+  "R_CACHE": {
+    "title": "Prefix Cache Invariance & KV Preservation",
+    "category": "invariants",
+    "tags": [
+      "cache",
+      "prefix-cache",
+      "kv-cache",
+      "prompt-layout",
+      "invariance"
+    ],
+    "summary": "Prefix Cache Invariance: Strict Left-to-Right layout preservation. All LLM and Agent prompt integrations MUST isolate static directives, tool schemas, and SOPs into an immutable prefix (100% KV-cached). Dynamic per-turn metadata (timestamps, transient GUIDs, form snapshots) MUST be attached to the user turn envelope. Prohibit inserting volatile tokens at the head of system prompts."
+  },
+  "R_ACP": {
+    "title": "Active Context Pruning & LSM Multi-Tier Memory",
+    "category": "invariants",
+    "tags": [
+      "context",
+      "acp",
+      "lsm-tree",
+      "memory",
+      "compaction"
+    ],
+    "summary": "Active Context Pruning (ACP) & LSM Memory Hierarchy: Forbid passive blunt history truncation or monolithic mutable rolling summaries. Organize long-running session contexts into LSM tiers: T1 Raw Active Window, T2 Frozen Immutable Blocks, T3 Cold Searchable Archive. Equip agents with internal on-demand search and block-expansion tools to retrieve historical context with zero loss."
   }
 };
 
@@ -791,6 +815,12 @@ export function auditPlan(text) {
   if (/\b(complete rewrite|rewrite entire codebase|burn and rebuild)\b/i.test(text)) {
     warnings.push("Aggressive high-uncertainty rewrite detected. Epistemic calibration gate requires read-only diagnostics and reproduction tests first (R_EPISTEMIC).");
     checks.push({ check: "Epistemic Uncertainty Gate (R_EPISTEMIC)", passed: false });
+  }
+
+  // 9. Cache Invalidation Trap / Volatile Tokens in Prefix (R_CACHE)
+  if (/(SystemPrompt|SystemContext|system_prompt|system_instruction)\s*[:=]\s*.*\b(DateTime\.Now|Date\.now\(\)|new Date\(\)|Guid\.NewGuid\(\)|randomUUID\(\))/i.test(text)) {
+    warnings.push("Cache Invalidation Trap detected: Dynamic timestamps or random nonces placed into System Prompt break 100% LLM KV-cache. Move dynamic metadata to User turn envelope (R_CACHE).");
+    checks.push({ check: "Prefix Cache Invariance (R_CACHE)", passed: false });
   }
 
   return {

@@ -16,4 +16,9 @@ Z-GATE IS ACTIVE. Code conciseness, asset discovery, and Net Engineering Value (
 - **Conventional Commits**: Format strictly as `<type>(<scope>): <subject>`.
 - **Targeted Staging**: Stage only files strictly in scope (`git add <files>`).
 - **Empirical Commit Logs**: Never use subjective self-praise ("optimal", "clean", "perfect") in commit messages or code comments (R_PROOF).
+
+## 4. Cache Invalidation Trap Detection (R_CACHE, R_ACP)
+- **Zero Volatile Tokens in Prefixes**: Strictly forbid concatenating dynamic timestamps (`DateTime.Now`, seconds, milliseconds), transient GUIDs, or random nonces at the top of LLM system prompts or cache keys.
+- **Prefix Integrity**: Ensure static rules, schemas, and instructions remain 100% byte-for-byte immutable across turns.
+- **Active Memory over Lossy Truncation**: Enforce LSM multi-tier compaction and on-demand search tools for long-running conversational contexts.
 <!-- z-gate:end -->

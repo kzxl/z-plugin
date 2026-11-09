@@ -1,6 +1,6 @@
 {
   "name": "@kzxl/z-plugin",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "Agent Engineering Operating System (AEOS) for AI Coding Agents (Antigravity, ZCode, Cursor, Claude Code, Windsurf): Sub-2ms call-graph, taint analysis, episodic memory, and token firewall.",
   "license": "MIT",

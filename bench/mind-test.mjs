@@ -17,11 +17,11 @@ function ok(cond, msg) {
 
 console.log("z-mind: rules catalog coverage");
 const allRules = queryRules("all");
-ok(allRules.length === 58, `all 58 canonical rules loaded (verified: ${allRules.length})`);
+ok(allRules.length === 60, `all 60 canonical rules loaded (verified: ${allRules.length})`);
 
 // Category queries
 const invariants = queryRules("invariants");
-ok(invariants.length === 8, `invariants category has 8 rules (got: ${invariants.length})`);
+ok(invariants.length === 10, `invariants category has 10 rules (got: ${invariants.length})`);
 
 const langRules = queryRules("lang");
 ok(langRules.length === 13, `languages category has 13 rules (got: ${langRules.length})`);
