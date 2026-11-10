@@ -2,7 +2,7 @@
   "name": "@kzxl/z-plugin",
   "version": "1.4.0",
   "type": "module",
-  "description": "Agent Engineering Operating System (AEOS) for AI Coding Agents (Antigravity, ZCode, Cursor, Claude Code, Windsurf): Sub-2ms call-graph, taint analysis, episodic memory, and token firewall.",
+  "description": "Cut 95% wasted tokens, stop breaking changes with sub-2ms call-graphs, and ban AI code slop. The context-saving & quality engine for Cursor, Claude Code, Antigravity, and Windsurf.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,18 +14,26 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
-    "antigravity",
-    "zcode",
     "cursor",
+    "cursorrules",
     "claude-code",
+    "antigravity",
     "windsurf",
-    "ai-coding-agent",
-    "call-graph",
-    "taint-analysis",
-    "blast-radius",
+    "copilot",
+    "cline",
+    "token-saver",
+    "context-window",
     "context-diet",
-    "software-craftsmanship"
+    "call-graph",
+    "blast-radius",
+    "taint-analysis",
+    "anti-slop",
+    "code-quality",
+    "code-review",
+    "episodic-memory",
+    "developer-tools"
   ],
   "engines": {
     "node": ">=22"

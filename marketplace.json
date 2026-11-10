@@ -10,7 +10,7 @@
       "source": "./plugins/z-token",
       "version": "1.4.0",
       "displayName": "Z-Token",
-      "description": "Compact-context tools & guards: code outline, capped search, compact builds, oversized-read blocking, and token budgeting.",
+      "description": "Save up to 95% tokens: Blocks oversized file reads, caps searches, filters build logs, and provides fast symbol outlines.",
       "category": "developer-tools",
       "keywords": [
         "z-token",
@@ -29,7 +29,7 @@
       "source": "./plugins/z-brain",
       "version": "1.4.0",
       "displayName": "Z-Brain",
-      "description": "Zero-overhead local episodic knowledge engine with SQLite FTS5 progressive disclosure (L0 Index / L2 View).",
+      "description": "Long-term episodic memory for AI agents: Recalls past bug fixes, solutions, and gotchas across sessions with sub-millisecond SQLite search.",
       "category": "developer-tools",
       "keywords": [
         "z-brain",
@@ -47,7 +47,7 @@
       "source": "./plugins/z-mind",
       "version": "1.4.0",
       "displayName": "Z-Mind",
-      "description": "Cognitive engineering framework & thinking discipline: 4-phase bug diagnosis, zero-regression refactoring, deep-module architecture, TDD, and multi-agent teamwork.",
+      "description": "Engineering discipline & cognitive guardrails: 4-phase bug diagnosis, zero-regression refactoring, deep architecture, and verified TDD.",
       "category": "developer-tools",
       "keywords": [
         "z-mind",
@@ -67,7 +67,7 @@
       "source": "./plugins/z-gate",
       "version": "1.4.0",
       "displayName": "Z-Gate",
-      "description": "Net Engineering Value (NEV) gate, codebase asset discovery (R_REUSE), wrapper hell prevention, and pre-commit diff auditor.",
+      "description": "Pre-commit safety & regression gate: Taint analysis, SQL injection defense, reuse discovery, and wrapper hell prevention.",
       "category": "developer-tools",
       "keywords": [
         "z-gate",
@@ -85,7 +85,7 @@
       "source": "./plugins/z-craft",
       "version": "1.4.0",
       "displayName": "Z-Craft",
-      "description": "Autonomous Software Craftsmanship & Disciplined Vibe-Coding Engine: anti-slop AST linter, UX micro-spec generator, generative UI canvas, and vibe time-machine.",
+      "description": "Anti-slop linter & software craftsmanship: Eliminates neon gradients, arbitrary hex colors, and dead buttons with 4-state UX contracts.",
       "category": "developer-tools",
       "keywords": [
         "z-craft",
