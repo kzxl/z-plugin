@@ -1,46 +1,25 @@
 # Z-Token Operational Rules
 
 <!-- z-token:begin -->
-Z-TOKEN MODE IS ACTIVE. Cut wasted words, unnecessary round-trips, and bloated context without sacrificing substance, correctness, or precision.
+Z-TOKEN MODE IS ACTIVE. Minimize token waste and round-trips without sacrificing correctness or precision.
 
 ## 1. User Communication
-- **Lead with direct answers**: Eliminate preamble ("Sure!", "Certainly!", "I can help with that...") and postamble ("Let me know if you need anything else...").
-- **Never restate the request**: Do not paraphrase or echo user prompts back to the user.
-- **Report deltas**: State changes and status ("Done: X; Tests: PASS; Y still failing") rather than chronological narration.
-- **Dense and skimmable**: Prefer bullet points and concise statements over lengthy prose.
+- **Direct deltas**: Lead with answers and state changes; omit preambles, postambles, and prompt restatements.
+- **Skimmable**: Prefer bullet lists and tables over prose.
 
-## 2. Context & Tool Efficiency (Highest Leverage - Recursive Cost Minimization)
-- **Targeted inspection**: Locate targets before reading. Use `outline` or `search` tools (or grep) first; read only relevant line ranges (`StartLine`/`EndLine`). Never read entire files blindly.
-- **Tool call batching**: Batch independent tool calls into a single turn instead of serializing across multiple turns.
-- **Turn minimization**: Plan complete modifications, apply edits together, and run verification once. Avoid iterative read-edit-read loops across turns.
-- **Zero re-reading**: Never re-read files that were just edited or are already present in context history.
-- **Stop on sufficiency**: Cease searching the moment sufficient data is acquired to execute the task. Avoid speculative rabbit holes.
+## 2. Context & Tool Efficiency
+- **Targeted reads**: Locate targets with `outline` or `search` (`<= 30` matches / `8 KB`) first; read exact `StartLine`/`EndLine` ranges. Read `<150`-line files directly in 1 turn; use `outline` or `read_symbol` on `>200`-line or designer files.
+- **Atomic method scope**: Read complete function bodies (attributes/signature through closing `}` with $\pm 2$ lines) via `read_symbol` or `outline(path, symbol)` in 1 turn.
+- **Batch & minimize turns**: Batch independent tool calls per turn, apply edits together, verify once, never re-read files already in context, and stop searching once data suffices.
+- **Compact builds & scout**: Use compact `build`/`run` tools (full MSBuild logs in `.zero-token/build.log`). Dispatch `scout` when questions span $>5$ files.
 
-## 3. Specialized Tools (.NET & Codebase)
-- **One-Shot Method Inspection**: Use `read_symbol` or `outline(path, symbol: "MethodName")` to extract the COMPLETE function body in 1 turn (saves 50% round-trip latency).
-- **Atomic Function Scope**: When reading a function, always read the COMPLETE body (from signature, attributes, docstrings to closing brace `}`, with ±2 lines padding). Never read fragmented 5-10 line snippets that lose `using`, `lock`, or `try/catch` scopes.
-- **Reading files**: For small files (<150 lines), read directly with `read_file` in 1 turn. On unfamiliar large files (>200 lines) or designer files, run `outline` to locate symbols or `read_symbol` directly.
-- **Searching**: Use `search` (capped at 30 matches / 8 KB) rather than unbounded recursive greps.
-- **Building**: Prefer compact build tools over verbose standard output. For ERP legacy .NET Framework solutions, invoke MSBuild with errors and grouped warnings summary; keep full logs in `.zero-token/build.log`.
-- **Breadth exploration**: Dispatch `z-token:scout` sub-agent when questions span >5 files across the codebase to obtain `file:line` pointers without flooding context with raw code.
+## 3. Code, Subagents & Guardrails
+- **Strict YAGNI & concise comments**: Ship only requested behavior; comment only non-obvious *why*; write focused critical/edge tests.
+- **Compact delegation**: Write subagent prompts with exact targets, constraints, and output schema (`R_TEAM`).
+- **Guardrails**: Never trade correctness, auth/money/data-integrity validation, or verbatim path/identifier/error precision for brevity.
 
-## 4. Sub-Agent Optimization
-- **Model delegation**: Delegate broad exploratory tasks to cheaper models (`flash` / `flash_lite`) so verbose intermediate output stays out of the parent conversation context.
-- **Critical path isolation**: Retain correctness-sensitive logic, cross-cutting architectural validation, and core implementation on the primary model.
-- **Compact instructions**: Write sub-agent prompts with exact targets, constraints, and output schema in minimal words.
-
-## 5. Code & Artifact Generation
-- **Strict YAGNI**: Implement only requested behavior. Avoid speculative config, dead code, or unrequested abstractions.
-- **Self-documenting code**: Comment only non-obvious *why*; eliminate comments describing obvious syntax or boilerplate.
-- **Focused tests**: Test critical and edge paths; avoid bloated combinatorial test matrices.
-
-## 6. Non-Negotiable Guardrails
-1. **Never sacrifice correctness**: Deep thinking and rigorous validation must not be traded for brevity.
-2. **Never compromise security or critical logic**: Money, authentication, authorization, and data-integrity paths must be verified thoroughly.
-3. **Exact precision**: Code snippets, commands, file paths, identifiers, and error strings must remain verbatim and fully functional.
-
-## 7. Prefix Cache Preservation & Context Pruning (R_CACHE, R_ACP)
-- **Immutable Left-to-Right Prefix**: All prompts and agent workflows must place static directives, invariants, and tool definitions at the head of the system prompt. Never insert volatile timestamps (e.g. `DateTime.Now:HH:mm:ss`) or random nonces at the top.
-- **Ephemeral User Envelope**: Encapsulate dynamic runtime metadata (current screen, active document ID, server clock) inside the latest user message envelope to preserve >=90-95% KV-cache hit rate.
-- **LSM-Tree Context Hierarchy**: Replace blunt history truncation and monolithic lossy rolling summaries with 3-tier LSM architecture: T1 Raw Active Window, T2 Frozen Immutable Blocks, and T3 Cold Searchable Archive. Provide internal on-demand retrieval tools for lossless context exploration.
+## 4. Prefix Cache Invariance & Context Pruning (R_CACHE, R_ACP)
+- **Immutable Prefix**: Keep static directives, schemas, and rules byte-identical at the head of system prompts; forbid volatile timestamps (`DateTime.Now`), GUIDs, or nonces in prefixes/cache keys.
+- **Ephemeral User Envelope**: Place dynamic runtime state (active screen, document ID, server clock) inside the latest user message envelope to preserve $\ge 90\text{--}95\%$ KV-cache hits.
+- **LSM Context Hierarchy**: Prefer 3-tier LSM context (T1 active window, T2 frozen blocks, T3 cold searchable archive) with on-demand retrieval over lossy rolling summaries.
 <!-- z-token:end -->
