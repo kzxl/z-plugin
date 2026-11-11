@@ -1,6 +1,6 @@
 ---
 name: z-token
-description: Slash command and mode controller for Z-Token (compact context, oversized-read guard, capped search, and lean builds). Triggered by /z-token [on|lite|ultra|off|status].
+description: Slash command and mode controller for Z-Token (compact context, oversized-read guard, capped search, lean builds, and visual telemetry dashboard). Triggered by /z-token [on|lite|ultra|off|status|dashboard].
 ---
 
 # Z-Token Skill
@@ -14,6 +14,7 @@ Provides operational control and dynamic strictness levels for the Z-Token optim
 - **`ultra`**: Activates telegraphic mode on low-stakes communication surfaces (~60% token reduction), while preserving full verbatim precision on high-stakes code and commands.
 - **`off`**: Temporarily suspends z-token rules. Triggered by `/z-token off` or "verbose mode".
 - **`status`**: Reports active mode and current token management directives.
+- **`dashboard`**: Generates `~/.zero-token/z-dashboard.html` and opens the visual token telemetry & cost dashboard from any workspace via `diet(scope: "dashboard", open: true)`.
 
 ---
 
@@ -45,6 +46,7 @@ Never apply telegraphic fragments to:
 - `/z-token ultra`: Switches to aggressive telegraphic output mode for low-stakes text.
 - `/z-token off`: Pauses z-token optimizations.
 - `/z-token status`: Displays current level and operational recommendations.
+- `/z-token dashboard`: Calls the `z-token` MCP tool `diet` with `{ scope: "dashboard", open: true }` to build and open `~/.zero-token/z-dashboard.html` directly from any workspace (zero need to `cd` into the `z-plugin` repository).
 
 ---
 

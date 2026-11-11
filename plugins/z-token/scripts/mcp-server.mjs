@@ -19,6 +19,7 @@ import {
 } from "./lib/scan.mjs";
 import { runBuild } from "./lib/build.mjs";
 import { dietReport, smartDiff } from "./lib/diet.mjs";
+import { generateDashboardSnapshot } from "./lib/dashboard.mjs";
 import { runAction } from "./lib/run.mjs";
 import { runTests } from "./lib/test-runner.mjs";
 import { loadConfig } from "./lib/config.mjs";
@@ -378,12 +379,14 @@ const TOOLS = [
   {
     name: "diet",
     description:
-      "Report which installed skills and plugins consume context tokens every session, and what to disable. scope=savings reports what the guard blocked.",
+      "Report which installed skills and plugins consume context tokens every session, and what to disable. scope=savings reports what the guard blocked; scope=dashboard generates and opens the visual HTML telemetry dashboard from any workspace.",
     inputSchema: {
       type: "object",
       properties: {
-        scope: { type: "string", description: "context (default), savings, or panel" },
+        scope: { type: "string", description: "context (default), savings, panel, or dashboard" },
         days: { type: "number", description: "savings window in days, default 1" },
+        open: { type: "boolean", description: "For scope=dashboard: open HTML in default browser (default true)" },
+        out: { type: "string", description: "For scope=dashboard: optional output HTML file path (default ~/.zero-token/z-dashboard.html)" },
       },
     },
   },
@@ -484,6 +487,13 @@ async function callTool(name, args) {
     case "diet":
       if (a.scope === "savings") return savingsReport(a.days || 1);
       if (a.scope === "diff") return smartDiff(a);
+      if (a.scope === "dashboard") {
+        return generateDashboardSnapshot({
+          cwd: process.env.ZCODE_WORKSPACE_ROOT || process.cwd(),
+          out: a.out,
+          open: a.open !== false,
+        });
+      }
       if (a.scope === "panel") {
         const m = panelMetrics();
         return {

@@ -133,7 +133,46 @@ try {
     await srv.close();
   }
 
-  console.log("  ok   multi-window ledger, model cost calculator, z-brain SQLite, 4-state anti-slop HTML, and ephemeral HTTP server verified");
+  // Verify workspace-independent MCP integration: diet(scope="dashboard") + /z-token dashboard skill
+  const { spawn } = await import("node:child_process");
+  const mcpPath = path.resolve("plugins/z-token/scripts/mcp-server.mjs");
+  const outHtmlPath = path.join(tempDir, "mcp-dashboard-out.html");
+  const mcpRes = await new Promise((resolve, reject) => {
+    const proc = spawn(process.execPath, [mcpPath], { stdio: ["pipe", "pipe", "pipe"] });
+    let stdoutBuf = "";
+    proc.stdout.on("data", (chunk) => {
+      stdoutBuf += chunk;
+      for (const line of stdoutBuf.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.id === 2) {
+            proc.kill();
+            resolve(parsed);
+          }
+        } catch {}
+      }
+    });
+    proc.on("error", reject);
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }) + "\n");
+    proc.stdin.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "diet", arguments: { scope: "dashboard", open: false, out: outHtmlPath } },
+      }) + "\n"
+    );
+  });
+
+  const mcpText = mcpRes.result?.content?.[0]?.text || "";
+  assert.ok(fs.existsSync(outHtmlPath), "MCP diet(scope='dashboard') must generate HTML file from any workspace");
+  assert.ok(mcpText.includes(outHtmlPath), "MCP diet(scope='dashboard') response must include saved HTML path");
+
+  const skillMd = fs.readFileSync(path.resolve("plugins/z-token/skills/z-token/SKILL.md"), "utf8");
+  assert.ok(skillMd.includes("/z-token dashboard"), "z-token SKILL.md must document /z-token dashboard command");
+
+  console.log("  ok   multi-window ledger, model cost calculator, z-brain SQLite, 4-state anti-slop HTML, ephemeral HTTP server, and MCP diet(scope='dashboard') verified");
   console.log("\ndashboard test passed");
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
