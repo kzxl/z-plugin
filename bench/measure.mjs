@@ -315,7 +315,7 @@ function main() {
   // 6. Plugin permanent cost
   const skillDesc = fs.readFileSync(path.join(root, "plugins", "z-token", "skills", "z-token", "SKILL.md"), "utf8");
   const descLine = (skillDesc.match(/description:\s*([\s\S]*?)\n---/) || [, ""])[1];
-  const agentDesc = (fs.readFileSync(path.join(root, "plugins", "z-token", "agents", "scout.md"), "utf8").match(/description:\s*([\s\S]*?)\ncolor:/) || [, ""])[1];
+  const agentDesc = (fs.readFileSync(path.join(root, "plugins", "z-token", "agents", "scout.md"), "utf8").match(/description:\s*([\s\S]*?)\n(?:subagent|tools|color):/) || [, ""])[1];
   const toolSchemas = fs.readFileSync(path.join(root, "plugins", "z-token", "scripts", "mcp-server.mjs"), "utf8");
   const toolDescChars = (toolSchemas.match(/description:\s*\n?\s*"[^"]+"/g) || []).join("").length;
   const permanent = tok(descLine + agentDesc) + Math.round(toolDescChars / 4) + 200;

@@ -10,6 +10,22 @@ param(
 $repoRoot = $PSScriptRoot
 $pluginsDir = Join-Path $repoRoot "plugins"
 
+function Convert-ZCodeSubagents([string]$TargetPluginDir) {
+    if (-not (Test-Path $TargetPluginDir)) { return }
+    $dirItem = Get-Item $TargetPluginDir -Force
+    if ($dirItem.Attributes -match "ReparsePoint") { return }
+    $agentsDir = Join-Path $TargetPluginDir "agents"
+    if (-not (Test-Path $agentsDir)) { return }
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    foreach ($agentFile in (Get-ChildItem -Path $agentsDir -Filter "*.md")) {
+        $rawAgent = Get-Content $agentFile.FullName -Raw
+        $zcodeAgent = $rawAgent -replace "(?m)^subagent:\s*\S+\r?\n", "" -replace "(?m)^mainAgent:\s*\S+\r?\n", "" -replace "(?m)^tools:\s*\[read_file,\s*run_command,\s*manage_task\]", "tools: [Read, Bash]"
+        if ($zcodeAgent -ne $rawAgent) {
+            [System.IO.File]::WriteAllText($agentFile.FullName, $zcodeAgent, $utf8NoBom)
+        }
+    }
+}
+
 $availablePlugins = Get-ChildItem -Path $pluginsDir -Directory | Select-Object -ExpandProperty Name
 
 if ($Plugin -ne "all" -and $availablePlugins -notcontains $Plugin) {
@@ -120,6 +136,8 @@ foreach ($pName in $pluginsToProcess) {
             Copy-Item -Path $src -Destination $targetDir -Recurse -Force
             Write-Host "[$($ide.Name)] Copied to: $targetDir" -ForegroundColor Green
         }
+
+        if ($ide.Name -eq "ZCode") { Convert-ZCodeSubagents -TargetPluginDir $targetDir }
     }
 }
 
