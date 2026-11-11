@@ -1045,9 +1045,13 @@ export async function generateDashboardSnapshot(opts = {}) {
   const dur = (performance.now() - t0).toFixed(1);
 
   if (opts.open) {
-    const { spawn } = await import("node:child_process");
+    const { spawn, spawnSync } = await import("node:child_process");
     if (process.platform === "win32") {
-      spawn("cmd", ["/c", "start", "", outPath], { detached: true, stdio: "ignore" }).unref();
+      const escaped = String(outPath).replace(/'/g, "''");
+      spawnSync("powershell", ["-NoProfile", "-Command", `Start-Process -FilePath '${escaped}'`], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
     } else if (process.platform === "darwin") {
       spawn("open", [outPath], { detached: true, stdio: "ignore" }).unref();
     } else {

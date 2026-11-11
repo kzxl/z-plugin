@@ -160,9 +160,13 @@ async function runCanvas(outFile = 'architecture-graph.html') {
 }
 
 async function openTargetInBrowser(target) {
-  const { spawn } = await import('node:child_process');
+  const { spawn, spawnSync } = await import('node:child_process');
   if (process.platform === 'win32') {
-    spawn('cmd', ['/c', 'start', '', target], { detached: true, stdio: 'ignore' }).unref();
+    const escaped = String(target).replace(/'/g, "''");
+    spawnSync('powershell', ['-NoProfile', '-Command', `Start-Process -FilePath '${escaped}'`], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
   } else if (process.platform === 'darwin') {
     spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
   } else {
