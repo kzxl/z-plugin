@@ -56,6 +56,8 @@
   "scripts": {
     "demo": "node tools/visual-demo.mjs",
     "dashboard": "node bin/z-plugin.mjs dashboard",
+    "dashboard:open": "node bin/z-plugin.mjs dashboard --open",
+    "dashboard:live": "node bin/z-plugin.mjs dashboard --serve --open",
     "install:plugins": "powershell -ExecutionPolicy Bypass -File install.ps1",
     "sync:version": "node tools/sync-version.mjs",
     "migrate:rules": "node tools/migrate-project-rules.mjs",

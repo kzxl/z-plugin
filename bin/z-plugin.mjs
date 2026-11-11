@@ -36,7 +36,7 @@ const command = args[0] ? args[0].toLowerCase() : 'help';
 
 function showHelp() {
   console.log(`
-\x1b[1m\x1b[36m🔌 z-plugin (AEOS)\x1b[0m — Agent Engineering Operating System (v1.3.0)
+\x1b[1m\x1b[36m🔌 z-plugin (AEOS)\x1b[0m — Agent Engineering Operating System (v1.4.0)
 Universal Infrastructure for AI Coding Agents (Cursor, Claude Code, Windsurf, Antigravity)
 
 \x1b[1mUsage:\x1b[0m
@@ -159,21 +159,38 @@ async function runCanvas(outFile = 'architecture-graph.html') {
   console.log(`  Open this file in your browser to view the force-directed physics graph!\n`);
 }
 
+async function openTargetInBrowser(target) {
+  const { spawn } = await import('node:child_process');
+  if (process.platform === 'win32') {
+    spawn('cmd', ['/c', 'start', '', target], { detached: true, stdio: 'ignore' }).unref();
+  } else if (process.platform === 'darwin') {
+    spawn('open', [target], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    spawn('xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
+  }
+}
+
 async function runDashboard(cliArgs = []) {
   const cwd = process.cwd();
   const serve = cliArgs.includes('--serve');
-  const openBrowser = cliArgs.includes('--open');
+  const openBrowser = cliArgs.includes('--open') && !cliArgs.includes('--no-open');
   const portArg = cliArgs.find(a => a.startsWith('--port='));
   const port = portArg ? parseInt(portArg.slice('--port='.length), 10) : 0;
-  const positional = cliArgs.find(a => !a.startsWith('--'));
+  const outFlagEq = cliArgs.find(a => a.startsWith('--out='));
+  const outFlagIdx = cliArgs.indexOf('--out');
+  const outFromFlag = outFlagEq
+    ? outFlagEq.slice('--out='.length)
+    : outFlagIdx >= 0 && cliArgs[outFlagIdx + 1]
+      ? cliArgs[outFlagIdx + 1]
+      : null;
+  const positional = outFromFlag || cliArgs.find((a, idx) => !a.startsWith('--') && idx !== outFlagIdx + 1);
 
   if (serve) {
     const srv = await startDashboardServer({ cwd, port });
     console.log(`\x1b[36m[DASHBOARD]\x1b[0m Live Ephemeral Telemetry Server running at: \x1b[1m\x1b[32m${srv.url}\x1b[0m`);
     console.log(`  Zero permanent daemon — press Ctrl+C to stop cleanly.`);
     if (openBrowser) {
-      const { spawn } = await import('node:child_process');
-      if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', srv.url], { detached: true, stdio: 'ignore' }).unref();
+      await openTargetInBrowser(srv.url);
     }
     await new Promise((resolve) => {
       process.on('SIGINT', async () => {
@@ -203,9 +220,8 @@ async function runDashboard(cliArgs = []) {
   console.log(`  \x1b[32m✓ Saved Dashboard HTML:\x1b[0m ${outPath}`);
   console.log(`  Tip: Run \x1b[33mz-plugin dashboard --serve --open\x1b[0m for live browser refresh.\n`);
 
-  if (openBrowser && process.platform === 'win32') {
-    const { spawn } = await import('node:child_process');
-    spawn('cmd', ['/c', 'start', '', outPath], { detached: true, stdio: 'ignore' }).unref();
+  if (openBrowser) {
+    await openTargetInBrowser(outPath);
   }
 }
 
