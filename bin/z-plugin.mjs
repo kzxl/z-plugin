@@ -22,6 +22,11 @@ import {
   lookupSymbol
 } from '../plugins/z-token/scripts/lib/symbol-cache.mjs';
 import { generateGraphCanvasWidget } from '../plugins/z-craft/scripts/lib/generative-canvas.mjs';
+import {
+  collectDashboardMetrics,
+  renderDashboardHtml,
+  startDashboardServer
+} from '../tools/dashboard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -44,6 +49,7 @@ Universal Infrastructure for AI Coding Agents (Cursor, Claude Code, Windsurf, An
   \x1b[32mblast <symbol>\x1b[0m        Inspect blast radius, upstream dependents, and God Node risk
   \x1b[32mtaint <entry>\x1b[0m         Trace untrusted parameter data-flow to sensitive sinks
   \x1b[32mcanvas [output.html]\x1b[0m  Generate interactive force-directed physics SVG architecture graph
+  \x1b[32mdashboard [out.html]\x1b[0m  Generate visual token telemetry & cost dashboard (add \x1b[33m--serve\x1b[0m for live HTTP)
   \x1b[32mdemo\x1b[0m                  Run full visual benchmark and capability showcase
   \x1b[32mhelp\x1b[0m                  Display this help message
 
@@ -153,6 +159,56 @@ async function runCanvas(outFile = 'architecture-graph.html') {
   console.log(`  Open this file in your browser to view the force-directed physics graph!\n`);
 }
 
+async function runDashboard(cliArgs = []) {
+  const cwd = process.cwd();
+  const serve = cliArgs.includes('--serve');
+  const openBrowser = cliArgs.includes('--open');
+  const portArg = cliArgs.find(a => a.startsWith('--port='));
+  const port = portArg ? parseInt(portArg.slice('--port='.length), 10) : 0;
+  const positional = cliArgs.find(a => !a.startsWith('--'));
+
+  if (serve) {
+    const srv = await startDashboardServer({ cwd, port });
+    console.log(`\x1b[36m[DASHBOARD]\x1b[0m Live Ephemeral Telemetry Server running at: \x1b[1m\x1b[32m${srv.url}\x1b[0m`);
+    console.log(`  Zero permanent daemon — press Ctrl+C to stop cleanly.`);
+    if (openBrowser) {
+      const { spawn } = await import('node:child_process');
+      if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', srv.url], { detached: true, stdio: 'ignore' }).unref();
+    }
+    await new Promise((resolve) => {
+      process.on('SIGINT', async () => {
+        await srv.close();
+        resolve();
+      });
+    });
+    return;
+  }
+
+  const outFile = positional || path.join(cwd, '.token-diet', 'z-dashboard.html');
+  const outPath = path.resolve(cwd, outFile);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+
+  const t0 = performance.now();
+  const metrics = collectDashboardMetrics({ cwd });
+  const html = renderDashboardHtml(metrics, { title: 'Z-Plugin Telemetry & Token Economics' });
+  fs.writeFileSync(outPath, html, 'utf8');
+  const dur = (performance.now() - t0).toFixed(1);
+
+  const w30 = metrics.windows.d30;
+  console.log(`\x1b[36m[DASHBOARD]\x1b[0m Generated Zero-Daemon Visual Telemetry in \x1b[1m${dur}ms\x1b[0m`);
+  console.log(`  • 30d Saved:     \x1b[32m~${w30.savedTokens.toLocaleString()} tokens\x1b[0m (${w30.blockedCalls} blocked calls)`);
+  console.log(`  • 30d MCP Calls: \x1b[36m${w30.toolCalls.toLocaleString()} calls\x1b[0m (Search/Symbol ratio: ${w30.searchToSymbolRatio}x)`);
+  console.log(`  • Session Tax:   \x1b[33m~${metrics.diet.estTokens.toLocaleString()} tokens/turn\x1b[0m (${metrics.diet.skills} skills)`);
+  console.log(`  • Z-Brain Atoms: \x1b[35m${metrics.brain.totalAtoms.toLocaleString()} atoms\x1b[0m (${metrics.brain.verifiedFacts} verified)`);
+  console.log(`  \x1b[32m✓ Saved Dashboard HTML:\x1b[0m ${outPath}`);
+  console.log(`  Tip: Run \x1b[33mz-plugin dashboard --serve --open\x1b[0m for live browser refresh.\n`);
+
+  if (openBrowser && process.platform === 'win32') {
+    const { spawn } = await import('node:child_process');
+    spawn('cmd', ['/c', 'start', '', outPath], { detached: true, stdio: 'ignore' }).unref();
+  }
+}
+
 async function main() {
   switch (command) {
     case 'init':
@@ -169,6 +225,9 @@ async function main() {
       break;
     case 'canvas':
       await runCanvas(args[1]);
+      break;
+    case 'dashboard':
+      await runDashboard(args.slice(1));
       break;
     case 'demo': {
       const demoPath = path.join(ROOT_DIR, 'tools', 'visual-demo.mjs');

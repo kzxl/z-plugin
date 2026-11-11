@@ -13,3 +13,6 @@ Thumbs.db
 *.sqlite-shm
 *.sqlite3
 plugins/z-brain/data/*.sqlite*
+
+# Z-Plugin Local Project Directives
+.project-rule.md
