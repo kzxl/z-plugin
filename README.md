@@ -4,7 +4,7 @@
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/Tests-22%20passing%20%7C%20580%2B%20assertions-brightgreen)](package.json)
+[![Tests](https://img.shields.io/badge/Tests-24%20passing%20%7C%20620%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
@@ -30,9 +30,12 @@ npx @kzxl/z-plugin init all
 
 # Run the interactive visual capability demo
 npx @kzxl/z-plugin demo
+
+# Open the zero-daemon visual token telemetry & cost dashboard
+npx @kzxl/z-plugin dashboard --open
 ```
 
-For **Google Antigravity 2.0** and **ZCode**, link all core plugins via zero-copy directory junctions:
+For **Google Antigravity 2.0** and **ZCode**, synchronize all core plugins, native subagents, and MCP registrations:
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
@@ -85,7 +88,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - **Async Write Queue:** Serializes concurrent SQLite write locks under multi-agent workloads with exponential backoff.
 
 ### 3. ⚖️ `z-mind` — Cognitive Framework & Engineering Discipline
-- **58 Canonical Invariants:** Mechanically enforces SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), and Zero-Trust Empirical Proof (`R_PROOF`).
+- **58 Canonical Invariants:** Mechanically enforces SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), and Zero-Trust Empirical Proof (`R_PROOF`) with deduplicated Single Source of Truth (`AGENTS.md`) rules.
+- **Autonomous 4-Tier Subagent Routing (`R_TEAM`):** Routes `scout` (`flash_lite`), parallel `self` coding workers (`flash`), and specialist `architect` / `investigator` / `reviewer` subagents (`pro` / `inherit`) under zero-collision file ownership contracts.
 - **4-Phase Bugfix Diagnosis:** Structured root-cause isolation before touching production code.
 - **Dynamic Rule Packs:** Extensible rule packs for domain-specific projects (e.g. ERP, Fintech, Healthcare).
 
@@ -129,10 +133,33 @@ Run `npx @kzxl/z-plugin init claude`. This creates:
 - `.claude_mcp.json`: MCP server endpoints.
 
 ### Google Antigravity 2.0 & ZCode
-Run `powershell -ExecutionPolicy Bypass -File install.ps1`. This creates directory junctions under `~/.gemini/config/plugins/` and `~/.zcode/plugins/` to enable native hooks (`PreToolUse`, `PostToolUse`).
+Run `powershell -ExecutionPolicy Bypass -File install.ps1`. This synchronizes all plugins to `~/.gemini/config/plugins/` (with native Antigravity subagent schemas) and `~/.zcode/plugins/` (automatically adapting subagent frontmatter for ZCode CLI), registers MCP servers, and activates `PreToolUse` / `PostToolUse` guards.
 
 ### Windsurf, Copilot, Cline, Roo Code
 Run `npx @kzxl/z-plugin init all` to scaffold configurations for all supported agents in a single step.
+
+---
+
+## 📈 Zero-Daemon Visual Telemetry Dashboard
+
+Inspect blocked context bloat, MCP tool efficiency (`Search` vs. `Symbol` ratio), permanent session context diet across both Antigravity (`~/.gemini/config`) and ZCode (`~/.zcode`), and `z-brain` SQLite FTS5 knowledge atoms without running a permanent background service (`0 MB` idle RAM):
+
+```bash
+# 1. Static HTML snapshot (<60ms) saved to .token-diet/z-dashboard.html and opened in browser
+npx @kzxl/z-plugin dashboard --open
+
+# 2. Ephemeral local HTTP server (127.0.0.1) with live /api/metrics refresh (Ctrl+C to stop)
+npx @kzxl/z-plugin dashboard --serve --open
+
+# 3. Run via npm scripts inside the z-plugin repository
+npm run dashboard:open
+npm run dashboard:live
+```
+
+Key dashboard capabilities:
+- **Multi-Window Ledger Audit:** Toggle `24h`, `7d`, `30d`, and `All-Time` firewall blocks and compact tool call metrics from `~/.zero-token/ledger.jsonl`.
+- **Frontier Model Cost & Cache Simulator:** Estimate compounded multi-turn USD savings and monthly session tax across **Gemini 4 Carbon**, **Gemini 4 Argon**, **Gemini 3.8 Flash**, and **Claude Fable 5.2** at `0%–95%` prefix cache hit rates.
+- **4-State Anti-Slop UI (`100/100` `z-craft` Score):** Built with semantic host theme tokens and built-in `Populated`, `Loading`, `Empty`, and `Error` states.
 
 ---
 
@@ -158,7 +185,7 @@ All modules are backed by rigorous automated test suites adhering to Level 3+ em
 # Check syntax across all packages & plugins
 npm run check
 
-# Run all 22 test suites (580+ passing assertions)
+# Run all 24 test suites (620+ passing assertions)
 npm test
 
 # Run MCP server smoke tests
