@@ -145,15 +145,14 @@ Run `npx @kzxl/z-plugin init all` to scaffold configurations for all supported a
 Inspect blocked context bloat, MCP tool efficiency (`Search` vs. `Symbol` ratio), permanent session context diet across both Antigravity (`~/.gemini/config`) and ZCode (`~/.zcode`), and `z-brain` SQLite FTS5 knowledge atoms without running a permanent background service (`0 MB` idle RAM):
 
 ```bash
-# 1. Static HTML snapshot (<60ms) saved to .token-diet/z-dashboard.html and opened in browser
-npx @kzxl/z-plugin dashboard --open
+# 1. Inside Antigravity / Claude / Cursor chat from ANY project (or no workspace):
+/z-token dashboard
 
-# 2. Ephemeral local HTTP server (127.0.0.1) with live /api/metrics refresh (Ctrl+C to stop)
-npx @kzxl/z-plugin dashboard --serve --open
+# 2. Global CLI from ANY folder on your machine (linked automatically by install.ps1):
+z-plugin dashboard --open
 
-# 3. Run via npm scripts inside the z-plugin repository
-npm run dashboard:open
-npm run dashboard:live
+# 3. Ephemeral local HTTP server (127.0.0.1) with live /api/metrics refresh (Ctrl+C to stop):
+z-plugin dashboard --serve --open
 ```
 
 Key dashboard capabilities:

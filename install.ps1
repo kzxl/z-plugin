@@ -284,6 +284,14 @@ if (Test-Path $zcodeConfigPath) {
 if ($Uninstall) {
     Write-Host "`nUnlink completed successfully." -ForegroundColor Green
 } else {
+    try {
+        Push-Location $repoRoot
+        npm link --silent 2>$null | Out-Null
+        Pop-Location
+        Write-Host "[CLI] Linked global 'z-plugin' command on PATH" -ForegroundColor Green
+    } catch {
+        if ((Get-Location).Path -eq $repoRoot) { Pop-Location }
+    }
     Write-Host "`n[SUCCESS] z-plugin suite is now linked and active across both Antigravity and ZCode!" -ForegroundColor Green
     Write-Host "Active plugins: $($pluginsToProcess -join ', ')" -ForegroundColor Cyan
 }
