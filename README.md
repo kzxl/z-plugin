@@ -4,7 +4,7 @@
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/Tests-29%20passing%20%7C%20660%2B%20assertions-brightgreen)](package.json)
+[![Tests](https://img.shields.io/badge/Tests-30%20passing%20%7C%20660%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
@@ -212,7 +212,7 @@ All modules are backed by rigorous automated test suites adhering to Level 3+ em
 # Check syntax across all packages & plugins
 npm run check
 
-# Run all 29 test suites (660+ passing assertions)
+# Run all 30 test suites (660+ passing assertions)
 npm test
 
 # Build and verify the Qoder plugin ZIP
@@ -224,6 +224,12 @@ npm run smoke
 
 # Run token-diet benchmark measurements
 npm run bench
+
+# Measure z-brain retrieval quality (generates bench/RETRIEVAL.md with --report)
+npm run eval:retrieval
+
+# Measure latency and empty-result rate on the real database
+npm run eval:retrieval:live
 ```
 
 ---

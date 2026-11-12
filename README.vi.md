@@ -4,7 +4,7 @@
 [![Môi trường](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Giao thức](https://img.shields.io/badge/Giao%20th%E1%BB%A9c-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Kiểm thử](https://img.shields.io/badge/Tests-29%20b%E1%BB%99%20test%20%7C%20660%2B%20assertions-brightgreen)](package.json)
+[![Kiểm thử](https://img.shields.io/badge/Tests-30%20b%E1%BB%99%20test%20%7C%20660%2B%20assertions-brightgreen)](package.json)
 [![Giấy phép](https://img.shields.io/badge/Gi%E1%BA%A5y%20ph%C3%A9p-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · [Lộ trình phát triển](ROADMAP.md) · [Lịch sử cập nhật](CHANGELOG.md)
@@ -211,13 +211,13 @@ z-plugin dashboard --serve --open
 
 ## 🧪 Kiểm thử & Bằng chứng thực nghiệm (`R_PROOF`)
 
-Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 25 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
+Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 30 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
 
 ```bash
 # Kiểm tra cú pháp toàn bộ monorepo
 npm run check
 
-# Chạy toàn bộ 29 bộ test (hơn 660 assertions thành công)
+# Chạy toàn bộ 30 bộ test (hơn 660 assertions thành công)
 npm test
 
 # Đóng gói và kiểm tra ZIP plugin cho Qoder
@@ -229,6 +229,12 @@ npm run smoke
 
 # Chạy đo lường benchmark đo token tiết kiệm
 npm run bench
+
+# Đo chất lượng truy hồi của z-brain (kèm --report để tạo bench/RETRIEVAL.md)
+npm run eval:retrieval
+
+# Đo độ trễ và tỉ lệ không có kết quả trên database thật
+npm run eval:retrieval:live
 ```
 
 ---

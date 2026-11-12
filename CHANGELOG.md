@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Retrieval evaluation harness**: `bench/retrieval-eval.mjs` (`npm run eval:retrieval`) seeds a labeled 50-atom corpus with near-duplicate distractors and measures hit@1/3/5, recall@5, MRR, nDCG@5, miss rate and latency for the production `searchKnowledge()` path against a raw-FTS5 baseline. A paraphrase set with no lexical overlap quantifies the semantic recall gap. The run is gated in `npm test` (hit@3 >= 80%, recall@5 >= 70%, MRR >= 0.65, miss <= 5%, p95 <= 60ms); `--report` writes `bench/RETRIEVAL.md` and `--live` measures the real database.
+
 ## 1.10.0
 
 - **Stable project identity**: `file_events` and `file_index` now resolve `project_id` through a `project_registry` table keyed by workspace root and git remote. A folder rename no longer splits history, a clone of the same remote reuses the id, and two unrelated repositories that share a folder name (`api`, `src`) no longer merge. Legacy basename ids are kept when the workspace already owns them.
