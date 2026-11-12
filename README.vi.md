@@ -1,16 +1,16 @@
 # 🔌 z-plugin — Bộ công cụ Tối ưu Ngữ cảnh & Kiểm soát Chất lượng cho AI Coding Agent
 
-[![Phiên bản](https://img.shields.io/badge/version-1.4.0-blue.svg)](package.json)
+[![Phiên bản](https://img.shields.io/badge/version-1.5.0-blue.svg)](package.json)
 [![Môi trường](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
-[![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
+[![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Giao thức](https://img.shields.io/badge/Giao%20th%E1%BB%A9c-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Kiểm thử](https://img.shields.io/badge/Tests-22%20b%E1%BB%99%20test%20%7C%20580%2B%20assertions-brightgreen)](package.json)
+[![Kiểm thử](https://img.shields.io/badge/Tests-24%20b%E1%BB%99%20test%20%7C%20620%2B%20assertions-brightgreen)](package.json)
 [![Giấy phép](https://img.shields.io/badge/Gi%E1%BA%A5y%20ph%C3%A9p-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · [Lộ trình phát triển](ROADMAP.md) · [Lịch sử cập nhật](CHANGELOG.md)
 
 > **Chấm dứt lãng phí token, ngăn chặn lỗi ngầm hồi quy và loại bỏ hoàn toàn code rác (AI slop).**  
-> `z-plugin` là bộ công cụ kỹ thuật và máy chủ MCP gọn nhẹ, thuần Node.js không dependency nặng, giúp biến **Cursor**, **Claude Code**, **Google Antigravity**, và **Windsurf** thành các kỹ sư senior thực thụ.
+> `z-plugin` là bộ công cụ kỹ thuật và máy chủ MCP gọn nhẹ, thuần Node.js không dependency nặng, giúp biến **Cursor**, **Claude Code**, **Google Antigravity**, **ZCode**, **Qoder**, và **Windsurf** thành các kỹ sư senior thực thụ.
 
 ---
 
@@ -30,12 +30,17 @@ npx @kzxl/z-plugin init all
 
 # Xem giao diện demo trực quan các tính năng
 npx @kzxl/z-plugin demo
+
+# Mở dashboard trực quan về token và chi phí (không cần chạy dịch vụ nền)
+npx @kzxl/z-plugin dashboard --open
 ```
 
-Đối với **Google Antigravity 2.0** và **ZCode**, liên kết toàn bộ plugin thông qua directory junction bằng PowerShell:
+Đối với **Google Antigravity 2.0** và **ZCode**, đồng bộ toàn bộ plugin, subagent và đăng ký MCP bằng PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
+
+Đối với **Qoder Desktop**, tải `z-plugin-qoder-<phiên bản>.zip` từ [bản phát hành mới nhất](https://github.com/kzxl/z-plugin/releases/latest) rồi nhập bằng trình cài Plugin của Qoder (xem [Qoder Desktop](#qoder-desktop)).
 
 ---
 
@@ -44,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 | Nỗi đau thực tế khi dùng AI Agent | Khi kích hoạt `z-plugin` | Hiệu quả đo lường |
 | :--- | :--- | :---: |
 | **Tràn bộ nhớ ngữ cảnh (Context Blowout):** Agent đọc cả file vài nghìn dòng hoặc `grep` không giới hạn, ngốn 40k–80k token mỗi lượt. | **AST Context Diet (`z-token`):** Chỉ trích xuất chữ ký method và đọc đúng khoảng dòng cần sửa; chặn đọc file quá khổ. | **Tiết kiệm 95.5% Token** |
-| **Lỗi ngầm hồi quy (Breaking Regressions):** Refactor hàm A làm gãy 6 service liên quan ở xa mà agent không hề hay biết. | **Call-Graph <2ms (`z-token`):** Thuật toán BFS tìm đường gọi hàm ngắn nhất (`tracePath`) xuyên qua Interface và CQRS. | **0 Lỗi Hồi quy** |
+| **Lỗi ngầm hồi quy (Breaking Regressions):** Refactor hàm A làm gãy 6 service liên quan ở xa mà agent không hề hay biết. | **Call-Graph <2ms (`z-token`):** Thuật toán BFS tìm đường gọi hàm ngắn nhất (`trace_path`) xuyên qua Interface và CQRS. | **0 Lỗi Hồi quy** |
 | **Lỗ hổng bảo mật tiềm ẩn:** Agent truyền trực tiếp biến từ người dùng vào câu SQL hoặc lệnh thực thi hệ thống (`exec`). | **Taint Analysis (`z-gate`):** Phân tích luồng dữ liệu vào các điểm nhạy cảm, nhận biết sớm các mệnh đề guard (`if return`). | **Chống Taint Flow** |
 | **AI "mất trí nhớ" (Amnesia):** Cứ mở phiên chat mới là agent lại quên hết kinh nghiệm xử lý lỗi, lặp lại cùng một sai lầm cũ. | **Bộ nhớ dài hạn (`z-brain`):** Lưu trữ SQLite WAL cục bộ với tìm kiếm lai BM25 + Trigram để gọi lại bài học cũ tức thì. | **Học liên tục** |
 | **Code rác & AI Slop:** Agent tự ý chèn màu gradient tím neon, shadow quá khổ, tạo nút bấm chết (`onClick={() => {}}`). | **Anti-Slop AST Linter (`z-craft`):** Bắt buộc tuân thủ token màu của dự án và ma trận 4 trạng thái giao diện (4-State UX). | **Điểm chuẩn $\ge$ 90/100** |
@@ -77,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ### 1. 🛡️ `z-token` — Tường lửa Token & Phân tích Call-Graph
 - **Tiết kiệm token kỷ lục:** Giảm tới **95.5% token** khi đọc các file lớn và **99.2% token** khi đọc log build nhiều warning.
 - **AST Outline:** Trích xuất nhanh chữ ký class, hàm, method kèm số dòng cho hơn 16 ngôn ngữ (`outline`), không cần nạp cả file vào ngữ cảnh.
-- **Call-Graph BFS <2ms:** Tìm đường dẫn gọi hàm ngắn nhất giữa 2 hàm/lớp bất kỳ (`tracePath`), tự động bắc cầu giữa Interface (`IService` ↔ `Service`) và MediatR/CQRS.
+- **Call-Graph BFS <2ms:** Tìm đường dẫn gọi hàm ngắn nhất giữa 2 hàm/lớp bất kỳ (`trace_path`), tự động bắc cầu giữa Interface (`IService` ↔ `Service`) và MediatR/CQRS.
 - **Tính toán bán kính ảnh hưởng (Blast Radius):** Cảnh báo agent khi sửa các "God Node" có quá nhiều class phụ thuộc.
 
 ### 2. 🧠 `z-brain` — Bộ nhớ dài hạn & Truy vết bài học kinh nghiệm
@@ -108,13 +113,13 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 | Thành phần | Loại | Phiên bản | Trọng tâm & Tính năng chính |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.4.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.4.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`tracePath`), Blast radius, AST outline, Capped search, Lọc log build. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.4.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.4.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.4.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.4.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.4.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.5.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.5.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`trace_path`), Blast radius, AST outline, Capped search, Lọc log build. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.5.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.5.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.5.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.5.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.5.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
 
 ---
 
@@ -140,7 +145,7 @@ Kiểm thử gói xác minh cấu trúc ZIP, cú pháp runtime, handshake MCP, d
 ### Cursor
 Chạy lệnh `npx @kzxl/z-plugin init cursor`. Lệnh sẽ tự động tạo:
 - `.cursorrules`: Hướng dẫn Cursor tuân thủ 58 nguyên tắc kỹ thuật và ưu tiên gọi các công cụ tiết kiệm token.
-- `.cursor/mcp.json`: Đăng ký máy chủ MCP cung cấp `outline`, `search`, `tracePath`, `zbrain_fetch`, và `zgate_review`.
+- `.cursor/mcp.json`: Đăng ký máy chủ MCP cung cấp `outline`, `search`, `trace_path`, `zbrain_fetch`, và `zgate_review`.
 
 ### Claude Code
 Chạy lệnh `npx @kzxl/z-plugin init claude`. Lệnh sẽ tạo:
@@ -152,10 +157,27 @@ Chạy lệnh PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
-Lệnh sẽ tạo các directory junction tại `~/.gemini/config/plugins/` và `~/.zcode/plugins/` để kích hoạt các hook nguyên bản (`PreToolUse`, `PostToolUse`).
+Lệnh sẽ đồng bộ (sao chép) plugin vào `~/.gemini/config/plugins/` và `~/.zcode/plugins/`, đăng ký MCP và kích hoạt các hook nguyên bản (`PreToolUse`, `PostToolUse`). Dùng `-Development` nếu muốn tạo liên kết thay vì sao chép.
 
-### Windsurf, Copilot, Cline, Roo Code
-Chạy lệnh `npx @kzxl/z-plugin init all` để tự động tạo cấu hình cho toàn bộ các agent được hỗ trợ chỉ trong một lần chạy duy nhất.
+### Windsurf, Copilot, Cline
+Chạy lệnh `npx @kzxl/z-plugin init all` để tạo cấu hình cho Cursor, Claude Code, Windsurf, Cline và Copilot trong một lần. Copilot chỉ nhận instructions (không có cấu hình MCP). Continue và Roo Code chưa được hỗ trợ.
+
+---
+
+## 📈 Dashboard theo dõi token (không cần dịch vụ nền)
+
+Xem lượng ngữ cảnh bị chặn, hiệu quả các tool MCP, mức tiêu thụ ngữ cảnh của Antigravity và ZCode, cùng tri thức trong `z-brain` mà không cần dịch vụ chạy nền:
+
+```bash
+# 1. Trong khung chat agent, từ bất kỳ dự án nào:
+/z-token dashboard
+
+# 2. CLI toàn cục từ bất kỳ thư mục nào (được install.ps1 liên kết):
+z-plugin dashboard --open
+
+# 3. Máy chủ HTTP cục bộ tạm thời (127.0.0.1), tự làm mới /api/metrics (Ctrl+C để dừng):
+z-plugin dashboard --serve --open
+```
 
 ---
 
@@ -169,20 +191,24 @@ Chạy lệnh `npx @kzxl/z-plugin init all` để tự động tạo cấu hình
 | Tìm 1 symbol khắp repository (`grep -rn`) | 9.218 tokens | 1.698 tokens (`search`) | **81.6%** |
 | Đọc log build nhiều warning | 55.783 tokens | 461 tokens (`build`) | **99.2%** |
 | Solution .NET Framework 59 dự án qua MSBuild | 27.258 tokens | 2.104 tokens | **92.3%** |
-| Truy vết đường gọi hàm đa tầng (`tracePath`) | Mất vài phút mở tay từng file | **0.97 ms** (Bộ nhớ đệm BFS) | **Tức thì** |
+| Truy vết đường gọi hàm đa tầng (`trace_path`) | Mất vài phút mở tay từng file | **0.97 ms** (Bộ nhớ đệm BFS) | **Tức thì** |
 
 ---
 
 ## 🧪 Kiểm thử & Bằng chứng thực nghiệm (`R_PROOF`)
 
-Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 22 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
+Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 24 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
 
 ```bash
 # Kiểm tra cú pháp toàn bộ monorepo
 npm run check
 
-# Chạy toàn bộ 22 bộ test (hơn 580 assertions thành công)
+# Chạy toàn bộ 24 bộ test (hơn 620 assertions thành công)
 npm test
+
+# Đóng gói và kiểm tra ZIP plugin cho Qoder
+npm run package:qoder
+npm run test:qoder
 
 # Kiểm tra smoke test máy chủ MCP
 npm run smoke

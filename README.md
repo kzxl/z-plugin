@@ -1,8 +1,8 @@
 # 🔌 z-plugin — The Context-Saving & Quality Engine for AI Coding Agents
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](package.json)
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
-[![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
+[![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
 [![Tests](https://img.shields.io/badge/Tests-24%20passing%20%7C%20620%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -10,7 +10,7 @@
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
 
 > **Stop burning tokens, prevent breaking code regressions, and ban AI code slop.**  
-> `z-plugin` is a lightweight, zero-dependency engineering toolkit and MCP server suite that turns **Cursor**, **Claude Code**, **Google Antigravity**, and **Windsurf** into disciplined senior engineers.
+> `z-plugin` is a lightweight, zero-dependency engineering toolkit and MCP server suite that turns **Cursor**, **Claude Code**, **Google Antigravity**, **ZCode**, **Qoder**, and **Windsurf** into disciplined senior engineers.
 
 ---
 
@@ -40,14 +40,16 @@ For **Google Antigravity 2.0** and **ZCode**, synchronize all core plugins, nati
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
+For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest release](https://github.com/kzxl/z-plugin/releases/latest) and import it through Qoder's Plugin installer (see [Qoder Desktop](#qoder-desktop)).
+
 ---
 
-## 💥 Why z-plugin? (Before vs. After)
+## 💥 z-plugin? (Before vs. After)
 
 | Common AI Agent Pain Point | With `z-plugin` Active | Verified Impact |
 | :--- | :--- | :---: |
 | **Context Window Blowout:** Agent opens 5 large files or runs recursive `grep`, burning 40k–80k tokens per turn. | **AST Context Diet (`z-token`):** Extracts exact method signatures & targeted ranges; blocks oversized file reads. | **95.5% Token Saved** |
-| **Hidden Regressions:** Refactoring method `A` silently breaks 6 distant services without the agent noticing. | **Sub-2ms Call-Graph (`z-token`):** Instant BFS traversal (`tracePath`) across interfaces and CQRS dispatchers. | **Zero Regressions** |
+| **Hidden Regressions:** Refactoring method `A` silently breaks 6 distant services without the agent noticing. | **Sub-2ms Call-Graph (`z-token`):** Instant BFS traversal (`trace_path`) across interfaces and CQRS dispatchers. | **Zero Regressions** |
 | **Silent Security Sinks:** Agent passes unsanitized user inputs straight into SQL queries or shell execs. | **Inter-Procedural Taint Engine (`z-gate`):** Traces data flow down to sensitive sinks with branch-guard detection. | **Taint Defense** |
 | **AI Amnesia:** Repeating the exact same bug fix or gotcha explanation across different chat sessions. | **Episodic Memory Engine (`z-brain`):** Embedded SQLite WAL with hybrid BM25 + Trigram semantic recall. | **Continuous Learning** |
 | **AI Slop & Gradients:** Agent generates random neon gradients, floaty shadows, and dead click handlers. | **Anti-Slop AST Linter (`z-craft`):** Enforces design tokens, clean enterprise surfaces, and a mandatory 4-state UX matrix. | **Craftsmanship $\ge$ 90/100** |
@@ -78,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ### 1. 🛡️ `z-token` — Context Firewall & Call-Graph Engine
 - **Token Protection:** Cuts context consumption by up to **95.5%** on large file inspections and **99.2%** on warning-heavy build logs.
 - **AST Outline:** One-shot extraction of classes, interfaces, and methods with line numbers across 16+ languages (`outline`).
-- **Sub-2ms BFS Call-Graph:** Traces the shortest invocation path between any two symbols (`tracePath`) across polymorphic interfaces (`IService` ↔ `Service`) and MediatR/CQRS pipelines in $<1\text{ms}$.
+- **Sub-2ms BFS Call-Graph:** Traces the shortest invocation path between any two symbols (`trace_path`) across polymorphic interfaces (`IService` ↔ `Service`) and MediatR/CQRS pipelines in $<1\text{ms}$.
 - **Blast Radius & God Node Detection:** Identifies upstream dependents, downstream callees, and high-degree God Nodes before edits are made.
 
 ### 2. 🧠 `z-brain` — Episodic Memory & Semantic Gotchas
@@ -110,13 +112,13 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 | Component | Type | Version | Focus & Core Capabilities |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.4.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.4.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`tracePath`), blast radius, AST outline, capped search, and lean build log filter. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.4.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, and async harvest queue. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.4.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.4.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.4.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.4.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.5.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.5.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.5.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, and async harvest queue. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.5.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.5.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.5.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.5.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
 
 ---
 
@@ -125,7 +127,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ### Cursor
 Run `npx @kzxl/z-plugin init cursor`. This creates:
 - `.cursorrules`: Instructs Cursor to follow `z-mind` engineering invariants and use token-saving tools.
-- `.cursor/mcp.json`: Configures the MCP servers for `outline`, `search`, `tracePath`, `zbrain_fetch`, and `zgate_review`.
+- `.cursor/mcp.json`: Configures the MCP servers for `outline`, `search`, `trace_path`, `zbrain_fetch`, and `zgate_review`.
 
 ### Claude Code
 Run `npx @kzxl/z-plugin init claude`. This creates:
@@ -147,8 +149,8 @@ This creates `dist/z-plugin-qoder-<version>.zip` (also attached to each GitHub R
 
 The Qoder package intentionally omits hooks, agents, commands, UI registration and the ERP DLC, and does not load extensions from Antigravity/ZCode directories. Do not use `install.ps1` for Qoder.
 
-### Windsurf, Copilot, Cline, Roo Code
-Run `npx @kzxl/z-plugin init all` to scaffold configurations for all supported agents in a single step.
+### Windsurf, Copilot, Cline
+Run `npx @kzxl/z-plugin init all` to scaffold Cursor, Claude Code, Windsurf, Cline and Copilot in one step. Copilot receives instructions only (no MCP config). Continue and Roo Code are not yet supported.
 
 ---
 
@@ -184,7 +186,7 @@ Key dashboard capabilities:
 | Searching a symbol across repo (`grep -rn`) | 9,218 tokens | 1,698 tokens (`search`) | **81.6%** |
 | Build log with multiple warnings | 55,783 tokens | 461 tokens (`build`) | **99.2%** |
 | Real 59-project .NET Framework MSBuild solution | 27,258 tokens | 2,104 tokens | **92.3%** |
-| Multi-hop Call-Path Traversal (`tracePath`) | Minutes of manual file browsing | **0.97 ms** (BFS cache) | **Instant** |
+| Multi-hop Call-Path Traversal (`trace_path`) | Minutes of manual file browsing | **0.97 ms** (BFS cache) | **Instant** |
 
 ---
 
@@ -198,6 +200,10 @@ npm run check
 
 # Run all 24 test suites (620+ passing assertions)
 npm test
+
+# Build and verify the Qoder plugin ZIP
+npm run package:qoder
+npm run test:qoder
 
 # Run MCP server smoke tests
 npm run smoke
