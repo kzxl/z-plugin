@@ -26,6 +26,7 @@ export function getDb(customPath = null) {
   db.exec('PRAGMA synchronous = NORMAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA cache_size = -32000;'); // 32MB cache
+  db.exec('PRAGMA busy_timeout = 3000;'); // Hooks and the MCP server may write concurrently
 
   // Initialize Tables and Triggers automatically
   initSchema(db);
@@ -110,6 +111,56 @@ export function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_obs_project ON session_observations(project_id);
     CREATE INDEX IF NOT EXISTS idx_obs_session ON session_observations(session_id);
     CREATE INDEX IF NOT EXISTS idx_obs_created ON session_observations(created_at);
+
+    -- Automatic file edit history (append-only, coalesced per session window)
+    CREATE TABLE IF NOT EXISTS file_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL DEFAULT 'global',
+      workspace TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL DEFAULT 'default',
+      path TEXT NOT NULL,
+      op TEXT NOT NULL DEFAULT 'update',
+      tool TEXT,
+      source TEXT NOT NULL DEFAULT 'hook',
+      lines_added INTEGER NOT NULL DEFAULT 0,
+      lines_removed INTEGER NOT NULL DEFAULT 0,
+      old_hash TEXT,
+      new_hash TEXT,
+      patch TEXT,
+      redacted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      harvested_commit TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_project_time ON file_events(project_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_workspace_path ON file_events(workspace, path, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_session ON file_events(session_id, created_at DESC);
+
+    -- Persistent file inventory (one row per file seen in a workspace)
+    CREATE TABLE IF NOT EXISTS file_index (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL DEFAULT 'global',
+      workspace TEXT NOT NULL DEFAULT '',
+      path TEXT NOT NULL,
+      mtime REAL NOT NULL DEFAULT 0,
+      size INTEGER NOT NULL DEFAULT 0,
+      hash TEXT,
+      lang TEXT,
+      symbol_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'clean',
+      last_event_id INTEGER,
+      updated_at TEXT NOT NULL,
+      UNIQUE(workspace, path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_index_project_mtime ON file_index(project_id, mtime DESC);
+    CREATE INDEX IF NOT EXISTS idx_index_workspace ON file_index(workspace);
+
+    -- Observer bookkeeping (baseline marker, retention timestamps)
+    CREATE TABLE IF NOT EXISTS observer_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL
+    );
 
     -- Knowledge Graph (L3 Memory Hierarchy): Entity Nodes and Relational Edges
     CREATE TABLE IF NOT EXISTS entity_nodes (
@@ -527,4 +578,204 @@ export function queryEntityGraph(db, { project = null, name = null, relation = n
   params.push(limit);
 
   return db.prepare(sql).all(...params);
+}
+
+// ---------------------------------------------------------------- File observer store
+
+export function getDbPath() {
+  return process.env.ZBRAIN_DB_PATH || DEFAULT_DB_PATH;
+}
+
+export function getDataDir() {
+  return path.dirname(getDbPath());
+}
+
+export function getMeta(db, key) {
+  const row = db.prepare('SELECT value FROM observer_meta WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+export function setMeta(db, key, value) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO observer_meta (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, value == null ? null : String(value), now);
+}
+
+export function upsertFileIndex(db, entry) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO file_index (
+      project_id, workspace, path, mtime, size, hash, lang,
+      symbol_count, status, last_event_id, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(workspace, path) DO UPDATE SET
+      project_id = excluded.project_id,
+      mtime = excluded.mtime,
+      size = excluded.size,
+      hash = excluded.hash,
+      lang = excluded.lang,
+      symbol_count = excluded.symbol_count,
+      status = excluded.status,
+      last_event_id = COALESCE(excluded.last_event_id, file_index.last_event_id),
+      updated_at = excluded.updated_at
+  `).run(
+    entry.project_id || 'global',
+    entry.workspace || '',
+    entry.path,
+    entry.mtime || 0,
+    entry.size || 0,
+    entry.hash || null,
+    entry.lang || null,
+    entry.symbol_count || 0,
+    entry.status || 'clean',
+    entry.last_event_id || null,
+    entry.updated_at || now
+  );
+}
+
+export function getFileIndexEntry(db, workspace, relPath) {
+  return db.prepare('SELECT * FROM file_index WHERE workspace = ? AND path = ?').get(workspace, relPath) || null;
+}
+
+export function listFileIndex(db, { workspace = null, project = null, limit = 500 } = {}) {
+  let sql = 'SELECT * FROM file_index WHERE 1=1';
+  const params = [];
+  if (workspace) {
+    sql += ' AND workspace = ?';
+    params.push(workspace);
+  }
+  if (project && project !== 'global') {
+    sql += ' AND project_id = ?';
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY updated_at DESC LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+
+export function deleteFileIndexEntry(db, workspace, relPath) {
+  return db.prepare('DELETE FROM file_index WHERE workspace = ? AND path = ?').run(workspace, relPath).changes > 0;
+}
+
+export function insertFileEvent(db, ev) {
+  const now = new Date().toISOString();
+  const res = db.prepare(`
+    INSERT INTO file_events (
+      project_id, workspace, session_id, path, op, tool, source,
+      lines_added, lines_removed, old_hash, new_hash, patch, redacted,
+      created_at, updated_at, harvested_commit
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    ev.project_id || 'global',
+    ev.workspace || '',
+    ev.session_id || 'default',
+    ev.path,
+    ev.op || 'update',
+    ev.tool || null,
+    ev.source || 'hook',
+    ev.lines_added || 0,
+    ev.lines_removed || 0,
+    ev.old_hash || null,
+    ev.new_hash || null,
+    ev.patch || null,
+    ev.redacted ? 1 : 0,
+    ev.created_at || now,
+    ev.updated_at || ev.created_at || now,
+    ev.harvested_commit || null
+  );
+  return Number(res.lastInsertRowid);
+}
+
+export function findCoalescibleEvent(db, { workspace, path, session_id, source, op, sinceIso }) {
+  return db.prepare(`
+    SELECT * FROM file_events
+    WHERE workspace = ? AND path = ? AND session_id = ? AND source = ? AND op = ?
+      AND created_at >= ?
+    ORDER BY id DESC LIMIT 1
+  `).get(workspace, path, session_id, source, op, sinceIso) || null;
+}
+
+export function updateFileEvent(db, id, updates) {
+  db.prepare(`
+    UPDATE file_events
+    SET lines_added = ?, lines_removed = ?, new_hash = ?,
+        patch = ?, redacted = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    updates.lines_added || 0,
+    updates.lines_removed || 0,
+    updates.new_hash || null,
+    updates.patch || null,
+    updates.redacted ? 1 : 0,
+    updates.updated_at || new Date().toISOString(),
+    id
+  );
+}
+
+export function getFileHistory(db, { workspace = null, project = null, file, limit = 20 } = {}) {
+  const norm = String(file || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!norm) return [];
+  const suffix = `%${norm}%`;
+  let sql = `
+    SELECT * FROM file_events
+    WHERE (path = ? OR path LIKE ?)
+  `;
+  const params = [norm, suffix];
+  if (workspace) {
+    sql += ' AND workspace = ?';
+    params.push(workspace);
+  } else if (project && project !== 'global') {
+    sql += ' AND project_id = ?';
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY created_at DESC, id DESC LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+
+export function getRecentFileEvents(db, { workspace = null, project = null, limit = 15 } = {}) {
+  let sql = 'SELECT * FROM file_events WHERE 1=1';
+  const params = [];
+  if (workspace) {
+    sql += ' AND workspace = ?';
+    params.push(workspace);
+  } else if (project && project !== 'global') {
+    sql += ' AND project_id = ?';
+    params.push(project.toLowerCase());
+  }
+  sql += ' ORDER BY created_at DESC, id DESC LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+
+export function getFileObserverStats(db, { workspace = null } = {}) {
+  const filter = workspace ? ' WHERE workspace = ?' : '';
+  const params = workspace ? [workspace] : [];
+  const total = db.prepare(`SELECT count(*) AS c FROM file_events${filter}`).get(...params).c;
+  const today = db.prepare(
+    `SELECT count(*) AS c FROM file_events${workspace ? ' WHERE workspace = ? AND' : ' WHERE'} created_at >= ?`
+  ).get(...params, new Date(Date.now() - 86400000).toISOString()).c;
+  const tracked = db.prepare(`SELECT count(*) AS c FROM file_index${filter}`).get(...params).c;
+  const last = db.prepare(`SELECT created_at FROM file_events${filter} ORDER BY id DESC LIMIT 1`).get(...params);
+  return { totalEvents: total, eventsToday: today, trackedFiles: tracked, lastEventAt: last ? last.created_at : null };
+}
+
+export function pruneFileEvents(db, { patchDays = 30, eventDays = 365, maxRows = 100000 } = {}) {
+  const now = Date.now();
+  const patchCutoff = new Date(now - patchDays * 86400000).toISOString();
+  const eventCutoff = new Date(now - eventDays * 86400000).toISOString();
+
+  const patchesCleared = db.prepare(
+    'UPDATE file_events SET patch = NULL WHERE patch IS NOT NULL AND created_at < ?'
+  ).run(patchCutoff).changes;
+  const eventsDeleted = db.prepare('DELETE FROM file_events WHERE created_at < ?').run(eventCutoff).changes;
+
+  const total = db.prepare('SELECT count(*) AS c FROM file_events').get().c;
+  const rowsCapped = total > maxRows
+    ? db.prepare('DELETE FROM file_events WHERE id IN (SELECT id FROM file_events ORDER BY id ASC LIMIT ?)').run(total - maxRows).changes
+    : 0;
+
+  return { patchesCleared, eventsDeleted, rowsCapped };
 }

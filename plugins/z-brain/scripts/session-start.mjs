@@ -5,8 +5,10 @@
  * when a session begins, referencing recent decisions and key gotchas for the current project.
  */
 
-import { getDb, getRecentObservations, getRecentAtoms } from './lib/db.mjs';
+import { getDb, getRecentObservations, getRecentAtoms, getRecentFileEvents } from './lib/db.mjs';
 import { detectCurrentProject } from './lib/search.mjs';
+import { reconcile } from './lib/edit-observer.mjs';
+import { resolveWorkspace } from './lib/workspace.mjs';
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -36,10 +38,16 @@ async function main() {
   }
 
   const db = getDb();
+  const workspace = resolveWorkspace(cwd);
+  try {
+    reconcile(db, { cwd: workspace, budgetMs: 900, maxFiles: 800, sessionId: 'session-start' });
+  } catch {}
+
   const recentObs = getRecentObservations(db, { project, limit: 2 });
   const recentAtoms = getRecentAtoms(db, { project, limit: 2 });
+  const recentChanges = getRecentFileEvents(db, { workspace, limit: 3 });
 
-  if (recentObs.length === 0 && recentAtoms.length === 0) {
+  if (recentObs.length === 0 && recentAtoms.length === 0 && recentChanges.length === 0) {
     process.exit(0);
   }
 
@@ -55,6 +63,10 @@ async function main() {
       .map(a => `[#${a.id}] ${a.gotcha_fix || a.question}`)
       .join('; ');
     parts.push(`Key gotchas: ${gotchas}`);
+  }
+
+  if (recentChanges.length > 0) {
+    parts.push(`Recent edits: ${recentChanges.map(e => `${e.path} (${e.op})`).join(', ')}`);
   }
 
   const contextMessage = `[z-brain continuity: project "${project}"] ${parts.join(' | ')}.`;

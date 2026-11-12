@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0
+
+- **Automatic file-edit history**: new `file_events` table records every edit (path, operation, tool, line counts, redacted patch, session, workspace). Claude/ZCode hooks and the Codex/Qoder/Antigravity exporters feed it automatically.
+- **Workspace file index**: new `file_index` table tracks path, mtime, size, hash, language and symbol count. A git-aware watcher plus a budgeted reconcile pass keep it current for hosts without hooks.
+- **New MCP tools**: `zbrain_history`, `zbrain_changes` and `zbrain_impact` expose per-file edit history, recent workspace changes and dependency context.
+- **No secrets in history**: `.env`, key files and lockfiles are ignored; API keys, tokens, passwords and connection strings are redacted before storage; patches are capped at 4 KB.
+- **Resilient writes**: `busy_timeout`, 2-minute edit coalescing, no-op suppression, JSONL spool fallback, and daily retention (30-day patches, 365-day events).
+- **Universal Agent Bridge**: `export codex` writes `AGENTS.md`, `.codex/config.toml` and `.codex/hooks.json`; `export qoder` deep-merges `.qoder/settings.json`; `export antigravity` merges a `z-brain` group in `.agents/hooks.json` and MCP config. Existing user configuration is preserved.
+- **Qoder package**: ships the new observer libraries, so automation still works without host hooks via the MCP watcher and reconcile pass.
+
 ## 1.5.0
 
 - **Qoder Desktop support**: `npm run package:qoder` builds a Qoder plugin ZIP (`.qoder-plugin/plugin.json`, `.mcp.json` with 5 MCP servers via `${QODER_PLUGIN_ROOT}`, 9 Qoder-adapted Skills).

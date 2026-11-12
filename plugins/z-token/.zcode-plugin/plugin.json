@@ -1,6 +1,6 @@
 {
   "name": "z-token",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Compact-context tools and guards: code outline, capped search, compact .NET builds, oversized-read blocking, and token budgeting.",
   "author": {
     "name": "kzxl"

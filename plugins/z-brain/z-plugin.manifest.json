@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-brain",
   "name": "Z-Brain Knowledge Engine",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Zero-overhead cognitive episodic memory for AI agents with SQLite WAL and FTS5.",
   "author": "kzxl",
   "license": "MIT",
@@ -28,6 +28,11 @@
         "id": "capability:session-observer",
         "version": "1.1.0",
         "description": "Captures session observations, decisions, and file-centric gotchas."
+      },
+      {
+        "id": "capability:file-observer",
+        "version": "1.0.0",
+        "description": "Automatic edit history and file index via host hooks, watcher, and reconcile."
       }
     ]
   },
@@ -53,7 +58,11 @@
         "zbrain_query",
         "zbrain_timeline",
         "zbrain_file",
+        "zbrain_history",
+        "zbrain_changes",
+        "zbrain_impact",
         "zbrain_observe",
+        "zbrain_harvest_git",
         "zbrain_status"
       ]
     }

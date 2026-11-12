@@ -54,6 +54,49 @@ async function runTests() {
   const copilotExport = exportAgentConfig('copilot', tempDir);
   testAssert(fs.existsSync(copilotExport.files[0]), 'copilot-instructions.md exists');
 
+  // 3b. Codex: TOML MCP servers + hook file + AGENTS.md
+  fs.mkdirSync(path.join(tempDir, '.codex'), { recursive: true });
+  fs.writeFileSync(path.join(tempDir, '.codex', 'config.toml'), '[mcp_servers.custom]\ncommand = "node"\nargs = ["custom.mjs"]\n', 'utf8');
+
+  const codexExport = exportAgentConfig('codex', tempDir);
+  testAssert(fs.existsSync(codexExport.files[0]), 'codex AGENTS.md exists');
+  const codexToml = fs.readFileSync(path.join(tempDir, '.codex', 'config.toml'), 'utf8');
+  testAssert(codexToml.includes('[mcp_servers.custom]'), 'codex preserves existing MCP server');
+  testAssert(codexToml.includes('[mcp_servers.z-brain]'), 'codex registers z-brain MCP server');
+  const codexHooks = JSON.parse(fs.readFileSync(path.join(tempDir, '.codex', 'hooks.json'), 'utf8'));
+  testAssert(codexHooks.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command?.includes('observe.mjs'), 'codex hooks record edits');
+
+  // 3c. Qoder: merge settings without clobbering user config
+  fs.mkdirSync(path.join(tempDir, '.qoder'), { recursive: true });
+  fs.writeFileSync(path.join(tempDir, '.qoder', 'settings.json'), JSON.stringify({
+    mcpServers: { custom: { command: 'node', args: ['custom.mjs'] } },
+    hooks: { PostToolUse: [{ matcher: 'User', hooks: [{ type: 'command', command: 'echo user' }] }] },
+  }), 'utf8');
+
+  const qoderExport = exportAgentConfig('qoder', tempDir);
+  testAssert(fs.existsSync(qoderExport.files[0]), 'qoder AGENTS.md exists');
+  const qoderSettings = JSON.parse(fs.readFileSync(path.join(tempDir, '.qoder', 'settings.json'), 'utf8'));
+  testAssert(qoderSettings.mcpServers.custom, 'qoder preserves existing MCP server');
+  testAssert(qoderSettings.mcpServers['z-brain'], 'qoder registers z-brain MCP server');
+  testAssert(qoderSettings.hooks.PostToolUse.length === 2, 'qoder appends observer hook group');
+  exportAgentConfig('qoder', tempDir);
+  const qoderAgain = JSON.parse(fs.readFileSync(path.join(tempDir, '.qoder', 'settings.json'), 'utf8'));
+  testAssert(qoderAgain.hooks.PostToolUse.length === 2, 'qoder re-export does not duplicate hooks');
+
+  // 3d. Antigravity: named hook group + MCP config
+  fs.mkdirSync(path.join(tempDir, '.agents'), { recursive: true });
+  fs.writeFileSync(path.join(tempDir, '.agents', 'hooks.json'), JSON.stringify({
+    other: { PostToolUse: [{ matcher: 'X', hooks: [{ type: 'command', command: 'echo other' }] }] },
+  }), 'utf8');
+
+  const antigravityExport = exportAgentConfig('antigravity', tempDir);
+  testAssert(fs.existsSync(antigravityExport.files[0]), 'antigravity AGENTS.md exists');
+  const agyHooks = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'hooks.json'), 'utf8'));
+  testAssert(agyHooks.other && agyHooks['z-brain'], 'antigravity preserves existing groups and adds z-brain');
+  testAssert(agyHooks['z-brain'].PostToolUse?.[0]?.hooks?.[0]?.command?.includes('observe.mjs'), 'antigravity hooks record edits');
+  const agyMcp = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'mcp_config.json'), 'utf8'));
+  testAssert(agyMcp.mcpServers['z-brain'], 'antigravity registers z-brain MCP server');
+
   // 4. Cross-Process Local IPC & Lock
   const ipcDir = path.join(tempDir, 'ipc');
   const agent1 = new LocalIpcBridge({ ipcDir });

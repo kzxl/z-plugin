@@ -18,7 +18,11 @@ import {
   getRecentAtoms,
   getRecentObservations,
   insertObservation,
-  getKnowledgeByFile
+  getKnowledgeByFile,
+  getFileIndexEntry,
+  getFileHistory,
+  getRecentFileEvents,
+  getFileObserverStats
 } from './lib/db.mjs';
 import { searchKnowledge } from './lib/search.mjs';
 import {
@@ -26,10 +30,20 @@ import {
   formatDeepView,
   formatTerminalTable,
   formatTimeline,
-  formatFileKnowledge
+  formatFileKnowledge,
+  formatFileHistory,
+  formatRecentChanges,
+  formatImpact
 } from './lib/format.mjs';
 import { harvestKnowledge } from './lib/harvest.mjs';
 import { harvestFromGit } from './lib/git-harvester.mjs';
+import {
+  ensureObserver,
+  flushSpool,
+  maybeReconcile,
+  getObserverStatus
+} from './lib/edit-observer.mjs';
+import { resolveWorkspace, toWorkspaceRel } from './lib/workspace.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -129,6 +143,46 @@ const TOOLS = [
     }
   },
   {
+    name: 'zbrain_history',
+    description:
+      'Inspect the automatic edit history of a file: operation, tool, line delta and redacted patch. Captured by host hooks plus the workspace watcher/reconcile.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File path or file name to inspect' },
+        project: { type: 'string', description: 'Optional project scope' },
+        limit: { type: 'number', description: 'Max events (default: 20)' }
+      },
+      required: ['file']
+    }
+  },
+  {
+    name: 'zbrain_changes',
+    description:
+      'List recent file changes captured automatically in the current workspace, newest first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project scope' },
+        limit: { type: 'number', description: 'Max events (default: 15)' }
+      }
+    }
+  },
+  {
+    name: 'zbrain_impact',
+    description:
+      'Impact summary for a file: index metadata (size/language/hash), recent edit events, and related knowledge atoms and observations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File path or file name to inspect' },
+        project: { type: 'string', description: 'Optional project scope' },
+        limit: { type: 'number', description: 'Max related items (default: 5)' }
+      },
+      required: ['file']
+    }
+  },
+  {
     name: 'zbrain_observe',
     description:
       'Record a technical decision, milestone, or architectural discovery for the current project into episodic memory.',
@@ -168,6 +222,13 @@ const TOOLS = [
 ];
 
 function handleToolCall(name, args) {
+  try {
+    flushSpool(db);
+  } catch {}
+  try {
+    maybeReconcile(db, { intervalMs: 120000, budgetMs: 800 });
+  } catch {}
+
   switch (name) {
     case 'zbrain_fetch': {
       const results = searchKnowledge({
@@ -238,6 +299,46 @@ function handleToolCall(name, args) {
       };
     }
 
+    case 'zbrain_history': {
+      const workspace = resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd());
+      const events = getFileHistory(db, {
+        workspace,
+        project: args.project,
+        file: args.file,
+        limit: args.limit || 20
+      });
+      return {
+        content: [{ type: 'text', text: formatFileHistory(args.file, events) }]
+      };
+    }
+
+    case 'zbrain_changes': {
+      const workspace = resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd());
+      const events = getRecentFileEvents(db, {
+        workspace,
+        project: args.project,
+        limit: args.limit || 15
+      });
+      return {
+        content: [{ type: 'text', text: formatRecentChanges(events, workspace) }]
+      };
+    }
+
+    case 'zbrain_impact': {
+      const workspace = resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd());
+      const abs = path.isAbsolute(args.file) ? args.file : path.join(workspace, args.file);
+      const rel = toWorkspaceRel(workspace, abs) || args.file;
+      const entry = getFileIndexEntry(db, workspace, rel);
+      const events = getFileHistory(db, { workspace, file: args.file, limit: 10 });
+      const knowledge = getKnowledgeByFile(db, args.file, { limit: args.limit || 5 });
+      return {
+        content: [{
+          type: 'text',
+          text: formatImpact(args.file, entry, events, knowledge.atoms, knowledge.observations)
+        }]
+      };
+    }
+
     case 'zbrain_query': {
       const results = searchKnowledge({
         query: args.query,
@@ -266,6 +367,7 @@ function handleToolCall(name, args) {
       try { sizeBytes = fs.statSync(dbPath).size; } catch {}
 
       const stats = getDbStats(db);
+      const workspace = resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd());
       const payload = {
         name: 'z-brain',
         version: pluginMeta.version,
@@ -274,7 +376,11 @@ function handleToolCall(name, args) {
         dbFile: dbPath,
         dbSize: `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`,
         status: 'online',
-        summary: stats
+        summary: stats,
+        observer: {
+          ...getObserverStatus(db, { cwd: workspace }),
+          ...getFileObserverStats(db, { workspace })
+        }
       };
 
       return {
@@ -365,3 +471,10 @@ rl.on('line', (line) => {
     error: { code: -32601, message: `Method not found: ${method}` }
   });
 });
+
+// Start automatic capture after the handshake path is wired: watcher + baseline reconcile.
+setTimeout(() => {
+  try {
+    ensureObserver(db);
+  } catch {}
+}, 0).unref?.();

@@ -155,3 +155,77 @@ export function formatFileKnowledge(file, atoms, observations) {
 
   return lines.join('\n');
 }
+
+// ---------------------------------------------------------------- File observer views
+
+function shortTime(iso) {
+  return String(iso || '').replace('T', ' ').slice(0, 16);
+}
+
+function opMark(op) {
+  if (op === 'create') return '+';
+  if (op === 'delete') return '-';
+  if (op === 'bulk') return '*';
+  return '~';
+}
+
+function patchPreview(patch, maxLines = 4) {
+  if (!patch) return [];
+  const lines = String(patch).split(/\r?\n/).filter((l) => l.trim());
+  const shown = lines.slice(0, maxLines);
+  if (lines.length > maxLines) shown.push(`... (${lines.length - maxLines} more lines)`);
+  return shown.map((l) => `      ${l.length > 160 ? `${l.slice(0, 157)}...` : l}`);
+}
+
+export function formatFileHistory(file, events) {
+  if (!events || events.length === 0) {
+    return `[Z-BRAIN] No edit history recorded for "${file}".`;
+  }
+  const lines = [`[Z-BRAIN] Edit history for "${file}" (${events.length} event(s)):`];
+  for (const ev of events) {
+    const session = String(ev.session_id || '').slice(0, 8);
+    lines.push(
+      ` ${shortTime(ev.created_at)}  ${opMark(ev.op)} ${ev.op.padEnd(6)}  ${ev.path}`
+      + `  +${ev.lines_added || 0}/-${ev.lines_removed || 0}`
+      + `  [${ev.tool || ev.source}]${session ? ` (session ${session})` : ''}`
+    );
+    lines.push(...patchPreview(ev.patch));
+  }
+  return lines.join('\n');
+}
+
+export function formatRecentChanges(events, label = 'workspace') {
+  if (!events || events.length === 0) {
+    return `[Z-BRAIN] No file changes recorded for ${label}.`;
+  }
+  const lines = [`[Z-BRAIN] Recent file changes in ${label} (${events.length} event(s)):`];
+  for (const ev of events) {
+    lines.push(
+      ` ${shortTime(ev.created_at)}  ${opMark(ev.op)} ${ev.path}`
+      + `  +${ev.lines_added || 0}/-${ev.lines_removed || 0}`
+      + `  [${ev.tool || ev.source}]`
+    );
+  }
+  return lines.join('\n');
+}
+
+export function formatImpact(file, entry, events, atoms, observations) {
+  const lines = [`[Z-BRAIN] Impact summary for "${file}"`];
+  if (entry) {
+    lines.push(
+      ` Index: ${entry.path} | ${entry.lang || 'unknown'} | ${entry.size || 0} bytes`
+      + ` | hash ${entry.hash || 'n/a'} | status ${entry.status} | mtime ${shortTime(new Date(entry.mtime).toISOString())}`
+    );
+  } else {
+    lines.push(' Index: file not indexed yet (run a workspace reconcile or edit the file).');
+  }
+  lines.push(` Edit events: ${events.length}${events[0] ? ` (last ${shortTime(events[0].created_at)})` : ''}`);
+  lines.push(` Related knowledge atoms: ${atoms.length}; observations: ${observations.length}`);
+  for (const atom of atoms.slice(0, 3)) {
+    lines.push(`  [#${atom.id}] ${atom.gotcha_fix || atom.question}`);
+  }
+  for (const obs of observations.slice(0, 3)) {
+    lines.push(`  [${obs.type}] ${obs.title}`);
+  }
+  return lines.join('\n');
+}

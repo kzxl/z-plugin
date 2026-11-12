@@ -1,10 +1,10 @@
 # 🔌 z-plugin — The Context-Saving & Quality Engine for AI Coding Agents
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](package.json)
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/Tests-24%20passing%20%7C%20620%2B%20assertions-brightgreen)](package.json)
+[![Tests](https://img.shields.io/badge/Tests-25%20passing%20%7C%20650%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
@@ -87,7 +87,9 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 - **Persistent Knowledge:** Automatically saves and retrieves past debugging lessons, domain rules, and gotchas across chat sessions.
 - **Hybrid Retrieval:** FTS5 BM25 search combined with Trigram semantic similarity and recency decay.
 - **Progressive Disclosure:** Compact L0 index (~30 tokens/entry) for pre-task context sweep; fetches L2 detailed code fixes strictly on-demand.
-- **Async Write Queue:** Serializes concurrent SQLite write locks under multi-agent workloads with exponential backoff.
+- **Automatic Edit History:** Host hooks capture every file edit (tool, line counts, redacted patch) into `file_events`; a git-aware watcher and reconcile pass cover hosts without hooks, so no manual logging is needed.
+- **Workspace File Index:** `file_index` tracks path, mtime, size, hash, language and symbol count; `zbrain_history`, `zbrain_changes` and `zbrain_impact` query what changed and what depends on it.
+- **Async Write Queue:** Serializes concurrent SQLite write locks under multi-agent workloads with exponential backoff, with a JSONL spool fallback when the database is busy.
 
 ### 3. ⚖️ `z-mind` — Cognitive Framework & Engineering Discipline
 - **58 Canonical Invariants:** Mechanically enforces SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), and Zero-Trust Empirical Proof (`R_PROOF`) with deduplicated Single Source of Truth (`AGENTS.md`) rules.
@@ -112,13 +114,13 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 
 | Component | Type | Version | Focus & Core Capabilities |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.5.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.5.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.5.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, and async harvest queue. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.5.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.5.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.5.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.5.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.6.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.6.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.6.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, async harvest queue, and automatic edit history + workspace file index. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.6.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.6.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.6.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.6.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
 
 ---
 
@@ -137,6 +139,14 @@ Run `npx @kzxl/z-plugin init claude`. This creates:
 ### Google Antigravity 2.0 & ZCode
 Run `powershell -ExecutionPolicy Bypass -File install.ps1`. This synchronizes all plugins to `~/.gemini/config/plugins/` (with native Antigravity subagent schemas) and `~/.zcode/plugins/` (automatically adapting subagent frontmatter for ZCode CLI), registers MCP servers, and activates `PreToolUse` / `PostToolUse` guards.
 
+For a per-project Antigravity setup, run `node tools/agent-bridge.mjs export antigravity`. It merges (never overwrites) `.agents/hooks.json` under the `z-brain` group and registers MCP servers in `.agents/mcp_config.json`, so file edits are recorded automatically.
+
+### Codex
+Run `node tools/agent-bridge.mjs export codex`. This writes `AGENTS.md`, appends missing `[mcp_servers.z-*]` blocks to `.codex/config.toml` (existing tables are preserved), and installs `.codex/hooks.json` so `apply_patch` / file edits feed the z-brain observer.
+
+### Qoder Desktop Project Hooks
+The Qoder plugin package has no host hooks; z-brain automation still runs through the MCP server's watcher and git reconcile pass on first tool call. If you prefer project-level hooks, run `node tools/agent-bridge.mjs export qoder`. It deeply merges `.qoder/settings.json`, preserving existing `mcpServers` and hook groups.
+
 ### Qoder Desktop
 Requires Node.js >=22.13 (with `node:sqlite`) and `node` on PATH. Build and verify the plugin ZIP:
 
@@ -149,8 +159,8 @@ This creates `dist/z-plugin-qoder-<version>.zip` (also attached to each GitHub R
 
 The Qoder package intentionally omits hooks, agents, commands, UI registration and the ERP DLC, and does not load extensions from Antigravity/ZCode directories. Do not use `install.ps1` for Qoder.
 
-### Windsurf, Copilot, Cline
-Run `npx @kzxl/z-plugin init all` to scaffold Cursor, Claude Code, Windsurf, Cline and Copilot in one step. Copilot receives instructions only (no MCP config). Continue and Roo Code are not yet supported.
+### Windsurf, Copilot, Cline, Codex, Qoder, Antigravity
+Run `npx @kzxl/z-plugin init all` to scaffold Cursor, Claude Code, Windsurf, Cline, Copilot, Codex, Qoder and Antigravity in one step. Copilot receives instructions only (no MCP config). Continue and Roo Code are not yet supported.
 
 ---
 
@@ -198,7 +208,7 @@ All modules are backed by rigorous automated test suites adhering to Level 3+ em
 # Check syntax across all packages & plugins
 npm run check
 
-# Run all 24 test suites (620+ passing assertions)
+# Run all 25 test suites (650+ passing assertions)
 npm test
 
 # Build and verify the Qoder plugin ZIP

@@ -1,10 +1,10 @@
 # 🔌 z-plugin — Bộ công cụ Tối ưu Ngữ cảnh & Kiểm soát Chất lượng cho AI Coding Agent
 
-[![Phiên bản](https://img.shields.io/badge/version-1.5.0-blue.svg)](package.json)
+[![Phiên bản](https://img.shields.io/badge/version-1.6.0-blue.svg)](package.json)
 [![Môi trường](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Giao thức](https://img.shields.io/badge/Giao%20th%E1%BB%A9c-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Kiểm thử](https://img.shields.io/badge/Tests-24%20b%E1%BB%99%20test%20%7C%20620%2B%20assertions-brightgreen)](package.json)
+[![Kiểm thử](https://img.shields.io/badge/Tests-25%20b%E1%BB%99%20test%20%7C%20650%2B%20assertions-brightgreen)](package.json)
 [![Giấy phép](https://img.shields.io/badge/Gi%E1%BA%A5y%20ph%C3%A9p-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · [Lộ trình phát triển](ROADMAP.md) · [Lịch sử cập nhật](CHANGELOG.md)
@@ -89,7 +89,9 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - **Ghi nhớ liên phiên:** Tự động lưu và truy xuất các giải pháp sửa lỗi, bài học kiến trúc, và gotcha giữa các phiên làm việc khác nhau.
 - **Tìm kiếm lai (Hybrid Search):** Kết hợp SQLite FTS5 BM25 với Trigram Semantic Similarity và hệ số suy giảm theo thời gian.
 - **Mở rộng ngữ cảnh từng bước (Progressive Disclosure):** Chỉ nạp mục lục tóm tắt L0 (~30 token/bài học) trước khi làm; chỉ tải chi tiết L2 khi thật sự cần thiết.
-- **Hàng đợi ghi bất đồng bộ (`AsyncHarvestQueue`):** Điều phối khóa ghi SQLite khi có nhiều sub-agent hoạt động đồng thời.
+- **Lịch sử sửa file tự động:** Hook của host ghi mọi lần sửa file (tool, số dòng thêm/xóa, patch đã che secrets) vào `file_events`; watcher theo dõi git và lượt reconcile bù cho host không có hook, không cần ghi log thủ công.
+- **Chỉ mục file workspace:** `file_index` lưu path, mtime, size, hash, ngôn ngữ và số symbol; `zbrain_history`, `zbrain_changes`, `zbrain_impact` trả lời file đã đổi gì và phụ thuộc gì.
+- **Hàng đợi ghi bất đồng bộ (`AsyncHarvestQueue`):** Điều phối khóa ghi SQLite khi có nhiều sub-agent hoạt động đồng thời, kèm spool JSONL khi database bận.
 
 ### 3. ⚖️ `z-mind` — Bộ khung tư duy kỹ thuật & Kỷ luật phát triển
 - **58 Nguyên tắc bất biến:** Tự động áp dụng SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), và Bằng chứng thực nghiệm (`R_PROOF`).
@@ -113,13 +115,13 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 | Thành phần | Loại | Phiên bản | Trọng tâm & Tính năng chính |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.5.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.5.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`trace_path`), Blast radius, AST outline, Capped search, Lọc log build. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.5.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.5.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.5.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.5.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.5.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.6.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.6.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`trace_path`), Blast radius, AST outline, Capped search, Lọc log build. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.6.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ, Lịch sử sửa file và chỉ mục file tự động. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.6.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.6.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.6.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.6.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
 
 ---
 
@@ -159,8 +161,17 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 Lệnh sẽ đồng bộ (sao chép) plugin vào `~/.gemini/config/plugins/` và `~/.zcode/plugins/`, đăng ký MCP và kích hoạt các hook nguyên bản (`PreToolUse`, `PostToolUse`). Dùng `-Development` nếu muốn tạo liên kết thay vì sao chép.
 
-### Windsurf, Copilot, Cline
-Chạy lệnh `npx @kzxl/z-plugin init all` để tạo cấu hình cho Cursor, Claude Code, Windsurf, Cline và Copilot trong một lần. Copilot chỉ nhận instructions (không có cấu hình MCP). Continue và Roo Code chưa được hỗ trợ.
+### Codex
+Chạy `node tools/agent-bridge.mjs export codex`. Lệnh tạo `AGENTS.md`, bổ sung các bảng `[mcp_servers.z-*]` còn thiếu vào `.codex/config.toml` (giữ nguyên bảng cũ) và cài `.codex/hooks.json` để mọi lần sửa file qua `apply_patch` được ghi vào z-brain.
+
+### Qoder Desktop (hook cấp dự án)
+Gói plugin Qoder không kèm hook; z-brain vẫn tự động nhờ watcher và lượt reconcile git trong MCP server ở lần gọi tool đầu tiên. Nếu muốn hook cấp dự án, chạy `node tools/agent-bridge.mjs export qoder`: lệnh merge sâu `.qoder/settings.json`, giữ nguyên `mcpServers` và nhóm hook đã có.
+
+### Antigravity (hook cấp dự án)
+Chạy `node tools/agent-bridge.mjs export antigravity` để merge `.agents/hooks.json` dưới nhóm `z-brain` và đăng ký MCP trong `.agents/mcp_config.json`, không ghi đè cấu hình có sẵn.
+
+### Windsurf, Copilot, Cline, Codex, Qoder, Antigravity
+Chạy lệnh `npx @kzxl/z-plugin init all` để tạo cấu hình cho Cursor, Claude Code, Windsurf, Cline, Copilot, Codex, Qoder và Antigravity trong một lần. Copilot chỉ nhận instructions (không có cấu hình MCP). Continue và Roo Code chưa được hỗ trợ.
 
 ---
 
@@ -197,13 +208,13 @@ z-plugin dashboard --serve --open
 
 ## 🧪 Kiểm thử & Bằng chứng thực nghiệm (`R_PROOF`)
 
-Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 24 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
+Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 25 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
 
 ```bash
 # Kiểm tra cú pháp toàn bộ monorepo
 npm run check
 
-# Chạy toàn bộ 24 bộ test (hơn 620 assertions thành công)
+# Chạy toàn bộ 25 bộ test (hơn 650 assertions thành công)
 npm test
 
 # Đóng gói và kiểm tra ZIP plugin cho Qoder

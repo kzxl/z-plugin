@@ -10,7 +10,7 @@ const meta = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')
 const output = path.join(root, 'dist', `z-plugin-qoder-${meta.version}.zip`);
 const runtime = {
   'z-token': ['scan', 'fsindex', 'symbol-cache', 'build', 'diet', 'dashboard', 'run', 'test-runner', 'config', 'ledger'],
-  'z-brain': ['db', 'search', 'format', 'harvest', 'harvest-queue', 'git-harvester'],
+  'z-brain': ['db', 'search', 'format', 'harvest', 'harvest-queue', 'git-harvester', 'workspace', 'edit-observer'],
   'z-mind': ['rules', 'bootstrap', 'doctor', 'plan-generator', 'arch-doctor'],
   'z-gate': ['helper-discovery', 'nev-auditor', 'code-reviewer', 'diff-parser', 'review-formatter', 'git-hook'],
   'z-craft': ['anti-slop-linter', 'spec-generator', 'generative-canvas', 'time-machine', 'scaffolder'],
@@ -77,7 +77,7 @@ try {
     execFileSync('zip', ['-q', '-r', output, '.'], { cwd: stage, stdio: 'inherit' });
   }
   console.log(`Qoder archive: ${output}`);
-  console.log('5 MCP servers; 9 Skills; no host hooks, agents, commands, UI registration or user configuration changes.');
+  console.log('5 MCP servers; 9 Skills; no host hooks, agents, commands, UI registration or user configuration changes. z-brain edit tracking runs through its in-process watcher and reconcile pass.');
 } finally {
   fs.rmSync(stage, { recursive: true, force: true });
 }

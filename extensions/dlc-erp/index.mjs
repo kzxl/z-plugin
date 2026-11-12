@@ -32,7 +32,7 @@ export function activateDlc(zruntime) {
   if (zruntime.eventBus) {
     zruntime.eventBus.emit('dlc:activated', {
       id: 'dlc-erp',
-      version: '1.5.0',
+      version: '1.6.0',
       ruleCount: Object.keys(rules).length,
       synonymCount: Object.keys(synonyms).length
     });
@@ -43,7 +43,7 @@ export function activateDlc(zruntime) {
 
 export default {
   id: 'dlc-erp',
-  version: '1.5.0',
+  version: '1.6.0',
   rules,
   synonyms,
   gateChecks,
