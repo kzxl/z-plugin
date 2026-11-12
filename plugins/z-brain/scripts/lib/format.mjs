@@ -6,6 +6,11 @@
  *  - Level 2 (L2): Full inspection view on demand.
  */
 
+function clip(value, max) {
+  const text = String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 export function formatL0Progressive(items, taskQuery = '') {
   if (!items || items.length === 0) {
     return `[Z-BRAIN] No prior knowledge found for: "${taskQuery}". Proceeding with zero context overhead.`;
@@ -105,12 +110,14 @@ export function formatTimeline(observations) {
   observations.forEach(obs => {
     const dateStr = (obs.created_at || '').replace('T', ' ').slice(0, 16);
     const typeTag = `[${obs.type || 'obs'}]`;
-    lines.push(` ● ${dateStr} ${typeTag} ${obs.title} (Project: ${obs.project_id})`);
+    lines.push(` ● ${dateStr} ${typeTag} ${clip(obs.title, 140)} (Project: ${obs.project_id})`);
     if (obs.summary) {
-      lines.push(`    ├─ Summary: ${obs.summary.replace(/[\r\n]+/g, ' ')}`);
+      lines.push(`    ├─ Summary: ${clip(obs.summary.replace(/[\r\n]+/g, ' '), 180)}`);
     }
     if (obs.files_touched && obs.files_touched.length > 0) {
-      lines.push(`    └─ Files: ${obs.files_touched.join(', ')}`);
+      const files = obs.files_touched.slice(0, 5).join(', ');
+      const suffix = obs.files_touched.length > 5 ? ` (+${obs.files_touched.length - 5} more)` : '';
+      lines.push(`    └─ Files: ${files}${suffix}`);
     }
     lines.push('');
   });
@@ -128,9 +135,9 @@ export function formatFileKnowledge(file, atoms, observations) {
     lines.push(`🛡️ Knowledge Atoms & Gotchas (${atoms.length}):`);
     atoms.forEach(a => {
       const trust = a.trust_level === 'verified_fact' ? 'FACT' : 'OBS';
-      lines.push(` • [#${a.id}] [${trust}] ${a.question}`);
+      lines.push(` • [#${a.id}] [${trust}] ${clip(a.question, 140)}`);
       if (a.gotcha_fix) {
-        lines.push(`   └─ Gotcha/Fix: ${a.gotcha_fix}`);
+        lines.push(`   └─ Gotcha/Fix: ${clip(a.gotcha_fix, 180)}`);
       }
     });
     lines.push('');
@@ -142,9 +149,9 @@ export function formatFileKnowledge(file, atoms, observations) {
   if (observations && observations.length > 0) {
     lines.push(`⏳ Past Decisions & Milestones (${observations.length}):`);
     observations.forEach(o => {
-      lines.push(` • [${o.type || 'obs'}] ${o.title}`);
+      lines.push(` • [${o.type || 'obs'}] ${clip(o.title, 140)}`);
       if (o.summary) {
-        lines.push(`   └─ ${o.summary}`);
+        lines.push(`   └─ ${clip(o.summary, 160)}`);
       }
     });
     lines.push('');
@@ -177,34 +184,42 @@ function patchPreview(patch, maxLines = 4) {
   return shown.map((l) => `      ${l.length > 160 ? `${l.slice(0, 157)}...` : l}`);
 }
 
-export function formatFileHistory(file, events) {
+export function formatFileHistory(file, events, { maxEvents = 10, patchEvents = 2, patchLines = 2 } = {}) {
   if (!events || events.length === 0) {
     return `[Z-BRAIN] No edit history recorded for "${file}".`;
   }
+  const shown = events.slice(0, maxEvents);
   const lines = [`[Z-BRAIN] Edit history for "${file}" (${events.length} event(s)):`];
-  for (const ev of events) {
+  shown.forEach((ev, index) => {
     const session = String(ev.session_id || '').slice(0, 8);
     lines.push(
       ` ${shortTime(ev.created_at)}  ${opMark(ev.op)} ${ev.op.padEnd(6)}  ${ev.path}`
       + `  +${ev.lines_added || 0}/-${ev.lines_removed || 0}`
       + `  [${ev.tool || ev.source}]${session ? ` (session ${session})` : ''}`
     );
-    lines.push(...patchPreview(ev.patch));
+    if (index < patchEvents) lines.push(...patchPreview(ev.patch, patchLines));
+  });
+  if (events.length > shown.length) {
+    lines.push(` ... (${events.length - shown.length} more event(s); narrow with a smaller limit)`);
   }
   return lines.join('\n');
 }
 
-export function formatRecentChanges(events, label = 'workspace') {
+export function formatRecentChanges(events, label = 'workspace', { maxEvents = 10 } = {}) {
   if (!events || events.length === 0) {
     return `[Z-BRAIN] No file changes recorded for ${label}.`;
   }
+  const shown = events.slice(0, maxEvents);
   const lines = [`[Z-BRAIN] Recent file changes in ${label} (${events.length} event(s)):`];
-  for (const ev of events) {
+  for (const ev of shown) {
     lines.push(
       ` ${shortTime(ev.created_at)}  ${opMark(ev.op)} ${ev.path}`
       + `  +${ev.lines_added || 0}/-${ev.lines_removed || 0}`
       + `  [${ev.tool || ev.source}]`
     );
+  }
+  if (events.length > shown.length) {
+    lines.push(` ... (${events.length - shown.length} more event(s); narrow with a smaller limit)`);
   }
   return lines.join('\n');
 }

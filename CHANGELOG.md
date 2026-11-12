@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0
+
+- **Dashboard Edit Activity panel**: edits today, tracked files, 7-day churn leaders, and latest edits with operation, tool and line deltas, read directly from SQLite with zero daemon and zero context cost.
+- **Token-capped history output**: `zbrain_history` and `observe history` default to 12 events, `zbrain_changes` to 10, `zbrain_impact` to 6; only the newest two events include a two-line patch preview, with an explicit truncation footer.
+- **Token-capped summaries**: timeline and file-knowledge views clip long titles, summaries and gotcha text, and cap listed files, so retrieval answers stay compact.
+- **Dashboard resilience**: databases without the new observer tables render the edit panel as empty instead of failing.
+
 ## 1.6.0
 
 - **Automatic file-edit history**: new `file_events` table records every edit (path, operation, tool, line counts, redacted patch, session, workspace). Claude/ZCode hooks and the Codex/Qoder/Antigravity exporters feed it automatically.

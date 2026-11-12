@@ -1,6 +1,6 @@
 {
   "name": "@kzxl/z-plugin",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "description": "Cut 95% wasted tokens, stop breaking changes with sub-2ms call-graphs, and ban AI code slop. The context-saving & quality engine for Cursor, Claude Code, Antigravity, and Windsurf.",
   "license": "MIT",

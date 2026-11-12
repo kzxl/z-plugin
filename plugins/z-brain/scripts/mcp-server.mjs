@@ -151,7 +151,7 @@ const TOOLS = [
       properties: {
         file: { type: 'string', description: 'File path or file name to inspect' },
         project: { type: 'string', description: 'Optional project scope' },
-        limit: { type: 'number', description: 'Max events (default: 20)' }
+        limit: { type: 'number', description: 'Max events (default: 12, capped in output for token diet)' }
       },
       required: ['file']
     }
@@ -164,7 +164,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Optional project scope' },
-        limit: { type: 'number', description: 'Max events (default: 15)' }
+        limit: { type: 'number', description: 'Max events (default: 10, capped in output for token diet)' }
       }
     }
   },
@@ -305,7 +305,7 @@ function handleToolCall(name, args) {
         workspace,
         project: args.project,
         file: args.file,
-        limit: args.limit || 20
+        limit: args.limit || 12
       });
       return {
         content: [{ type: 'text', text: formatFileHistory(args.file, events) }]
@@ -317,7 +317,7 @@ function handleToolCall(name, args) {
       const events = getRecentFileEvents(db, {
         workspace,
         project: args.project,
-        limit: args.limit || 15
+        limit: args.limit || 10
       });
       return {
         content: [{ type: 'text', text: formatRecentChanges(events, workspace) }]
@@ -329,7 +329,7 @@ function handleToolCall(name, args) {
       const abs = path.isAbsolute(args.file) ? args.file : path.join(workspace, args.file);
       const rel = toWorkspaceRel(workspace, abs) || args.file;
       const entry = getFileIndexEntry(db, workspace, rel);
-      const events = getFileHistory(db, { workspace, file: args.file, limit: 10 });
+      const events = getFileHistory(db, { workspace, file: args.file, limit: 6 });
       const knowledge = getKnowledgeByFile(db, args.file, { limit: args.limit || 5 });
       return {
         content: [{

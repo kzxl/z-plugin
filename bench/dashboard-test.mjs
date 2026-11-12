@@ -51,6 +51,40 @@ try {
       files_touched TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE file_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      workspace TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      op TEXT NOT NULL,
+      tool TEXT,
+      source TEXT NOT NULL,
+      lines_added INTEGER NOT NULL DEFAULT 0,
+      lines_removed INTEGER NOT NULL DEFAULT 0,
+      old_hash TEXT,
+      new_hash TEXT,
+      patch TEXT,
+      redacted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      harvested_commit TEXT
+    );
+    CREATE TABLE file_index (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      workspace TEXT NOT NULL,
+      path TEXT NOT NULL,
+      mtime REAL NOT NULL DEFAULT 0,
+      size INTEGER NOT NULL DEFAULT 0,
+      hash TEXT,
+      lang TEXT,
+      symbol_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'clean',
+      last_event_id INTEGER,
+      updated_at TEXT NOT NULL,
+      UNIQUE(workspace, path)
+    );
   `);
   db.prepare(`
     INSERT INTO knowledge_atoms (id, project_id, scope, trust_level, question, answer, gotcha_fix, tags, created_at, updated_at)
@@ -60,6 +94,19 @@ try {
     INSERT INTO session_observations (session_id, project_id, type, title, summary, files_touched, created_at)
     VALUES ('s1', 'erp-wms', 'decision', 'Switched search to read_symbol', 'Cut token output by 82%', '["OrderService.cs"]', ?)
   `).run(new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO file_events (project_id, workspace, session_id, path, op, tool, source, lines_added, lines_removed, created_at, updated_at)
+    VALUES ('z-plugin', '/ws', 's1', 'plugins/z-brain/scripts/lib/format.mjs', 'update', 'Edit', 'hook', 4, 2, ?, ?)
+  `).run(nowIso, nowIso);
+  db.prepare(`
+    INSERT INTO file_events (project_id, workspace, session_id, path, op, tool, source, lines_added, lines_removed, created_at, updated_at)
+    VALUES ('z-plugin', '/ws', 's1', 'plugins/z-brain/scripts/mcp-server.mjs', 'update', 'apply_patch', 'hook', 8, 1, ?, ?)
+  `).run(nowIso, nowIso);
+  db.prepare(`
+    INSERT INTO file_index (project_id, workspace, path, mtime, size, lang, symbol_count, status, updated_at)
+    VALUES ('z-plugin', '/ws', 'plugins/z-brain/scripts/lib/format.mjs', 1, 100, 'javascript', 5, 'clean', ?)
+  `).run(nowIso);
   db.close();
 
   // Import target module under test
@@ -93,6 +140,11 @@ try {
   assert.strictEqual(metrics.brain.totalAtoms, 1);
   assert.strictEqual(metrics.brain.verifiedFacts, 1);
   assert.strictEqual(metrics.brain.totalObservations, 1);
+  assert.strictEqual(metrics.brain.edits.available, true);
+  assert.strictEqual(metrics.brain.edits.editsToday, 2);
+  assert.strictEqual(metrics.brain.edits.trackedFiles, 1);
+  assert.strictEqual(metrics.brain.edits.recentEdits.length, 2);
+  assert.ok(metrics.brain.edits.topFiles.some((f) => f.path.endsWith("format.mjs")));
 
   // Verify Diet report integration (Antigravity + ZCode)
   assert.ok(typeof metrics.diet.estTokens === "number");
@@ -104,6 +156,8 @@ try {
   assert.ok(html.includes('id="state-loading"'), "Must render Loading skeleton state");
   assert.ok(html.includes('id="state-empty"'), "Must render Empty state");
   assert.ok(html.includes('id="state-error"'), "Must render Error state");
+  assert.ok(html.includes("Edit Activity (7d)"), "Must render edit activity panel");
+  assert.ok(html.includes('id="edit-recent-list"'), "Must render recent edits container");
   assert.strictEqual(/#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/.test(html), false, "Must contain ZERO hardcoded hex colors (R_ANTI_SLOP)");
 
   // Compile embedded inline <script> via vm.Script to guarantee zero browser JS syntax errors

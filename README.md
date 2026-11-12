@@ -1,6 +1,6 @@
 # 🔌 z-plugin — The Context-Saving & Quality Engine for AI Coding Agents
 
-[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](package.json)
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
@@ -89,6 +89,7 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 - **Progressive Disclosure:** Compact L0 index (~30 tokens/entry) for pre-task context sweep; fetches L2 detailed code fixes strictly on-demand.
 - **Automatic Edit History:** Host hooks capture every file edit (tool, line counts, redacted patch) into `file_events`; a git-aware watcher and reconcile pass cover hosts without hooks, so no manual logging is needed.
 - **Workspace File Index:** `file_index` tracks path, mtime, size, hash, language and symbol count; `zbrain_history`, `zbrain_changes` and `zbrain_impact` query what changed and what depends on it.
+- **Token-Capped Answers:** history views show the newest 10–12 events with at most two short patch previews, and timeline/file answers clip long summaries, so lookups stay cheap in context.
 - **Async Write Queue:** Serializes concurrent SQLite write locks under multi-agent workloads with exponential backoff, with a JSONL spool fallback when the database is busy.
 
 ### 3. ⚖️ `z-mind` — Cognitive Framework & Engineering Discipline
@@ -114,13 +115,13 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 
 | Component | Type | Version | Focus & Core Capabilities |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.6.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.6.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.6.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, async harvest queue, and automatic edit history + workspace file index. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.6.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.6.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.6.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.6.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.7.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.7.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.7.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, async harvest queue, and automatic edit history + workspace file index. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.7.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.7.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.7.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.7.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
 
 ---
 
@@ -180,6 +181,7 @@ z-plugin dashboard --serve --open
 ```
 
 Key dashboard capabilities:
+- **Z-Brain Edit Activity:** Edits today, tracked files, 7-day churn leaders, and the latest file edits with operation and line deltas, read directly from SQLite with zero daemon and zero context cost.
 - **Multi-Window Ledger Audit:** Toggle `24h`, `7d`, `30d`, and `All-Time` firewall blocks and compact tool call metrics from `~/.zero-token/ledger.jsonl`.
 - **Frontier Model Cost & Cache Simulator:** Estimate compounded multi-turn USD savings and monthly session tax across **Gemini 4 Carbon**, **Gemini 4 Argon**, **Gemini 3.8 Flash**, and **Claude Fable 5.2** at `0%–95%` prefix cache hit rates.
 - **4-State Anti-Slop UI (`100/100` `z-craft` Score):** Built with semantic host theme tokens and built-in `Populated`, `Loading`, `Empty`, and `Error` states.

@@ -121,14 +121,14 @@ async function main() {
       const file = args[1];
       if (!file) throw new Error('Usage: observe.mjs history <file> [--limit=20]');
       const root = resolveWorkspace(cwd);
-      const events = getFileHistory(db, { workspace: root, file, limit: Number(flag(args, 'limit', 20)) });
+      const events = getFileHistory(db, { workspace: root, file, limit: Number(flag(args, 'limit', 12)) });
       out(formatFileHistory(file, events) + '\n');
       return;
     }
 
     case 'changes': {
       const root = resolveWorkspace(cwd);
-      const events = getRecentFileEvents(db, { workspace: root, limit: Number(flag(args, 'limit', 15)) });
+      const events = getRecentFileEvents(db, { workspace: root, limit: Number(flag(args, 'limit', 10)) });
       out(formatRecentChanges(events, root) + '\n');
       return;
     }

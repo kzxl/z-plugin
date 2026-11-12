@@ -197,6 +197,44 @@ function resolveDefaultBrainDb() {
   return null;
 }
 
+const EMPTY_EDITS = {
+  available: false,
+  editsToday: 0,
+  edits7d: 0,
+  trackedFiles: 0,
+  recentEdits: [],
+  topFiles: [],
+};
+
+function collectEditMetrics(db) {
+  const now = Date.now();
+  const dayAgo = new Date(now - 86400000).toISOString();
+  const weekAgo = new Date(now - 7 * 86400000).toISOString();
+  try {
+    const editsToday = Number(db.prepare("SELECT COUNT(*) AS c FROM file_events WHERE created_at >= ?").get(dayAgo)?.c || 0);
+    const edits7d = Number(db.prepare("SELECT COUNT(*) AS c FROM file_events WHERE created_at >= ?").get(weekAgo)?.c || 0);
+    const trackedFiles = Number(db.prepare("SELECT COUNT(*) AS c FROM file_index").get()?.c || 0);
+    const recentEdits = db
+      .prepare("SELECT path, op, tool, source, lines_added, lines_removed, created_at FROM file_events ORDER BY id DESC LIMIT 8")
+      .all()
+      .map((r) => ({
+        path: String(r.path || ""),
+        op: String(r.op || "update"),
+        tool: String(r.tool || r.source || "hook"),
+        added: Number(r.lines_added || 0),
+        removed: Number(r.lines_removed || 0),
+        at: String(r.created_at || ""),
+      }));
+    const topFiles = db
+      .prepare("SELECT path, COUNT(*) AS c FROM file_events WHERE created_at >= ? GROUP BY path ORDER BY c DESC LIMIT 4")
+      .all(weekAgo)
+      .map((r) => ({ path: String(r.path || ""), count: Number(r.c || 0) }));
+    return { available: true, editsToday, edits7d, trackedFiles, recentEdits, topFiles };
+  } catch {
+    return { ...EMPTY_EDITS };
+  }
+}
+
 function collectBrainMetrics(customBrainDb = null) {
   const dbPath = customBrainDb || resolveDefaultBrainDb();
   if (!dbPath || !fs.existsSync(dbPath)) {
@@ -208,6 +246,7 @@ function collectBrainMetrics(customBrainDb = null) {
       totalObservations: 0,
       topProjects: [],
       recentAtoms: [],
+      edits: { ...EMPTY_EDITS },
     };
   }
 
@@ -252,6 +291,7 @@ function collectBrainMetrics(customBrainDb = null) {
       totalObservations,
       topProjects,
       recentAtoms,
+      edits: collectEditMetrics(db),
     };
   } catch {
     return {
@@ -262,6 +302,7 @@ function collectBrainMetrics(customBrainDb = null) {
       totalObservations: 0,
       topProjects: [],
       recentAtoms: [],
+      edits: { ...EMPTY_EDITS },
     };
   } finally {
     if (db) {
@@ -582,6 +623,13 @@ export function renderDashboardHtml(metrics, opts = {}) {
             <div class="flex flex-wrap gap-1.5" id="brain-projects-pills"></div>
           </div>
           <div class="space-y-2" id="brain-recent-list"></div>
+          <div class="pt-2 border-t border-[var(--border,hsl(217_33%_18%))] space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-medium">Edit Activity (7d)</div>
+              <div class="flex flex-wrap gap-1.5 text-xs" id="edit-churn-pills"></div>
+            </div>
+            <div class="space-y-1.5" id="edit-recent-list"></div>
+          </div>
         </section>
       </div>
 
@@ -797,7 +845,8 @@ export function renderDashboardHtml(metrics, opts = {}) {
       if (METRICS.brain.available) {
         document.getElementById("kpi-brain-atoms").textContent = String(METRICS.brain.totalAtoms) + " atoms";
         document.getElementById("kpi-brain-sub").textContent =
-          METRICS.brain.verifiedFacts + " verified facts · " + METRICS.brain.totalObservations + " session logs";
+          METRICS.brain.verifiedFacts + " verified facts · " + METRICS.brain.totalObservations + " session logs"
+          + " · " + ((METRICS.brain.edits || {}).editsToday || 0) + " edits today";
       } else {
         document.getElementById("kpi-brain-atoms").textContent = "Offline";
         document.getElementById("kpi-brain-sub").textContent = "No zbrain.sqlite detected";
@@ -936,6 +985,33 @@ export function renderDashboardHtml(metrics, opts = {}) {
             })
             .join("")
         : '<div class="muted-text text-xs py-4 text-center">No episodic atoms harvested yet.</div>';
+
+      const edits = METRICS.brain.edits || {};
+      document.getElementById("edit-churn-pills").innerHTML = (edits.topFiles || [])
+        .map(function (f) {
+          const name = String(f.path || "").split("/").pop();
+          return (
+            '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono truncate max-w-[180px]" title="' +
+            esc(f.path) + '">' + esc(name) + ": " + f.count +
+            "</span>"
+          );
+        })
+        .join("");
+
+      const recentEdits = edits.recentEdits || [];
+      document.getElementById("edit-recent-list").innerHTML = recentEdits.length
+        ? recentEdits
+            .map(function (e) {
+              const mark = e.op === "create" ? "+" : e.op === "delete" ? "-" : "~";
+              return (
+                '<div class="flex items-center justify-between gap-2 text-xs font-mono">' +
+                '<span class="truncate" title="' + esc(e.path) + '">' + mark + " " + esc(e.path) + "</span>" +
+                '<span class="muted-text shrink-0">+' + e.added + "/-" + e.removed + " · " + esc(e.tool) + "</span>" +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="muted-text text-xs py-2 text-center">No edits recorded yet. z-brain starts tracking on the next file change.</div>';
 
       renderBlocksTable();
     }

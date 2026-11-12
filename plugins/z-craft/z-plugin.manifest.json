@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-craft",
   "name": "Z-Craft Software Craftsmanship & Disciplined Vibe-Coding",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Software craftsmanship engine: anti-slop linter, 4-state UX micro-contract generator, generative canvas preview, and vibe time-machine.",
   "author": "kzxl",
   "license": "MIT",

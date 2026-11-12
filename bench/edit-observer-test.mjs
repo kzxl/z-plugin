@@ -149,6 +149,22 @@ ok(historyText.includes("src/app.ts"), "history formatter includes the file path
 const changesText = format.formatRecentChanges(recent, repo);
 ok(changesText.includes("Recent file changes"), "changes formatter renders a header");
 
+const manyEvents = Array.from({ length: 25 }, (_, index) => ({
+  created_at: new Date().toISOString(),
+  op: index === 0 ? "create" : "update",
+  path: "src/app.ts",
+  lines_added: 1,
+  lines_removed: 0,
+  tool: "Edit",
+  session_id: "diet-test",
+  patch: "-old\n+new\n-context\n+context",
+}));
+const cappedHistory = format.formatFileHistory("src/app.ts", manyEvents);
+ok(cappedHistory.split("\n").length <= 18, "history output is capped for token diet");
+ok(cappedHistory.includes("15 more event(s)"), "history output reports truncated events");
+const cappedChanges = format.formatRecentChanges(manyEvents, "repo");
+ok(cappedChanges.split("\n").length <= 12, "changes output is capped for token diet");
+
 const stats = dbApi.getFileObserverStats(db, { workspace: workspace.resolveWorkspace(repo) });
 ok(stats.totalEvents >= 3, "observer stats count events");
 ok(stats.trackedFiles >= 1, "observer stats count indexed files");

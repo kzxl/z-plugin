@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-token",
   "name": "Z-Token Context Firewall",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Compact-context tools and guards: code outline, capped search, compact .NET builds, oversized-read blocking, and token budgeting.",
   "author": "kzxl",
   "license": "MIT",
