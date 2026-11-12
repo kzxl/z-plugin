@@ -16,7 +16,10 @@ import { collectFiles, readTextCached } from "./fsindex.mjs";
 import {
   lookupSymbol,
   storeSymbolsForFile,
+  flushDirtyBuckets,
   extractFileSymbols,
+  maskSourceCode,
+  foldSignatureLines,
   indexWorkspace,
   getCacheStats,
   clearCache,
@@ -29,7 +32,10 @@ import {
 export {
   lookupSymbol,
   storeSymbolsForFile,
+  flushDirtyBuckets,
   extractFileSymbols,
+  maskSourceCode,
+  foldSignatureLines,
   indexWorkspace,
   getCacheStats,
   clearCache,
@@ -128,19 +134,27 @@ export function outline(target, opts = {}) {
     const text = readTextCached(f, stat, opts.cacheMaxBytes);
     if (text === null) continue;
     const rows = text.split(/\r?\n/);
+    const maskedRows = maskSourceCode(text).split(/\r?\n/);
     const rel = path.relative(process.cwd(), f) || f;
     const found = [];
     for (let i = 0; i < rows.length; i++) {
-      let kind = symbolKind(rows[i]);
+      const mLine = maskedRows[i] || "";
+      if (!mLine.trim() || COMMENT_RE.test(mLine) || CONTROL_RE.test(mLine)) continue;
+      let kind = symbolKind(mLine);
       let displayLine = rows[i].trim();
-      if (!kind && i + 1 < rows.length && !COMMENT_RE.test(rows[i]) && !CONTROL_RE.test(rows[i])) {
-        const combined = `${rows[i].trim()} ${rows[i + 1].trim()}`;
-        if (symbolKind(combined)) {
-          kind = symbolKind(combined);
-          displayLine = combined;
+      let skipTo = i;
+      if (!kind) {
+        const folded = foldSignatureLines(rows, maskedRows, i, 8);
+        if (folded.endSigIdx > i && symbolKind(folded.combinedMasked)) {
+          kind = symbolKind(folded.combinedMasked);
+          displayLine = folded.combinedRaw;
+          skipTo = folded.endSigIdx;
         }
       }
-      if (kind) found.push(`${String(i + 1).padStart(5)}  ${displayLine.slice(0, 160)}`);
+      if (kind) {
+        found.push(`${String(i + 1).padStart(5)}  ${displayLine.slice(0, 160)}`);
+        i = skipTo;
+      }
       if (found.length > maxPerFile) break;
     }
     if (found.length === 0) continue;
@@ -150,14 +164,18 @@ export function outline(target, opts = {}) {
     if (found.length > maxPerFile) lines.push(`      ... more symbols omitted`);
     lines.push("");
 
-    // Prime symbol cache for outlined file
+    // Prime symbol cache for outlined file with deferred disk flush
     try {
       const fileSyms = extractFileSymbols(text);
       if (fileSyms.length > 0) {
-        storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+        storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs, { deferFlush: true });
       }
     } catch {}
   }
+
+  try {
+    flushDirtyBuckets(workspaceRoot);
+  } catch {}
 
   const body = lines.join("\n").trimEnd();
   const skipped = sized.length - selected.length;
@@ -169,7 +187,7 @@ export function outline(target, opts = {}) {
 
 // ---------------------------------------------------------------- readSymbol (One-Shot Method Inspection)
 
-function extractSymbolBody(fullPath, cleanSym, rows, declIdx) {
+function extractSymbolBody(fullPath, cleanSym, rows, declIdx, cachedEndLine = null) {
   // Scan backwards for decorators, attributes, doc comments, or multi-line access modifiers (up to 8 lines)
   let startIdx = declIdx;
   while (startIdx > 0 && declIdx - startIdx < 8) {
@@ -199,15 +217,20 @@ function extractSymbolBody(fullPath, cleanSym, rows, declIdx) {
       }
       endIdx = j;
     }
+  } else if (cachedEndLine && cachedEndLine > declIdx + 1 && cachedEndLine <= rows.length) {
+    endIdx = cachedEndLine - 1;
   } else {
-    const declLine = rows[declIdx];
+    const sliceLimit = Math.min(rows.length, declIdx + 355);
+    const maskedSlice = maskSourceCode(rows.slice(declIdx, sliceLimit).join("\n")).split(/\r?\n/);
+    const declLine = maskedSlice[0] || "";
     if (/=>[^;]+;/.test(declLine)) {
       endIdx = declIdx;
     } else {
       let braceCount = 0;
       let foundOpen = false;
-      for (let j = declIdx; j < rows.length; j++) {
-        const line = rows[j];
+      for (let offset = 0; offset < maskedSlice.length; offset++) {
+        const line = maskedSlice[offset];
+        const j = declIdx + offset;
         for (let c = 0; c < line.length; c++) {
           const char = line[c];
           if (char === "{") {
@@ -225,7 +248,7 @@ function extractSymbolBody(fullPath, cleanSym, rows, declIdx) {
           endIdx = j;
           break;
         }
-        if (j - declIdx > 350) {
+        if (offset > 350) {
           endIdx = j;
           break;
         }
@@ -277,7 +300,7 @@ export function readSymbol(target, symbolName, opts = {}) {
         const text = fs.readFileSync(hit.absPath, "utf8");
         const rows = text.split(/\r?\n/);
         const declIdx = Math.max(0, Math.min(rows.length - 1, hit.line - 1));
-        const body = extractSymbolBody(hit.absPath, cleanSym, rows, declIdx);
+        const body = extractSymbolBody(hit.absPath, cleanSym, rows, declIdx, hit.endLine);
         const header = `// One-Shot Symbol: ${hit.name} (${hit.file}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache hit]`;
         return {
           text: `${header}\n\n${body.extractedLines.join("\n")}`,
@@ -314,11 +337,13 @@ export function readSymbol(target, symbolName, opts = {}) {
       if (!symRe.test(text)) continue;
 
       const rows = text.split(/\r?\n/);
+      const maskedRows = maskSourceCode(text).split(/\r?\n/);
       let declIdx = -1;
       for (let i = 0; i < rows.length; i++) {
-        const line = rows[i];
-        if (COMMENT_RE.test(line)) continue;
-        if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
+        const line = maskedRows[i] || "";
+        if (!line.trim() || COMMENT_RE.test(line)) continue;
+        const folded = foldSignatureLines(rows, maskedRows, i, 8);
+        if (symRe.test(line) && (symbolKind(line) || symbolKind(folded.combinedMasked) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(folded.combinedMasked) || (i > 0 && symbolKind(`${(maskedRows[i - 1] || "").trim()} ${line.trim()}`)))) {
           declIdx = i;
           break;
         }
@@ -326,12 +351,15 @@ export function readSymbol(target, symbolName, opts = {}) {
 
       if (declIdx !== -1) {
         const rel = path.relative(workspaceRoot, f).replace(/\\/g, "/");
+        let cachedEnd = null;
         try {
           const fileSyms = extractFileSymbols(text);
           storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+          const matchedSym = fileSyms.find((s) => s.name === cleanSym);
+          if (matchedSym && matchedSym.endLine) cachedEnd = matchedSym.endLine;
         } catch {}
 
-        const body = extractSymbolBody(f, cleanSym, rows, declIdx);
+        const body = extractSymbolBody(f, cleanSym, rows, declIdx, cachedEnd);
         const header = `// One-Shot Symbol: ${cleanSym} (${rel}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache miss -> indexed]`;
         return {
           text: `${header}\n\n${body.extractedLines.join("\n")}`,
@@ -374,7 +402,7 @@ export function readSymbol(target, symbolName, opts = {}) {
       const text = fs.readFileSync(fullPath, "utf8");
       const rows = text.split(/\r?\n/);
       const declIdx = Math.max(0, Math.min(rows.length - 1, hit.line - 1));
-      const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx);
+      const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx, hit.endLine);
       const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(rawTarget)}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines) [cache hit]`;
       return {
         text: `${header}\n\n${body.extractedLines.join("\n")}`,
@@ -398,13 +426,15 @@ export function readSymbol(target, symbolName, opts = {}) {
   }
 
   const rows = text.split(/\r?\n/);
+  const maskedRows = maskSourceCode(text).split(/\r?\n/);
   const symRe = new RegExp(`\\b${cleanSym}\\b`);
 
   let declIdx = -1;
   for (let i = 0; i < rows.length; i++) {
-    const line = rows[i];
-    if (COMMENT_RE.test(line)) continue;
-    if (symRe.test(line) && (symbolKind(line) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(line) || (i > 0 && symbolKind(`${rows[i - 1].trim()} ${line.trim()}`)))) {
+    const line = maskedRows[i] || "";
+    if (!line.trim() || COMMENT_RE.test(line)) continue;
+    const folded = foldSignatureLines(rows, maskedRows, i, 8);
+    if (symRe.test(line) && (symbolKind(line) || symbolKind(folded.combinedMasked) || /\b(?:def|function|class|interface|record|struct|enum)\b/.test(line) || /\(.*\)/.test(folded.combinedMasked) || (i > 0 && symbolKind(`${(maskedRows[i - 1] || "").trim()} ${line.trim()}`)))) {
       declIdx = i;
       break;
     }
@@ -412,8 +442,9 @@ export function readSymbol(target, symbolName, opts = {}) {
 
   if (declIdx === -1) {
     for (let i = 0; i < rows.length; i++) {
-      if (COMMENT_RE.test(rows[i])) continue;
-      if (new RegExp(`\\b${cleanSym}\\s*\\(`).test(rows[i])) {
+      const mLine = maskedRows[i] || "";
+      if (!mLine.trim() || COMMENT_RE.test(mLine)) continue;
+      if (new RegExp(`\\b${cleanSym}\\s*\\(`).test(mLine)) {
         declIdx = i;
         break;
       }
@@ -428,12 +459,15 @@ export function readSymbol(target, symbolName, opts = {}) {
   }
 
   // Populate cache for this file
+  let cachedEnd = null;
   try {
     const fileSyms = extractFileSymbols(text);
     storeSymbolsForFile(workspaceRoot, rel, fileSyms, stat.mtimeMs);
+    const matchedSym = fileSyms.find((s) => s.name === cleanSym);
+    if (matchedSym && matchedSym.endLine) cachedEnd = matchedSym.endLine;
   } catch {}
 
-  const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx);
+  const body = extractSymbolBody(fullPath, cleanSym, rows, declIdx, cachedEnd);
   const header = `// One-Shot Symbol: ${cleanSym} (${path.basename(rawTarget)}#L${body.startLine}-L${body.endLine}, ${body.lineCount} lines)`;
   return {
     text: `${header}\n\n${body.extractedLines.join("\n")}`,

@@ -50,25 +50,301 @@ const COMMON_CALL_EXCLUDES = new Set([
 
 const GUARD_RE = /\b(?:if\s*\(.*\)\s*(?:return\b|throw\b|\{\s*(?:return\b|throw\b))|Guard\.[A-Za-z0-9_]+|ThrowIfNull|ArgumentNullException\.)/i;
 const TYPE_INST_RE = /\b(?:new\s+([A-Z][A-Za-z0-9_]+)\s*\(|([A-Z][A-Za-z0-9_]+)\s+[A-Za-z0-9_]+\s*=)/g;
+const QUALIFIED_CALL_RE = /(?:this\.)?\b([A-Za-z_$][\w$]*)\s*(?:\?\.)?\.\s*([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\(/g;
+const FIELD_DECL_RE = /\b(?:private|protected|public|internal|readonly)\s+(?:readonly\s+|static\s+)*([I]?[A-Z][A-Za-z0-9_]*)\s*(?:\?)?\s+([_a-zA-Z$][\w$]*)\s*[;=,)]/;
+const TS_FIELD_DECL_RE = /\b(?:private|protected|public|readonly)\s+(?:readonly\s+)?([_a-zA-Z$][\w$]*)\s*\??\s*:\s*([I]?[A-Z][A-Za-z0-9_]*)/;
 const COMMON_TYPE_EXCLUDES = new Set([
-  "Task", "List", "Dictionary", "HashSet", "IEnumerable", "IList", "String", "Int32", "Boolean",
-  "Action", "Func", "Exception", "StringBuilder", "CancellationToken", "Object", "DateTime", "Guid"
+  "Task", "List", "Dictionary", "HashSet", "IEnumerable", "IList", "IReadOnlyList", "ICollection",
+  "String", "Int32", "Int64", "Decimal", "Double", "Boolean", "Action", "Func", "Exception",
+  "StringBuilder", "CancellationToken", "Object", "DateTime", "DateTimeOffset", "TimeSpan", "Guid"
 ]);
 
-function extractCallsFromBody(lines, startLineIdx, symName) {
+/**
+ * Single-pass O(N) lexical masker (Shadow Masking).
+ * Replaces characters inside comments (//, /* * /, <!-- -->, #) and string literals ("", '', ``)
+ * with spaces while preserving exact line breaks (\r, \n), outer quotes, and character positions.
+ * Eliminates brace-counting corruption and false-positive regex matches inside strings/comments.
+ */
+export function maskSourceCode(source) {
+  if (!source || typeof source !== "string") return "";
+  const len = source.length;
+  const out = new Array(len);
+  // States: 0=CODE, 1=LINE_COMMENT, 2=BLOCK_COMMENT, 3=HTML_COMMENT, 4=DBL_STR, 5=SGL_STR, 6=TPL_STR, 7=VERBATIM_STR
+  let state = 0;
+  let lineStart = true;
+
+  for (let i = 0; i < len; i++) {
+    const ch = source[i];
+    const next = i + 1 < len ? source[i + 1] : "";
+
+    if (ch === "\n") {
+      out[i] = "\n";
+      if (state === 1 || state === 4 || state === 5) state = 0;
+      lineStart = true;
+      continue;
+    }
+    if (ch === "\r") {
+      out[i] = "\r";
+      continue;
+    }
+
+    if (state === 1) {
+      out[i] = " ";
+      continue;
+    }
+    if (state === 2) {
+      if (ch === "*" && next === "/") {
+        out[i] = " ";
+        out[i + 1] = " ";
+        i++;
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+    if (state === 3) {
+      if (ch === "-" && next === "-" && source[i + 2] === ">") {
+        out[i] = " ";
+        out[i + 1] = " ";
+        out[i + 2] = " ";
+        i += 2;
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+    if (state === 4) {
+      if (ch === "\\" && i + 1 < len) {
+        out[i] = " ";
+        if (source[i + 1] !== "\n" && source[i + 1] !== "\r") {
+          out[i + 1] = " ";
+          i++;
+        }
+      } else if (ch === '"') {
+        out[i] = '"';
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+    if (state === 5) {
+      if (ch === "\\" && i + 1 < len) {
+        out[i] = " ";
+        if (source[i + 1] !== "\n" && source[i + 1] !== "\r") {
+          out[i + 1] = " ";
+          i++;
+        }
+      } else if (ch === "'") {
+        out[i] = "'";
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+    if (state === 6) {
+      if (ch === "\\" && i + 1 < len) {
+        out[i] = " ";
+        if (source[i + 1] !== "\n" && source[i + 1] !== "\r") {
+          out[i + 1] = " ";
+          i++;
+        }
+      } else if (ch === "`") {
+        out[i] = "`";
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+    if (state === 7) {
+      if (ch === '"' && next === '"') {
+        out[i] = " ";
+        out[i + 1] = " ";
+        i++;
+      } else if (ch === '"') {
+        out[i] = '"';
+        state = 0;
+      } else {
+        out[i] = " ";
+      }
+      continue;
+    }
+
+    // state === 0 (NORMAL CODE)
+    if (ch === "/" && next === "/") {
+      out[i] = " ";
+      out[i + 1] = " ";
+      i++;
+      state = 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out[i] = " ";
+      out[i + 1] = " ";
+      i++;
+      state = 2;
+      continue;
+    }
+    if (ch === "<" && next === "!" && source[i + 2] === "-" && source[i + 3] === "-") {
+      out[i] = " ";
+      out[i + 1] = " ";
+      out[i + 2] = " ";
+      out[i + 3] = " ";
+      i += 3;
+      state = 3;
+      continue;
+    }
+    if (ch === "#" && lineStart && next !== "[") {
+      out[i] = " ";
+      state = 1;
+      continue;
+    }
+    if (ch === "@" && next === '"') {
+      out[i] = " ";
+      out[i + 1] = '"';
+      i++;
+      state = 7;
+      lineStart = false;
+      continue;
+    }
+    if (ch === '"') {
+      out[i] = '"';
+      state = 4;
+      lineStart = false;
+      continue;
+    }
+    if (ch === "'") {
+      // Avoid masking Rust lifetime annotations like &'a or <'a>
+      const prev = i > 0 ? source[i - 1] : "";
+      if (prev === "&" || prev === "<" || prev === ":") {
+        const closeQuote = source.indexOf("'", i + 1);
+        const nextLine = source.indexOf("\n", i + 1);
+        if (closeQuote === -1 || (nextLine !== -1 && closeQuote > nextLine) || closeQuote - i > 2) {
+          out[i] = ch;
+          lineStart = false;
+          continue;
+        }
+      }
+      out[i] = "'";
+      state = 5;
+      lineStart = false;
+      continue;
+    }
+    if (ch === "`") {
+      out[i] = "`";
+      state = 6;
+      lineStart = false;
+      continue;
+    }
+
+    if (ch !== " " && ch !== "\t") {
+      lineStart = false;
+    }
+    out[i] = ch;
+  }
+
+  return out.join("");
+}
+
+/**
+ * Counts net parenthesis delta '(' minus ')' on a masked line.
+ */
+export function countParenDelta(maskedLine) {
+  let delta = 0;
+  for (let i = 0; i < maskedLine.length; i++) {
+    const ch = maskedLine[i];
+    if (ch === "(") delta++;
+    else if (ch === ")") delta--;
+  }
+  return delta;
+}
+
+/**
+ * Folds multi-line declarations when parentheses '(' remain unclosed across lines (up to maxFoldLines).
+ */
+export function foldSignatureLines(rawLines, maskedLines, startIdx, maxFoldLines = 10) {
+  const firstMasked = maskedLines[startIdx] || "";
+  let parenBalance = countParenDelta(firstMasked);
+  let endSigIdx = startIdx;
+
+  if (parenBalance > 0 && !firstMasked.includes(";")) {
+    const limit = Math.min(rawLines.length - 1, startIdx + maxFoldLines);
+    for (let k = startIdx + 1; k <= limit; k++) {
+      endSigIdx = k;
+      parenBalance += countParenDelta(maskedLines[k] || "");
+      if (parenBalance <= 0) {
+        // Also fold trailing '{' if on the very next line or current line
+        break;
+      }
+    }
+  } else if (
+    startIdx + 1 < rawLines.length &&
+    !firstMasked.includes("(") &&
+    !firstMasked.includes("{") &&
+    !firstMasked.includes(";") &&
+    /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|export|pub)\s+)+[\w.<>,[\]\s?*&:]+$/.test(firstMasked)
+  ) {
+    // Return type on line i, method name + params on line i+1..k
+    const nextMasked = maskedLines[startIdx + 1] || "";
+    if (/^\s*[A-Za-z_$][\w$]*\s*(?:<[^>]+>)?\s*\(/.test(nextMasked)) {
+      endSigIdx = startIdx + 1;
+      parenBalance = countParenDelta(nextMasked);
+      const limit = Math.min(rawLines.length - 1, startIdx + maxFoldLines);
+      while (parenBalance > 0 && endSigIdx < limit) {
+        endSigIdx++;
+        parenBalance += countParenDelta(maskedLines[endSigIdx] || "");
+      }
+    }
+  }
+
+  if (endSigIdx === startIdx) {
+    return {
+      combinedRaw: rawLines[startIdx].trim(),
+      combinedMasked: firstMasked.trim(),
+      endSigIdx: startIdx,
+    };
+  }
+
+  const rawParts = [];
+  const maskedParts = [];
+  for (let k = startIdx; k <= endSigIdx; k++) {
+    rawParts.push(rawLines[k].trim());
+    maskedParts.push((maskedLines[k] || "").trim());
+  }
+  return {
+    combinedRaw: rawParts.join(" "),
+    combinedMasked: maskedParts.join(" "),
+    endSigIdx,
+  };
+}
+
+function registerReceiverType(map, rawName, rawType) {
+  if (!rawName || !rawType || COMMON_TYPE_EXCLUDES.has(rawType) || KEYWORDS.has(rawType.toLowerCase())) return;
+  const cleanVar = rawName.replace(/^this\./, "");
+  map.set(cleanVar, rawType);
+  if (!cleanVar.startsWith("_")) {
+    map.set("_" + cleanVar, rawType);
+  }
+}
+
+function extractCallsFromBody(rawLines, maskedLines, startLineIdx, bodyStartIdx, symName, classFieldTypes = null) {
   const calls = new Set();
-  const declLine = lines[startLineIdx];
-  const maxScanLines = 150;
-  let endIdx = startLineIdx;
+  const declLine = maskedLines[startLineIdx] || "";
+  const maxScanLines = 250;
+  let endIdx = bodyStartIdx;
   let hasGuard = false;
 
-  if (/=>[^;]+;/.test(declLine)) {
-    endIdx = startLineIdx;
+  if (/=>[^;]+;/.test(declLine) || (/=>[^;]+;/.test(maskedLines[bodyStartIdx] || "") && !(maskedLines[bodyStartIdx] || "").includes("{"))) {
+    endIdx = bodyStartIdx;
   } else {
     let braceCount = 0;
     let foundOpen = false;
-    for (let j = startLineIdx; j < lines.length && j - startLineIdx < maxScanLines; j++) {
-      const line = lines[j];
+    for (let j = startLineIdx; j < maskedLines.length && j - startLineIdx < maxScanLines; j++) {
+      const line = maskedLines[j];
       for (let c = 0; c < line.length; c++) {
         const char = line[c];
         if (char === "{") {
@@ -87,21 +363,25 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
     }
   }
 
+  const localTypes = new Map(classFieldTypes ? classFieldTypes.entries() : []);
   const CALL_RE = /\b([A-Za-z_$][\w$]*)\s*\(/g;
   const CQRS_RE = /\b(?:Send|Publish|Dispatch|Raise)\s*(?:<[^>]+>)?\s*\(\s*(?:new\s+)?([A-Za-z0-9_]+)/g;
   const REFLECT_RE = /\.GetMethod\s*\(\s*["']([A-Za-z0-9_]+)["']\s*\)/g;
+  const LOCAL_ASSIGN_RE = /\b([_a-zA-Z$][\w$]*)\s*=\s*new\s+([A-Z][A-Za-z0-9_]*)\s*\(/g;
+  const FIELD_ASSIGN_RE = /(?:this\.)?\b([_a-zA-Z$][\w$]*)\s*=\s*([a-zA-Z$][\w$]*)\s*;/g;
 
   for (let k = startLineIdx; k <= endIdx; k++) {
-    const row = lines[k];
-    if (COMMENT_RE.test(row)) continue;
+    const maskedRow = maskedLines[k] || "";
+    if (!maskedRow.trim()) continue;
+    const rawRow = rawLines[k] || "";
 
     if (!hasGuard) {
-      if (GUARD_RE.test(row)) {
+      if (GUARD_RE.test(maskedRow)) {
         hasGuard = true;
-      } else if (/^\s*if\s*\(/.test(row)) {
+      } else if (/^\s*if\s*\(/.test(maskedRow)) {
         for (let peek = k + 1; peek <= Math.min(k + 3, endIdx); peek++) {
-          const nextRow = lines[peek].trim();
-          if (!nextRow || COMMENT_RE.test(nextRow) || nextRow === "{" || nextRow === "}") continue;
+          const nextRow = (maskedLines[peek] || "").trim();
+          if (!nextRow || nextRow === "{" || nextRow === "}") continue;
           if (/^(?:return\b|throw\b|\{\s*(?:return\b|throw\b))/.test(nextRow)) {
             hasGuard = true;
           }
@@ -110,62 +390,142 @@ function extractCallsFromBody(lines, startLineIdx, symName) {
       }
     }
 
+    // Track local variable instantiation: var validator = new OrderValidator()
+    let localMatch;
+    while ((localMatch = LOCAL_ASSIGN_RE.exec(maskedRow)) !== null) {
+      registerReceiverType(localTypes, localMatch[1], localMatch[2]);
+    }
+
+    // Track constructor field assignment: _inventoryGateway = inventoryGateway;
+    if (classFieldTypes) {
+      let assignMatch;
+      while ((assignMatch = FIELD_ASSIGN_RE.exec(maskedRow)) !== null) {
+        const lhs = assignMatch[1];
+        const rhs = assignMatch[2];
+        if (localTypes.has(rhs) && !classFieldTypes.has(lhs)) {
+          classFieldTypes.set(lhs, localTypes.get(rhs));
+          localTypes.set(lhs, localTypes.get(rhs));
+        }
+      }
+    }
+
+    // Qualified receiver call resolution: _inventoryGateway.ReserveStockAsync(...)
+    let qualMatch;
+    while ((qualMatch = QUALIFIED_CALL_RE.exec(maskedRow)) !== null) {
+      const receiver = qualMatch[1];
+      const method = qualMatch[2];
+      if (
+        method &&
+        !KEYWORDS.has(method.toLowerCase()) &&
+        !COMMON_CALL_EXCLUDES.has(method) &&
+        localTypes.has(receiver)
+      ) {
+        const resolvedType = localTypes.get(receiver);
+        calls.add(`${resolvedType}.${method}`);
+        if (resolvedType.startsWith("I") && resolvedType.length > 2 && /^[A-Z]/.test(resolvedType[1])) {
+          calls.add(`${resolvedType.slice(1)}.${method}`);
+        }
+      }
+    }
+
     let match;
-    while ((match = CALL_RE.exec(row)) !== null) {
+    while ((match = CALL_RE.exec(maskedRow)) !== null) {
       const called = match[1];
       if (called !== symName && !KEYWORDS.has(called.toLowerCase()) && !COMMON_CALL_EXCLUDES.has(called)) {
         calls.add(called);
-        if (calls.size >= 30) break;
+        if (calls.size >= 40) break;
       }
     }
     let cqrsMatch;
-    while ((cqrsMatch = CQRS_RE.exec(row)) !== null) {
+    while ((cqrsMatch = CQRS_RE.exec(maskedRow)) !== null) {
       const cmd = cqrsMatch[1];
       if (cmd && !KEYWORDS.has(cmd.toLowerCase())) {
         calls.add(cmd);
         calls.add(cmd + "Handler");
-        if (calls.size >= 30) break;
+        if (calls.size >= 40) break;
       }
     }
     let refMatch;
-    while ((refMatch = REFLECT_RE.exec(row)) !== null) {
+    while ((refMatch = REFLECT_RE.exec(rawRow)) !== null) {
       const refMethod = refMatch[1];
       if (refMethod && !KEYWORDS.has(refMethod.toLowerCase())) {
         calls.add(refMethod);
-        if (calls.size >= 30) break;
+        if (calls.size >= 40) break;
       }
     }
     let instMatch;
-    while ((instMatch = TYPE_INST_RE.exec(row)) !== null) {
+    while ((instMatch = TYPE_INST_RE.exec(maskedRow)) !== null) {
       const tName = instMatch[1] || instMatch[2];
       if (tName && !KEYWORDS.has(tName.toLowerCase()) && !COMMON_TYPE_EXCLUDES.has(tName)) {
         calls.add(tName);
-        if (calls.size >= 30) break;
+        if (calls.size >= 40) break;
       }
     }
-    if (calls.size >= 30) break;
+    if (calls.size >= 40) break;
   }
 
-  return { calls: Array.from(calls), hasGuard };
+  return { calls: Array.from(calls), hasGuard, endLine: endIdx + 1 };
 }
 
 /**
- * Extracts parameter identifiers from a method signature string.
+ * Extracts parameter identifiers and optional parameter type bindings from a method signature string.
  */
-export function extractParamNames(signature) {
+export function extractParamNames(signature, outTypeMap = null) {
   if (!signature || typeof signature !== "string") return [];
-  const paramMatch = signature.match(/\(([^)]*)\)/);
-  if (!paramMatch || !paramMatch[1].trim()) return [];
-  const rawParams = paramMatch[1].split(",");
+  const openIdx = signature.indexOf("(");
+  if (openIdx === -1) return [];
+  let depth = 0;
+  let closeIdx = -1;
+  for (let i = openIdx; i < signature.length; i++) {
+    if (signature[i] === "(") depth++;
+    else if (signature[i] === ")") {
+      depth--;
+      if (depth === 0) {
+        closeIdx = i;
+        break;
+      }
+    }
+  }
+  const inner = closeIdx !== -1 ? signature.slice(openIdx + 1, closeIdx) : signature.slice(openIdx + 1);
+  if (!inner.trim()) return [];
+
+  // Strip nested generic brackets <...> so commas inside Dictionary<string, int> don't split parameters
+  let stripped = inner;
+  while (/<[^<>]*>/.test(stripped)) {
+    stripped = stripped.replace(/<[^<>]*>/g, "");
+  }
+
+  const rawParams = stripped.split(",");
   const params = [];
   for (const p of rawParams) {
-    const trimmed = p.trim();
+    const trimmed = p.replace(/\[[^\]]*\]/g, "").trim();
     if (!trimmed) continue;
-    const parts = trimmed.split(/\s+/);
+
+    // Check TS-style param: name: Type
+    const tsMatch = trimmed.match(/^(?:(?:public|private|protected|readonly)\s+)*([A-Za-z_$][\w$]*)\s*\??\s*:\s*([A-Za-z_$][\w$]*)/);
+    if (tsMatch) {
+      const pName = tsMatch[1];
+      const pType = tsMatch[2];
+      if (!KEYWORDS.has(pName.toLowerCase())) {
+        params.push(pName);
+        if (outTypeMap) registerReceiverType(outTypeMap, pName, pType);
+      }
+      continue;
+    }
+
+    // C# / Java / Go / Python style param: [ref/out/in/params] [Type] name [= default]
+    const noDefault = trimmed.replace(/\s*=.*$/, "").trim();
+    const parts = noDefault.split(/\s+/);
     const lastPart = parts[parts.length - 1].replace(/[:=].*$/, "").trim();
     const cleanParam = lastPart.replace(/[^A-Za-z0-9_$]/g, "");
-    if (cleanParam && !KEYWORDS.has(cleanParam.toLowerCase())) {
+    if (cleanParam && !KEYWORDS.has(cleanParam.toLowerCase()) && cleanParam !== "self" && cleanParam !== "this") {
       params.push(cleanParam);
+      if (outTypeMap && parts.length >= 2) {
+        const rawType = parts[parts.length - 2].replace(/[^A-Za-z0-9_]/g, "");
+        if (/^[A-Z]/.test(rawType)) {
+          registerReceiverType(outTypeMap, cleanParam, rawType);
+        }
+      }
     }
   }
   return params;
@@ -286,108 +646,239 @@ export function saveBucket(cacheDir, prefix, bucketData) {
 
 // ---------------------------------------------------------------- Symbol Extraction
 
+const DIRTY_BUCKETS = new Map();
+
 /**
- * Extracts symbols (types, functions, methods, properties) from source text.
+ * Flushes any deferred dirty prefix buckets in memory to disk once per bucket.
+ */
+export function flushDirtyBuckets(workspaceRoot = process.cwd()) {
+  const { cacheDir } = getCachePaths(workspaceRoot);
+  const dirtySet = DIRTY_BUCKETS.get(cacheDir);
+  if (!dirtySet || dirtySet.size === 0) return 0;
+
+  let flushed = 0;
+  for (const prefix of dirtySet) {
+    const bucketKey = path.join(cacheDir, `${prefix}.json`);
+    const bucketData = MEM_BUCKETS.get(bucketKey);
+    if (bucketData && saveBucket(cacheDir, prefix, bucketData)) {
+      flushed++;
+    }
+  }
+  dirtySet.clear();
+  return flushed;
+}
+
+/**
+ * Extracts symbols (types, functions, methods, properties) from source text
+ * using Shadow Masking, Multi-line Signature Folding, Scope Stack, and Receiver Type Resolution.
  */
 export function extractFileSymbols(content) {
   if (!content || typeof content !== "string") return [];
-  const lines = content.split(/\r?\n/);
+  const rawLines = content.split(/\r?\n/);
+  const maskedContent = maskSourceCode(content);
+  const maskedLines = maskedContent.split(/\r?\n/);
   const symbols = [];
   const seenInFile = new Set();
-  let currentTypeSym = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || COMMENT_RE.test(line) || CONTROL_RE.test(line)) continue;
+  // Scope stack entry: { sym, openBraceDepth, seenOpenBrace, fieldTypes }
+  const typeScopeStack = [];
+  let braceDepth = 0;
 
-    let sym = null;
+  for (let i = 0; i < rawLines.length; i++) {
+    const maskedLine = maskedLines[i] || "";
+    const trimmedMasked = maskedLine.trim();
 
-    // 1. Types: class, interface, struct, enum, record, trait, type
-    const typeMatch = line.match(/\b(?:class|interface|struct|enum|record|trait|type)\s+([A-Za-z_$][\w$]*)/);
-    if (typeMatch && !KEYWORDS.has(typeMatch[1].toLowerCase())) {
-      sym = { name: typeMatch[1], kind: "type", line: i + 1, signature: line.trim(), members: [], calls: [] };
-      currentTypeSym = sym;
-    }
+    if (trimmedMasked && !COMMENT_RE.test(trimmedMasked) && !CONTROL_RE.test(trimmedMasked)) {
+      const activeScope = typeScopeStack.length > 0 ? typeScopeStack[typeScopeStack.length - 1] : null;
+      const currentTypeSym = activeScope ? activeScope.sym : null;
 
-    // 2. Keyword functions: function, def, defp, defn, func, fn, sub, proc
-    if (!sym) {
-      const funcMatch = line.match(/\b(?:function|def|defp|defn|func|fun|fn|sub|proc)\s+([A-Za-z_$][\w$]*)/);
-      if (funcMatch && !KEYWORDS.has(funcMatch[1].toLowerCase())) {
-        sym = { name: funcMatch[1], kind: "func", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 3. Arrow / assign functions: const/let/var Foo = ...
-    if (!sym) {
-      const arrowMatch = line.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/);
-      if (arrowMatch && !KEYWORDS.has(arrowMatch[1].toLowerCase())) {
-        sym = { name: arrowMatch[1], kind: "func", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 4. Go method receiver: func (r *Receiver) MethodName(...)
-    if (!sym) {
-      const goMethodMatch = line.match(/\bfunc\s*\([^)]+\)\s*([A-Za-z_$][\w$]*)\s*\(/);
-      if (goMethodMatch && !KEYWORDS.has(goMethodMatch[1].toLowerCase())) {
-        sym = { name: goMethodMatch[1], kind: "func", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 5. C# / Java / C++ methods: public Task<int> CalculateDiscount(...)
-    if (!sym) {
-      const methodMatch = line.match(/(?:public|private|protected|internal|static|virtual|override|async|sealed|extern)\s+(?:[\w<>[\],.?*&]+\s+)+([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\([^;]*\)/);
-      if (methodMatch && !KEYWORDS.has(methodMatch[1].toLowerCase())) {
-        sym = { name: methodMatch[1], kind: "method", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 6. JS/TS class methods: calculateTotal(...) { or async getItems(...) {
-    if (!sym) {
-      const jsMethodMatch = line.match(/^\s*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::\s*[^{]+)?\{/);
-      if (jsMethodMatch && !KEYWORDS.has(jsMethodMatch[1].toLowerCase())) {
-        sym = { name: jsMethodMatch[1], kind: "method", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 7. C# Properties: public int Count { get; set; } or Count => ...
-    if (!sym) {
-      const propMatch = line.match(/(?:public|private|protected|internal|static|virtual|override)\s+(?:[\w<>[\],.?*&]+\s+)+([A-Za-z_$][\w$]*)\s*(?::\s*[\w<>[\],.?]+)?\s*(?:=>|\{\s*(?:get|set|init))/);
-      if (propMatch && !KEYWORDS.has(propMatch[1].toLowerCase())) {
-        sym = { name: propMatch[1], kind: "prop", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    // 8. Interface method declarations: Task<bool> ProcessOrder(...);
-    if (!sym && currentTypeSym && /interface/i.test(currentTypeSym.signature)) {
-      const ifaceMethodMatch = line.match(/^\s*(?:public\s+)?(?:[\w<>[\],.?*&]+\s+)+([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*;/);
-      if (ifaceMethodMatch && !KEYWORDS.has(ifaceMethodMatch[1].toLowerCase())) {
-        sym = { name: ifaceMethodMatch[1], kind: "method", line: i + 1, signature: line.trim() };
-      }
-    }
-
-    if (sym) {
-      const key = `${sym.name}:${sym.line}`;
-      if (!seenInFile.has(key)) {
-        seenInFile.add(key);
-        if (sym.kind === "func" || sym.kind === "method") {
-          const bodyData = extractCallsFromBody(lines, i, sym.name);
-          sym.calls = bodyData.calls;
-          sym.hasGuard = Boolean(bodyData.hasGuard);
-          sym.params = extractParamNames(sym.signature);
-          if (currentTypeSym && sym !== currentTypeSym) {
-            if (!currentTypeSym.members) currentTypeSym.members = [];
-            if (!currentTypeSym.members.includes(sym.name)) {
-              currentTypeSym.members.push(sym.name);
-            }
-          }
+      // Capture class field declarations for receiver type resolution
+      if (activeScope) {
+        const fieldMatch = maskedLine.match(FIELD_DECL_RE);
+        if (fieldMatch) {
+          registerReceiverType(activeScope.fieldTypes, fieldMatch[2], fieldMatch[1]);
         } else {
-          sym.calls = [];
-          sym.params = [];
-          sym.hasGuard = false;
+          const tsFieldMatch = maskedLine.match(TS_FIELD_DECL_RE);
+          if (tsFieldMatch) {
+            registerReceiverType(activeScope.fieldTypes, tsFieldMatch[1], tsFieldMatch[2]);
+          }
         }
-        symbols.push(sym);
+      }
+
+      // Fold multi-line signatures when '(' is unclosed across lines
+      const folded = foldSignatureLines(rawLines, maskedLines, i, 10);
+      const checkLine = folded.combinedMasked;
+      const rawSignature = folded.combinedRaw;
+
+      let sym = null;
+
+      // 1. Types: class, interface, struct, enum, record, trait, type
+      const typeMatch = checkLine.match(/\b(?:class|interface|struct|enum|record|trait|type)\s+([A-Za-z_$][\w$]*)/);
+      if (typeMatch && !KEYWORDS.has(typeMatch[1].toLowerCase())) {
+        sym = {
+          name: typeMatch[1],
+          kind: "type",
+          line: i + 1,
+          endLine: i + 1,
+          signature: rawLines[i].trim(),
+          members: [],
+          calls: [],
+        };
+        const fieldMap = new Map();
+        // Extract primary constructor parameters if present on class/record signature
+        if (checkLine.includes("(")) {
+          extractParamNames(checkLine, fieldMap);
+        }
+        typeScopeStack.push({
+          sym,
+          openBraceDepth: braceDepth,
+          seenOpenBrace: false,
+          fieldTypes: fieldMap,
+        });
+      }
+
+      // 2. Keyword functions: function, def, defp, defn, func, fn, sub, proc
+      if (!sym) {
+        const funcMatch = checkLine.match(/\b(?:function|def|defp|defn|func|fun|fn|sub|proc)\s+([A-Za-z_$][\w$]*)/);
+        if (funcMatch && !KEYWORDS.has(funcMatch[1].toLowerCase())) {
+          sym = { name: funcMatch[1], kind: "func", line: i + 1, signature: rawSignature };
+        }
+      }
+
+      // 3. Arrow / assign functions: const/let/var Foo = ...
+      if (!sym) {
+        const arrowMatch = checkLine.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/);
+        if (arrowMatch && !KEYWORDS.has(arrowMatch[1].toLowerCase())) {
+          sym = { name: arrowMatch[1], kind: "func", line: i + 1, signature: rawSignature };
+        }
+      }
+
+      // 4. Go method receiver: func (r *Receiver) MethodName(...)
+      if (!sym) {
+        const goMethodMatch = checkLine.match(/\bfunc\s*\([^)]+\)\s*([A-Za-z_$][\w$]*)\s*\(/);
+        if (goMethodMatch && !KEYWORDS.has(goMethodMatch[1].toLowerCase())) {
+          sym = { name: goMethodMatch[1], kind: "func", line: i + 1, signature: rawSignature };
+        }
+      }
+
+      // 5. C# / Java / C++ methods (including multi-line and spaced generic return types)
+      if (!sym) {
+        const methodMatch = checkLine.match(
+          /(?:public|private|protected|internal|static|virtual|override|async|sealed|extern)\s+(?:[\w.]+(?:<[\w\s,.<>[\]?*&]+>)?(?:\[\]|\?|\*|\&)?\s+)+([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\([^;]*\)/
+        );
+        if (methodMatch && !KEYWORDS.has(methodMatch[1].toLowerCase())) {
+          sym = { name: methodMatch[1], kind: "method", line: i + 1, signature: rawSignature };
+        }
+      }
+
+      // 5b. C# / Java constructors: public OrderProcessor(IInventoryGateway gateway)
+      if (!sym && currentTypeSym) {
+        const ctorMatch = checkLine.match(
+          new RegExp(`^\\s*(?:public|private|protected|internal)\\s+(${currentTypeSym.name})\\s*\\([^;]*\\)`)
+        );
+        if (ctorMatch && activeScope) {
+          extractParamNames(checkLine, activeScope.fieldTypes);
+          extractCallsFromBody(rawLines, maskedLines, i, folded.endSigIdx, currentTypeSym.name, activeScope.fieldTypes);
+        }
+      }
+
+      // 6. JS/TS class methods: calculateTotal(...) { or async getItems(...) { or constructor(...) {
+      if (!sym) {
+        const jsMethodMatch = checkLine.match(/^\s*(?:(?:public|private|protected|readonly|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::\s*[^{;]+)?\{/);
+        if (jsMethodMatch && !KEYWORDS.has(jsMethodMatch[1].toLowerCase())) {
+          if (jsMethodMatch[1] === "constructor") {
+            if (activeScope) {
+              extractParamNames(checkLine, activeScope.fieldTypes);
+            }
+          } else {
+            sym = { name: jsMethodMatch[1], kind: "method", line: i + 1, signature: rawSignature };
+          }
+        }
+      }
+
+      // 7. C# Properties: public int Count { get; set; } or Count => ...
+      if (!sym) {
+        const propMatch = maskedLine.match(
+          /(?:public|private|protected|internal|static|virtual|override)\s+(?:[\w.]+(?:<[\w\s,.<>[\]?*&]+>)?(?:\[\]|\?)?\s+)+([A-Za-z_$][\w$]*)\s*(?::\s*[\w<>[\],.?]+)?\s*(?:=>|\{\s*(?:get|set|init))/
+        );
+        if (propMatch && !KEYWORDS.has(propMatch[1].toLowerCase())) {
+          sym = { name: propMatch[1], kind: "prop", line: i + 1, endLine: i + 1, signature: rawLines[i].trim() };
+        }
+      }
+
+      // 8. Interface method declarations: Task<bool> ProcessOrder(...);
+      if (!sym && currentTypeSym && /interface/i.test(currentTypeSym.signature)) {
+        const ifaceMethodMatch = checkLine.match(
+          /^\s*(?:public\s+)?(?:[\w.]+(?:<[\w\s,.<>[\]?*&]+>)?(?:\[\]|\?)?\s+)+([A-Za-z_$][\w$]*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*;/
+        );
+        if (ifaceMethodMatch && !KEYWORDS.has(ifaceMethodMatch[1].toLowerCase())) {
+          sym = { name: ifaceMethodMatch[1], kind: "method", line: i + 1, endLine: folded.endSigIdx + 1, signature: rawSignature };
+        }
+      }
+
+      if (sym) {
+        const key = `${sym.name}:${sym.line}`;
+        if (!seenInFile.has(key)) {
+          seenInFile.add(key);
+          if (sym.kind === "func" || sym.kind === "method") {
+            const paramTypeMap = new Map(activeScope ? activeScope.fieldTypes.entries() : []);
+            sym.params = extractParamNames(checkLine, paramTypeMap);
+            if (activeScope) {
+              for (const [kParam, vType] of paramTypeMap.entries()) {
+                if (!activeScope.fieldTypes.has(kParam)) activeScope.fieldTypes.set(kParam, vType);
+              }
+            }
+            const bodyData = extractCallsFromBody(rawLines, maskedLines, i, folded.endSigIdx, sym.name, paramTypeMap);
+            sym.calls = bodyData.calls;
+            sym.hasGuard = Boolean(bodyData.hasGuard);
+            sym.endLine = bodyData.endLine;
+            if (currentTypeSym && sym !== currentTypeSym) {
+              sym.ownerType = currentTypeSym.name;
+              if (!currentTypeSym.members) currentTypeSym.members = [];
+              if (!currentTypeSym.members.includes(sym.name)) {
+                currentTypeSym.members.push(sym.name);
+              }
+            }
+          } else {
+            sym.calls = [];
+            sym.params = [];
+            sym.hasGuard = false;
+            if (!sym.endLine) sym.endLine = i + 1;
+          }
+          symbols.push(sym);
+        }
       }
     }
+
+    // Update braceDepth on maskedLine and pop closed type scopes
+    for (let c = 0; c < maskedLine.length; c++) {
+      const ch = maskedLine[c];
+      if (ch === "{") {
+        braceDepth++;
+        for (let s = 0; s < typeScopeStack.length; s++) {
+          if (braceDepth > typeScopeStack[s].openBraceDepth) {
+            typeScopeStack[s].seenOpenBrace = true;
+          }
+        }
+      } else if (ch === "}") {
+        braceDepth = Math.max(0, braceDepth - 1);
+        while (typeScopeStack.length > 0) {
+          const top = typeScopeStack[typeScopeStack.length - 1];
+          if (top.seenOpenBrace && braceDepth <= top.openBraceDepth) {
+            top.sym.endLine = i + 1;
+            typeScopeStack.pop();
+          } else {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Close any remaining unclosed type scopes (e.g. Python indentation classes or EOF)
+  while (typeScopeStack.length > 0) {
+    const top = typeScopeStack.pop();
+    top.sym.endLine = rawLines.length;
   }
 
   return symbols;
@@ -397,10 +888,12 @@ export function extractFileSymbols(content) {
 
 /**
  * Stores extracted symbols for a specific file into corresponding prefix buckets.
+ * Supports opts.deferFlush = true to batch disk writes across multi-file operations.
  */
-export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
+export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs, opts = {}) {
   const normRel = relFile.replace(/\\/g, "/");
   const { cacheDir } = ensureCacheDirs(workspaceRoot);
+  const deferFlush = Boolean(opts.deferFlush);
 
   // Group symbols by prefix
   const groups = new Map();
@@ -427,6 +920,8 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
         name: sym.name,
         file: normRel,
         line: sym.line,
+        endLine: sym.endLine || sym.line,
+        ownerType: sym.ownerType || null,
         kind: sym.kind,
         signature: sym.signature,
         calls: sym.calls || [],
@@ -437,7 +932,15 @@ export function storeSymbolsForFile(workspaceRoot, relFile, symbols, mtimeMs) {
       });
     }
 
-    saveBucket(cacheDir, prefix, bucket);
+    const bucketKey = path.join(cacheDir, `${prefix}.json`);
+    touchMemBucket(bucketKey, bucket);
+
+    if (deferFlush) {
+      if (!DIRTY_BUCKETS.has(cacheDir)) DIRTY_BUCKETS.set(cacheDir, new Set());
+      DIRTY_BUCKETS.get(cacheDir).add(prefix);
+    } else {
+      saveBucket(cacheDir, prefix, bucket);
+    }
   }
 }
 
@@ -482,8 +985,16 @@ export function invalidateFile(workspaceRoot, relFile) {
  * Returns array of valid candidates: [{ name, file, absPath, line, kind, signature, mtime }]
  */
 export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
-  const cleanSym = String(symbolName || "").trim();
-  if (!cleanSym) return [];
+  const rawSym = String(symbolName || "").trim();
+  if (!rawSym) return [];
+
+  let ownerFilter = null;
+  let cleanSym = rawSym;
+  if (rawSym.includes(".")) {
+    const parts = rawSym.split(".");
+    cleanSym = parts.pop();
+    ownerFilter = parts.pop().toLowerCase();
+  }
 
   const { cacheDir, workspaceRoot: root } = getCachePaths(workspaceRoot);
   if (!fs.existsSync(cacheDir)) return [];
@@ -503,6 +1014,12 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
 
   for (const item of candidates) {
     if (validHits.length >= maxCandidates) break;
+    if (ownerFilter && item.ownerType) {
+      const itemOwner = item.ownerType.toLowerCase();
+      if (itemOwner !== ownerFilter && itemOwner !== "i" + ownerFilter && "i" + itemOwner !== ownerFilter) {
+        continue;
+      }
+    }
     const normFile = item.file.replace(/\\/g, "/");
     if (targetFileFilter && !normFile.toLowerCase().endsWith(targetFileFilter) && !targetFileFilter.endsWith(normFile.toLowerCase())) {
       continue;
@@ -515,6 +1032,8 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
       if (Math.abs(stat.mtimeMs - item.mtime) < 5) {
         validHits.push({
           ...item,
+          endLine: item.endLine || item.line,
+          ownerType: item.ownerType || null,
           calls: item.calls || [],
           members: item.members || [],
           params: item.params || [],
@@ -534,6 +1053,8 @@ export function lookupSymbol(workspaceRoot, symbolName, opts = {}) {
               file: item.file,
               absPath,
               line: reCheck.line,
+              endLine: reCheck.endLine || reCheck.line,
+              ownerType: reCheck.ownerType || null,
               kind: reCheck.kind,
               signature: reCheck.signature,
               calls: reCheck.calls || [],
@@ -627,6 +1148,8 @@ export function indexWorkspace(workspaceRoot = process.cwd(), opts = {}) {
         name: sym.name,
         file: relFile,
         line: sym.line,
+        endLine: sym.endLine || sym.line,
+        ownerType: sym.ownerType || null,
         kind: sym.kind,
         signature: sym.signature,
         calls: sym.calls || [],

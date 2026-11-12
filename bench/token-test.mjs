@@ -122,6 +122,88 @@ try {
   const clearedStats = getCacheStats(tempWs);
   assert.strictEqual(clearedStats.totalSymbols, 0);
   console.log("  ok   getCacheStats and clearCache maintain cache hygiene");
+
+  // 5. Algorithmic Upgrade Verification: Shadow Masking, Multi-line Signatures, Scope Stack, Receiver Resolution
+  const { outline, readSymbol } = await import("../plugins/z-token/scripts/lib/scan.mjs");
+
+  const complexCs = `
+namespace Enterprise.Orders {
+  /*
+   * Multi-line comment block with fake code:
+   * public class FakeCommentedClass {
+   *   public void FakeCommentedMethod() { GhostCall(); }
+   * }
+   */
+  public class OrderProcessor {
+    private readonly IInventoryGateway _inventoryGateway;
+
+    public OrderProcessor(IInventoryGateway inventoryGateway) {
+      _inventoryGateway = inventoryGateway;
+    }
+
+    public async Task<bool> CreateComplexOrderAsync(
+        string customerId,
+        List<string> skuItems,
+        decimal discountRate,
+        CancellationToken cancellationToken = default)
+    {
+      var trickyBraces = "}} } fake closing braces inside string literal";
+      // } another fake closing brace in single-line comment
+      /* } fake brace in inline block comment */
+      var ok = await _inventoryGateway.ReserveStockAsync(customerId);
+      return ok;
+    }
+  }
+
+  public class SiblingAuditService {
+    public void RecordAudit(string msg) {
+      var x = 1;
+    }
+  }
+}
+`;
+
+  const complexFile = path.join(tempWs, "OrderProcessor.cs");
+  fs.writeFileSync(complexFile, complexCs, "utf8");
+
+  const extracted = extractFileSymbols(complexCs);
+  const symNames = extracted.map((s) => s.name);
+
+  // 5a. Shadow Masking: must ignore commented-out classes/methods
+  assert.ok(!symNames.includes("FakeCommentedClass"), "Must not extract class inside block comment");
+  assert.ok(!symNames.includes("FakeCommentedMethod"), "Must not extract method inside block comment");
+
+  // 5b. Multi-line Signature Folding: must extract 5-line method signature and all 4 params
+  const multiLineSym = extracted.find((s) => s.name === "CreateComplexOrderAsync");
+  assert.ok(multiLineSym, "Must extract multi-line method CreateComplexOrderAsync");
+  assert.deepStrictEqual(
+    multiLineSym.params,
+    ["customerId", "skuItems", "discountRate", "cancellationToken"],
+    "Must extract all 4 parameters across multi-line signature"
+  );
+  assert.ok(multiLineSym.endLine > multiLineSym.line + 5, "Must compute accurate endLine past tricky braces");
+
+  // 5c. Receiver Type Resolution: _inventoryGateway.ReserveStockAsync -> InventoryGateway.ReserveStockAsync
+  assert.ok(
+    multiLineSym.calls.includes("InventoryGateway.ReserveStockAsync") &&
+      multiLineSym.calls.includes("ReserveStockAsync"),
+    "Must resolve field receiver type _inventoryGateway -> InventoryGateway.ReserveStockAsync"
+  );
+
+  // 5d. Scope Stack: OrderProcessor.members must not leak SiblingAuditService methods
+  const orderProcType = extracted.find((s) => s.name === "OrderProcessor");
+  assert.ok(orderProcType.members.includes("CreateComplexOrderAsync"), "OrderProcessor must own CreateComplexOrderAsync");
+  assert.ok(!orderProcType.members.includes("RecordAudit"), "OrderProcessor must not leak sibling class method RecordAudit");
+
+  // 5e. readSymbol must not truncate early on string/comment closing braces
+  const readRes = readSymbol(complexFile, "CreateComplexOrderAsync", { workspaceRoot: tempWs });
+  assert.strictEqual(readRes.found, true);
+  assert.ok(readRes.text.includes("return ok;"), "readSymbol must not stop at '}} }' inside string literal");
+
+  // 5f. outline must also display multi-line method signature
+  const outlineRes = outline(complexFile, { workspaceRoot: tempWs });
+  assert.ok(outlineRes.text.includes("CreateComplexOrderAsync"), "outline must recognize multi-line method declaration");
+  console.log("  ok   Shadow Masking, Multi-line Signatures, Scope Stack, and Receiver Type Resolution verified");
 } finally {
   try { fs.rmSync(tempWs, { recursive: true, force: true }); } catch {}
 }
