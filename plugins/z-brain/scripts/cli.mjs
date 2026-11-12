@@ -10,6 +10,7 @@ import {
 import { harvestKnowledge } from './lib/harvest.mjs';
 import {
   getDb,
+  getDbPath,
   getAtomById,
   countAtoms,
   getRecentAtoms,
@@ -17,13 +18,10 @@ import {
   insertObservation,
   getKnowledgeByFile
 } from './lib/db.mjs';
-import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { resolveWorkspace } from './lib/workspace.mjs';
 import { buildPreflight } from './lib/preflight.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const [,, command, ...args] = process.argv;
 
 function printUsage() {
@@ -41,6 +39,7 @@ Usage:
   z-brain preflight <path> [--budget=300] [--symbol=Name]
   z-brain query "<search keywords>"
   z-brain status
+  z-brain db [info|backup|restore|import] [path]
   z-brain export <file.json>
   z-brain import <file.json>
 `);
@@ -184,18 +183,50 @@ switch (command) {
 
   case 'status': {
     const count = countAtoms(db);
-    const dbPath = path.resolve(__dirname, '..', 'data', 'zbrain.sqlite');
+    const dbPath = getDbPath();
     const size = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+    const schemaVersion = Number(db.prepare('PRAGMA user_version').get()?.user_version || 0);
     console.log(`
 🧠 Z-Brain Engine Status:
   • Backend: Pure Local SQLite WAL (node:sqlite)
   • Architecture: Zero-Server, Zero-Network, Zero-AME
   • Storage Path: ${dbPath}
+  • Schema Version: ${schemaVersion}
   • File Size: ${(size / (1024 * 1024)).toFixed(2)} MB
   • Total Knowledge Atoms: ${count}
   • FTS Engine: FTS5 BM25 Active
   • Concurrency: WAL mode (Zero read-write locks)
 `);
+    break;
+  }
+
+  case 'db': {
+    const admin = await import('./lib/db-admin.mjs');
+    const [sub = 'info', target] = args;
+    if (sub === 'info') {
+      console.log(admin.formatDbInfo(admin.dbInfo(db)));
+    } else if (sub === 'backup') {
+      const res = admin.backupDb(db, target);
+      console.log(`Backed up ${(res.bytes / (1024 * 1024)).toFixed(2)} MB → ${res.path}`);
+    } else if (sub === 'restore') {
+      if (!target) {
+        console.error('Usage: z-brain db restore <file.sqlite>');
+        process.exit(1);
+      }
+      const res = admin.restoreDb(db, target);
+      console.log(`Restored ${res.atoms} atoms → ${res.restored}\nPrevious state backed up to ${res.backup}`);
+    } else if (sub === 'import') {
+      if (!target) {
+        console.error('Usage: z-brain db import <file.sqlite>');
+        process.exit(1);
+      }
+      const res = admin.importDbFromPath(db, target);
+      console.log(`Imported ${res.atoms} atoms, ${res.files} files, ${res.events} events, ${res.observations} observations from ${target}`);
+    } else {
+      console.error(`Unknown db subcommand: ${sub}`);
+      printUsage();
+      process.exit(1);
+    }
     break;
   }
 

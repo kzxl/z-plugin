@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   getDb,
+  getDbPath,
   getAtomById,
   countAtoms,
   getDbStats,
@@ -379,7 +380,7 @@ async function handleToolCall(name, args) {
     }
 
     case 'zbrain_status': {
-      const dbPath = path.resolve(__dirname, '..', 'data', 'zbrain.sqlite');
+      const dbPath = getDbPath();
       let sizeBytes = 0;
       try { sizeBytes = fs.statSync(dbPath).size; } catch {}
 

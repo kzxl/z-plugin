@@ -1,23 +1,130 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DATA_DIR = path.resolve(__dirname, '..', '..', 'data');
-const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'zbrain.sqlite');
+const PLUGIN_ROOT = path.resolve(__dirname, '..', '..');
+const DB_FILENAME = 'brain.sqlite';
+// Pre-1.9 releases kept one database inside every host's plugin copy.
+const LEGACY_DB_FILENAMES = ['brain.sqlite', 'zbrain.sqlite'];
+
+// Bump when a migration step is added. Databases newer than this code are rejected
+// instead of being silently mutated by an older host.
+export const SCHEMA_VERSION = 2;
 
 let _dbInstance = null;
+
+export function defaultDataDir() {
+  return process.env.ZBRAIN_DATA_DIR || path.join(os.homedir(), '.z-plugin');
+}
+
+export function hashPath(filePath) {
+  return createHash('sha1').update(path.resolve(filePath).toLowerCase()).digest('hex').slice(0, 12);
+}
+
+function defaultDbPath() {
+  return path.join(defaultDataDir(), DB_FILENAME);
+}
+
+function countAtomsInFile(file) {
+  let db = null;
+  try {
+    db = new DatabaseSync(file, { readOnly: true });
+    return db.prepare('SELECT count(*) AS c FROM knowledge_atoms').get().c;
+  } catch {
+    return 0;
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
+export function legacyDbCandidates() {
+  if (process.env.ZBRAIN_LEGACY_DB) {
+    return process.env.ZBRAIN_LEGACY_DB
+      .split(path.delimiter)
+      .map((entry) => path.resolve(entry.trim()))
+      .filter((entry) => entry && fs.existsSync(entry));
+  }
+  const home = os.homedir();
+  const dirs = [
+    path.join(defaultDataDir()),
+    path.join(PLUGIN_ROOT, 'data'),
+    path.join(home, '.zcode', 'plugins', 'z-brain', 'data'),
+    path.join(home, '.gemini', 'config', 'plugins', 'z-brain', 'data'),
+  ];
+  const qoderCache = path.join(home, '.qoder', 'plugins', 'cache', 'local', 'z-plugin');
+  try {
+    for (const version of fs.readdirSync(qoderCache)) {
+      dirs.push(path.join(qoderCache, version, 'plugins', 'z-brain', 'data'));
+    }
+  } catch {}
+  const candidates = dirs.flatMap((dir) => LEGACY_DB_FILENAMES.map((name) => path.join(dir, name)));
+  return [...new Set(candidates.map((entry) => path.resolve(entry)))]
+    .filter((entry) => fs.existsSync(entry));
+}
+
+// One-time adoption of the richest pre-1.9 database. Copies a consistent snapshot
+// (VACUUM INTO) and links it into place, so concurrent hooks can never observe a
+// half-written file and later adoptions see it already exists.
+function adoptLegacyDb(dbPath) {
+  if (fs.existsSync(dbPath) || process.env.ZBRAIN_ADOPT_LEGACY === '0') return null;
+  const best = legacyDbCandidates()
+    .filter((file) => path.resolve(file) !== path.resolve(dbPath))
+    .map((file) => ({ file, atoms: countAtomsInFile(file) }))
+    .filter((candidate) => candidate.atoms > 0)
+    .sort((a, b) => b.atoms - a.atoms)[0];
+  if (!best) return null;
+
+  const tmp = path.join(path.dirname(dbPath), `.adopt-${process.pid}-${Date.now()}.tmp`);
+  let source = null;
+  try {
+    source = new DatabaseSync(best.file);
+    source.exec('PRAGMA busy_timeout = 5000;');
+    source.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+    try {
+      fs.linkSync(tmp, dbPath);
+    } catch (err) {
+      if (err.code !== 'EEXIST') fs.copyFileSync(tmp, dbPath, fs.constants.COPYFILE_EXCL);
+    }
+    return { from: best.file, atoms: best.atoms };
+  } catch {
+    return null;
+  } finally {
+    try { source?.close(); } catch {}
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
+function applySchemaVersion(db) {
+  const current = Number(db.prepare('PRAGMA user_version').get()?.user_version || 0);
+  if (current > SCHEMA_VERSION) {
+    throw new Error(
+      `z-brain database schema v${current} is newer than this plugin (v${SCHEMA_VERSION}). `
+      + 'Update z-plugin or point ZBRAIN_DB_PATH at another database.'
+    );
+  }
+  if (current === SCHEMA_VERSION) return;
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  try {
+    if (current > 0) setMeta(db, 'schema_upgraded_from', current);
+    setMeta(db, 'schema_version', SCHEMA_VERSION);
+  } catch {}
+}
 
 export function getDb(customPath = null) {
   if (_dbInstance && !customPath) return _dbInstance;
 
-  const dbPath = customPath || process.env.ZBRAIN_DB_PATH || DEFAULT_DB_PATH;
+  const dbPath = path.resolve(customPath || process.env.ZBRAIN_DB_PATH || defaultDbPath());
   const dbDir = path.dirname(dbPath);
 
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
+
+  const adopt = (!customPath && !process.env.ZBRAIN_DB_PATH) ? adoptLegacyDb(dbPath) : null;
 
   const db = new DatabaseSync(dbPath);
 
@@ -26,10 +133,18 @@ export function getDb(customPath = null) {
   db.exec('PRAGMA synchronous = NORMAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA cache_size = -32000;'); // 32MB cache
-  db.exec('PRAGMA busy_timeout = 3000;'); // Hooks and the MCP server may write concurrently
+  db.exec('PRAGMA busy_timeout = 8000;'); // Multiple hosts and hooks may write concurrently
 
   // Initialize Tables and Triggers automatically
   initSchema(db);
+  applySchemaVersion(db);
+
+  if (adopt) {
+    try {
+      setMeta(db, 'legacy_adopted_from', JSON.stringify(adopt));
+      setMeta(db, `legacy_merged:${hashPath(adopt.from)}`, new Date().toISOString());
+    } catch {}
+  }
 
   if (!customPath) {
     _dbInstance = db;
@@ -583,7 +698,7 @@ export function queryEntityGraph(db, { project = null, name = null, relation = n
 // ---------------------------------------------------------------- File observer store
 
 export function getDbPath() {
-  return process.env.ZBRAIN_DB_PATH || DEFAULT_DB_PATH;
+  return path.resolve(process.env.ZBRAIN_DB_PATH || defaultDbPath());
 }
 
 export function getDataDir() {

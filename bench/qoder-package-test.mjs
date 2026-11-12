@@ -31,6 +31,7 @@ try {
   const files = fs.readdirSync(unpacked, { recursive: true }).filter(file => fs.statSync(path.join(unpacked, file)).isFile());
   assert(!files.some(file => /\.(sqlite|db|log)(?:$|-)|node_modules|hooks\.json|settings\.json/.test(file)));
   assert(files.includes(path.join('plugins', 'z-brain', 'scripts', 'lib', 'preflight.mjs')), 'z-brain preflight runtime is packaged');
+  assert(files.includes(path.join('plugins', 'z-brain', 'scripts', 'lib', 'db-admin.mjs')), 'z-brain db admin runtime is packaged');
   for (const file of files.filter(file => file.endsWith('.mjs'))) execFileSync(process.execPath, ['--check', path.join(unpacked, file)]);
   for (const [name, server] of Object.entries(config.mcpServers)) {
     assert.equal(server.command, 'node');

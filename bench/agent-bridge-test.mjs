@@ -10,6 +10,8 @@ import { calculateSemanticSimilarity, searchKnowledge } from '../plugins/z-brain
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeos-bridge-test-'));
+// Never let a test suite touch the real per-user z-brain database.
+process.env.ZBRAIN_DB_PATH = path.join(tempDir, 'zbrain.sqlite');
 
 let passed = 0;
 function testAssert(cond, msg) {

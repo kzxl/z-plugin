@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0
+
+- **One memory for every IDE**: z-brain now stores its database at `~/.z-plugin/brain.sqlite` (override with `ZBRAIN_DB_PATH` or `ZBRAIN_DATA_DIR`) instead of inside each host's plugin copy. Knowledge harvested in Qoder, ZCode or Antigravity is visible to all of them.
+- **Automatic legacy adoption**: on first run the richest pre-1.9 database (own plugin data, ZCode, Antigravity or Qoder caches) is snapshotted with `VACUUM INTO` and linked into place; the source file is kept untouched. Disable with `ZBRAIN_ADOPT_LEGACY=0`.
+- **Schema versioning**: `PRAGMA user_version` is stamped and a database written by a newer plugin is rejected instead of being silently mutated by an older host.
+- **Database admin commands**: `z-brain db info` (path, schema, atoms, projects, legacy databases, spool), `db backup`, `db restore` (auto-backs up first) and `db import <file>` (deduplicated merge of atoms, file index, edit events and observations).
+- **Higher write timeout**: `busy_timeout` raised to 8s so several hosts and hooks can share one database.
+
 ## 1.8.0
 
 - **Pre-flight Brief**: `zbrain_impact(file, brief: true)`, `z-brain preflight <file>` and `observe.mjs preflight <file>` return a hard-capped (~300-token) pre-edit brief: 30-day churn with recent deltas, call-graph blast radius and God Nodes from the z-token symbol cache, co-edited files from the same sessions, impacted test files, verified gotchas, and the matching z-mind invariant.

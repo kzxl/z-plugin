@@ -186,9 +186,14 @@ function summarizeWindow(entries, sinceMs) {
 }
 
 function resolveDefaultBrainDb() {
+  const home = os.homedir();
+  const dataDir = process.env.ZBRAIN_DATA_DIR || path.join(home, ".z-plugin");
   const candidates = [
     process.env.ZBRAIN_DB_PATH,
-    path.join(os.homedir(), ".gemini", "config", "plugins", "z-brain", "data", "zbrain.sqlite"),
+    path.join(dataDir, "brain.sqlite"),
+    path.join(dataDir, "zbrain.sqlite"),
+    path.join(home, ".zcode", "plugins", "z-brain", "data", "zbrain.sqlite"),
+    path.join(home, ".gemini", "config", "plugins", "z-brain", "data", "zbrain.sqlite"),
     path.resolve(__dirname, "..", "..", "..", "z-brain", "data", "zbrain.sqlite"),
   ].filter(Boolean);
   for (const p of candidates) {
@@ -849,7 +854,7 @@ export function renderDashboardHtml(metrics, opts = {}) {
           + " · " + ((METRICS.brain.edits || {}).editsToday || 0) + " edits today";
       } else {
         document.getElementById("kpi-brain-atoms").textContent = "Offline";
-        document.getElementById("kpi-brain-sub").textContent = "No zbrain.sqlite detected";
+        document.getElementById("kpi-brain-sub").textContent = "No brain.sqlite detected";
       }
 
       recalculateEconomics();

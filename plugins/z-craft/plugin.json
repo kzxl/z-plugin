@@ -2,7 +2,7 @@
   "name": "z-craft",
   "displayName": "Z-Craft",
   "description": "Software craftsmanship engine: anti-slop linter, 4-state UX micro-contract generator, generative canvas preview, and vibe time-machine.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "author": "kzxl",
   "suggestedPrompts": [
     "/z-craft spec",

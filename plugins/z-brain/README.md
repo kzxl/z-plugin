@@ -16,16 +16,18 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 | MCP tools `zbrain_history`, `zbrain_changes`, `zbrain_impact` | Per-file edit history, recent workspace changes, and file impact context |
 | MCP tool `zbrain_impact(..., brief: true)` | Hard-capped ~300-token pre-flight brief: churn, blast radius, co-edits, impacted tests, gotchas, invariant |
 | Hook `harvest-advisor` | PostToolUse hook that prompts the agent to harvest lessons after successful test runs |
-| CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`) |
+| CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`, `preflight`, `db`) |
 | Skill `z-brain` | Teaches agents to perform progressive disclosure sweeps before writing code |
 | Rules `rules/z-brain-rules.md` | Universal invariant rules for episodic memory management |
-| Database `data/zbrain.sqlite` | WAL-mode SQLite database with FTS5 virtual table and synchronization triggers |
+| Database `~/.z-plugin/brain.sqlite` | One WAL-mode SQLite database per user (FTS5 + triggers), shared by every IDE; override with `ZBRAIN_DB_PATH` |
 
 ## Architecture & Storage
 
 - **Storage Backend**: Embedded `node:sqlite` (Node.js 22+ native synchronous binding).
 - **Zero Server**: No PostgreSQL, no Docker, no background memory daemon running.
-- **Concurrency**: `PRAGMA journal_mode = WAL` and `PRAGMA synchronous = NORMAL` for non-blocking concurrent reads and writes across Antigravity and ZCode.
+- **Shared Location**: The database lives at `~/.z-plugin/brain.sqlite` (`ZBRAIN_DATA_DIR` / `ZBRAIN_DB_PATH` override it), so lessons learned in Qoder, ZCode or Antigravity are visible everywhere. On first run the richest pre-1.9 database is adopted automatically (`ZBRAIN_ADOPT_LEGACY=0` disables it) and the old file is kept untouched.
+- **Schema Gate**: `PRAGMA user_version` is stamped; a database written by a newer plugin is rejected instead of being mutated by an older host.
+- **Concurrency**: `PRAGMA journal_mode = WAL`, `synchronous = NORMAL` and an 8s `busy_timeout` for non-blocking concurrent reads and writes across hosts and hooks.
 - **FTS Engine**: SQLite FTS5 with BM25 ranking and automatic triggers keeping index in sync with `knowledge_atoms`.
 
 ## Smart Episodic Features
@@ -57,4 +59,12 @@ node scripts/cli.mjs harvest "Deadlock on RefInId | Missing composite index | Ad
 
 # Pre-edit brief (churn, blast radius, gotchas, invariant)
 node scripts/cli.mjs preflight src/OrderService.cs
+
+# Inspect the shared database and adopt an older copy
+node scripts/cli.mjs db info
+node scripts/cli.mjs db import "C:/Users/me/.zcode/plugins/z-brain/data/zbrain.sqlite"
+
+# Snapshot and roll back
+node scripts/cli.mjs db backup
+node scripts/cli.mjs db restore "$HOME/.z-plugin/backups/zbrain-2026-11-12T08-00-00.sqlite"
 ```
