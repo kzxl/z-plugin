@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { projectIdentity } from './workspace.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(__dirname, '..', '..');
@@ -13,7 +14,7 @@ const LEGACY_DB_FILENAMES = ['brain.sqlite', 'zbrain.sqlite'];
 
 // Bump when a migration step is added. Databases newer than this code are rejected
 // instead of being silently mutated by an older host.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 let _dbInstance = null;
 
@@ -270,12 +271,22 @@ export function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_index_project_mtime ON file_index(project_id, mtime DESC);
     CREATE INDEX IF NOT EXISTS idx_index_workspace ON file_index(workspace);
 
-    -- Observer bookkeeping (baseline marker, retention timestamps)
+    -- Observer bookkeeping (baseline marker, retention timestamps, leader leases)
     CREATE TABLE IF NOT EXISTS observer_meta (
       key TEXT PRIMARY KEY,
       value TEXT,
       updated_at TEXT NOT NULL
     );
+
+    -- Stable project identity per workspace root and git remote
+    CREATE TABLE IF NOT EXISTS project_registry (
+      root TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      remote TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_registry_id ON project_registry(project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_registry_remote ON project_registry(remote);
 
     -- Knowledge Graph (L3 Memory Hierarchy): Entity Nodes and Relational Edges
     CREATE TABLE IF NOT EXISTS entity_nodes (
@@ -716,6 +727,96 @@ export function setMeta(db, key, value) {
     INSERT INTO observer_meta (key, value, updated_at) VALUES (?, ?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `).run(key, value == null ? null : String(value), now);
+}
+
+/**
+ * Stable project id for a workspace root.
+ *
+ * The registry is the source of truth once written, so the id never drifts when a
+ * folder is renamed or moved. A clone of the same repository (matching remote)
+ * reuses the first id, while two different repositories sharing a folder name get
+ * distinct fingerprinted ids. Legacy basename ids are preserved when this root
+ * already owns them in file_index, so pre-1.10 history stays attached.
+ */
+export function resolveProjectId(db, root) {
+  const identity = projectIdentity(root);
+  const known = db.prepare('SELECT project_id FROM project_registry WHERE root = ?').get(identity.root);
+  if (known) return known.project_id;
+
+  let projectId = null;
+  if (identity.slug === 'global') {
+    // Generic roots intentionally share one bucket; salting it would split history.
+    projectId = 'global';
+  } else if (identity.remote) {
+    const sameRemote = db.prepare(
+      'SELECT project_id FROM project_registry WHERE remote = ? ORDER BY updated_at ASC LIMIT 1'
+    ).get(identity.remote);
+    if (sameRemote) projectId = sameRemote.project_id;
+  }
+  if (!projectId) {
+    const claimedByRegistry = db.prepare(
+      'SELECT 1 FROM project_registry WHERE project_id = ? AND root <> ? LIMIT 1'
+    ).get(identity.slug, identity.root);
+    const ownedByOtherRoot = db.prepare(
+      'SELECT 1 FROM file_index WHERE project_id = ? AND workspace <> ? LIMIT 1'
+    ).get(identity.slug, identity.root);
+    const ownLegacyRows = db.prepare(
+      'SELECT 1 FROM file_index WHERE project_id = ? AND workspace = ? LIMIT 1'
+    ).get(identity.slug, identity.root);
+    projectId = (ownLegacyRows || (!claimedByRegistry && !ownedByOtherRoot))
+      ? identity.slug
+      : `${identity.slug}-${identity.fingerprint}`;
+  }
+
+  try {
+    db.prepare(`
+      INSERT INTO project_registry (root, project_id, remote, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(root) DO UPDATE SET
+        project_id = excluded.project_id,
+        remote = excluded.remote,
+        updated_at = excluded.updated_at
+    `).run(identity.root, projectId, identity.remote, new Date().toISOString());
+  } catch {}
+  return projectId;
+}
+
+export function isBusyError(err) {
+  return /SQLITE_BUSY|SQLITE_LOCKED|database is locked|database table is locked/i.test(String(err?.message || err));
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Several IDE hosts and hooks share one database; WAL still returns busy when a
+// writer holds the lock, so writes retry with capped exponential jitter.
+export function withBusyRetry(fn, { retries = 5, baseMs = 20, maxMs = 400 } = {}) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return fn();
+    } catch (err) {
+      if (!isBusyError(err) || attempt >= retries) throw err;
+      sleepSync(Math.min(maxMs, baseMs * 2 ** attempt) + Math.floor(Math.random() * baseMs));
+      attempt++;
+    }
+  }
+}
+
+export function transact(db, fn) {
+  return withBusyRetry(() => {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn();
+      db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {}
+      throw err;
+    }
+  });
 }
 
 export function upsertFileIndex(db, entry) {

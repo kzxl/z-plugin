@@ -26,29 +26,44 @@ import {
   getMeta,
   setMeta,
   pruneFileEvents,
+  resolveProjectId,
+  transact,
 } from './db.mjs';
 
 import {
   MAX_INDEX_BYTES,
   countLines,
+  gitHead,
   gitNumstat,
+  gitStatusChanges,
   hashText,
   isIgnored,
   languageOf,
   listWorkspaceFiles,
   normalizeRel,
   readTextFile,
-  resolveProjectId,
   resolveWorkspace,
   statFile,
   toWorkspaceRel,
 } from './workspace.mjs';
+
+import {
+  DEFAULT_LEASE_TTL_MS,
+  acquireLease,
+  defaultOwner,
+  leaseStatus,
+  releaseLease,
+} from './leader.mjs';
 
 const COALESCE_WINDOW_MS = 120000;
 const PATCH_CAP = 4096;
 const MAX_EVENTS_PER_RECONCILE = 200;
 const MAX_SPOOL_LINES = 5000;
 const RETENTION_INTERVAL_MS = 86400000;
+const FULL_SWEEP_MS = 10 * 60 * 1000;
+const LEASE_TTL_MS = DEFAULT_LEASE_TTL_MS;
+const LEASE_RENEW_MS = 30000;
+const WRITE_BATCH = 400;
 
 const FILE_KEYS = [
   'file_path', 'filePath', 'path', 'Path', 'absolute_path', 'absolutePath',
@@ -65,7 +80,7 @@ const SECRET_RULES = [
   [/((?:server|data source|host)=[^;\n]*?;\s*(?:password|pwd)=)[^;\n]+/gi, '$1[REDACTED]'],
 ];
 
-const observerState = { started: false, watchers: new Map(), timer: null };
+const observerState = { started: false, watchers: new Map(), timer: null, leader: false, lease: null, leaseKey: null, leaseTimer: null, owner: null };
 
 export function redactText(input) {
   if (!input) return { text: input || '', redacted: false };
@@ -212,13 +227,29 @@ export function flushSpool(db, { limit = 500 } = {}) {
 
   const failures = [];
   let flushed = 0;
-  for (const line of lines.slice(0, limit)) {
-    try {
-      const ev = JSON.parse(line);
-      if (ev.path) insertFileEvent(db, ev);
-      flushed++;
-    } catch {
-      failures.push(line);
+  const batch = lines.slice(0, limit);
+  try {
+    transact(db, () => {
+      for (const line of batch) {
+        const ev = JSON.parse(line);
+        if (ev.path) insertFileEvent(db, ev);
+        flushed++;
+      }
+    });
+  } catch {
+    // A malformed line aborts the batch; retry line by line so one bad event
+    // does not block the rest of the spool.
+    flushed = 0;
+    for (const line of batch) {
+      try {
+        const ev = JSON.parse(line);
+        transact(db, () => {
+          if (ev.path) insertFileEvent(db, ev);
+        });
+        flushed++;
+      } catch {
+        failures.push(line);
+      }
     }
   }
   const rest = lines.slice(limit);
@@ -243,18 +274,18 @@ export function applyRetention(db, { force = false } = {}) {
   return result;
 }
 
-function resolveTarget(normalized) {
+function resolveTarget(normalized, db) {
   const root = resolveWorkspace(normalized.cwd);
   const abs = path.isAbsolute(normalized.filePath)
     ? normalized.filePath
     : path.resolve(root, normalized.filePath);
   const rel = toWorkspaceRel(root, abs) || normalizeRel(normalized.filePath);
-  return { root, abs, rel, project: resolveProjectId(root) };
+  return { root, abs, rel, project: resolveProjectId(db, root) };
 }
 
 export function recordEdit(db, normalized, { source = 'hook', now = new Date() } = {}) {
   if (!normalized.filePath) return { skipped: 'no-file' };
-  const { root, abs, rel, project } = resolveTarget(normalized);
+  const { root, abs, rel, project } = resolveTarget(normalized, db);
   if (!rel || isIgnored(rel)) return { skipped: 'ignored' };
   if (isObserverInternal(abs)) return { skipped: 'internal' };
 
@@ -306,41 +337,43 @@ export function recordEdit(db, normalized, { source = 'hook', now = new Date() }
   };
 
   try {
-    const sinceIso = new Date(now.getTime() - COALESCE_WINDOW_MS).toISOString();
-    let eventId;
-    if (op !== 'delete') {
-      const prior = findCoalescibleEvent(db, {
-        workspace: root, path: rel, session_id: event.session_id, source, op, sinceIso,
-      });
-      if (prior) {
-        eventId = prior.id;
-        updateFileEvent(db, prior.id, {
-          lines_added: Number(prior.lines_added || 0) + linesAdded,
-          lines_removed: Number(prior.lines_removed || 0) + linesRemoved,
-          new_hash: newHash,
-          patch: mergePatches(prior.patch, built.patch),
-          redacted: Boolean(prior.redacted) || built.redacted,
-          updated_at: event.updated_at,
+    return transact(db, () => {
+      const sinceIso = new Date(now.getTime() - COALESCE_WINDOW_MS).toISOString();
+      let eventId;
+      if (op !== 'delete') {
+        const prior = findCoalescibleEvent(db, {
+          workspace: root, path: rel, session_id: event.session_id, source, op, sinceIso,
         });
-        event.coalesced = true;
+        if (prior) {
+          eventId = prior.id;
+          updateFileEvent(db, prior.id, {
+            lines_added: Number(prior.lines_added || 0) + linesAdded,
+            lines_removed: Number(prior.lines_removed || 0) + linesRemoved,
+            new_hash: newHash,
+            patch: mergePatches(prior.patch, built.patch),
+            redacted: Boolean(prior.redacted) || built.redacted,
+            updated_at: event.updated_at,
+          });
+          event.coalesced = true;
+        } else {
+          eventId = insertFileEvent(db, event);
+        }
       } else {
         eventId = insertFileEvent(db, event);
       }
-    } else {
-      eventId = insertFileEvent(db, event);
-    }
 
-    if (op === 'delete') {
-      deleteFileIndexEntry(db, root, rel);
-    } else if (st) {
-      upsertFileIndex(db, {
-        project_id: project, workspace: root, path: rel,
-        mtime: st.mtimeMs, size: st.size, hash: newHash,
-        lang: languageOf(rel), status: 'clean',
-        last_event_id: eventId, updated_at: event.updated_at,
-      });
-    }
-    return { path: rel, op, eventId, coalesced: Boolean(event.coalesced), redacted: built.redacted };
+      if (op === 'delete') {
+        deleteFileIndexEntry(db, root, rel);
+      } else if (st) {
+        upsertFileIndex(db, {
+          project_id: project, workspace: root, path: rel,
+          mtime: st.mtimeMs, size: st.size, hash: newHash,
+          lang: languageOf(rel), status: 'clean',
+          last_event_id: eventId, updated_at: event.updated_at,
+        });
+      }
+      return { path: rel, op, eventId, coalesced: Boolean(event.coalesced), redacted: built.redacted };
+    });
   } catch (err) {
     // SQLite locked by another process: keep the event, flush on the next MCP call.
     appendSpool(event);
@@ -352,25 +385,145 @@ export function recordHookInput(db, raw, { env = process.env } = {}) {
   return recordEdit(db, normalizeHookEvent(raw, env), { source: 'hook' });
 }
 
-export function reconcile(db, {
-  cwd = process.cwd(),
-  sessionId = 'reconcile',
-  budgetMs = 1500,
-  maxFiles = 20000,
-  emit = true,
-} = {}) {
-  const root = resolveWorkspace(cwd);
-  const project = resolveProjectId(root);
-  const baselineKey = `baseline:${hashText(root)}`;
-  const baselineDone = Boolean(getMeta(db, baselineKey));
-  const startedAt = Date.now();
+const indexEntry = (project, root, rel, st, hash, status = 'clean') => ({
+  project_id: project, workspace: root, path: rel,
+  mtime: st.mtimeMs, size: st.size, hash,
+  lang: languageOf(rel), status,
+});
 
+function applyIndexWrites(db, writes) {
+  for (let i = 0; i < writes.length; i += WRITE_BATCH) {
+    const batch = writes.slice(i, i + WRITE_BATCH);
+    transact(db, () => {
+      for (const entry of batch) upsertFileIndex(db, entry);
+    });
+  }
+}
+
+function applyIndexDeletes(db, root, deletes) {
+  for (let i = 0; i < deletes.length; i += WRITE_BATCH) {
+    const batch = deletes.slice(i, i + WRITE_BATCH);
+    transact(db, () => {
+      for (const rel of batch) deleteFileIndexEntry(db, root, rel);
+    });
+  }
+}
+
+function applyEvents(db, events, { emit, project, root, sessionId, nowIso }) {
+  if (!emit || events.length === 0) return;
+  if (events.length > MAX_EVENTS_PER_RECONCILE) {
+    transact(db, () => insertFileEvent(db, {
+      project_id: project, workspace: root, session_id: sessionId,
+      path: '.', op: 'bulk', tool: null, source: 'reconcile',
+      patch: `Bulk change: ${events.length} file(s)`, created_at: nowIso,
+    }));
+    return;
+  }
+  for (let i = 0; i < events.length; i += WRITE_BATCH) {
+    const batch = events.slice(i, i + WRITE_BATCH);
+    transact(db, () => {
+      for (const ev of batch) {
+        insertFileEvent(db, {
+          project_id: project, workspace: root, session_id: sessionId,
+          source: 'reconcile', ...ev, patch: null, created_at: nowIso,
+        });
+      }
+    });
+  }
+}
+
+function scanIncremental(db, { root, project, budgetMs, maxFiles, startedAt }) {
+  const statusChanges = gitStatusChanges(root);
+  if (!statusChanges) return null;
+  const events = [];
+  const indexWrites = [];
+  const indexDeletes = [];
+  let numstat = null;
+  const diffOf = (rel) => (numstat ??= gitNumstat(root)).get(rel) || { added: 0, removed: 0 };
+  let timedOut = false;
+  let skipped = 0;
+
+  for (const [rel, kind] of statusChanges) {
+    if (Date.now() - startedAt > budgetMs) {
+      timedOut = true;
+      break;
+    }
+    const abs = path.join(root, rel);
+    if (isObserverInternal(abs)) continue;
+    const prev = getFileIndexEntry(db, root, rel);
+    const st = kind === 'deleted' ? null : statFile(abs);
+
+    if (!st) {
+      if (!prev) continue;
+      events.push({
+        path: rel, op: 'delete', old_hash: prev.hash, new_hash: null,
+        lines_added: 0, lines_removed: 0,
+      });
+      indexDeletes.push(rel);
+      continue;
+    }
+
+    if (st.size > MAX_INDEX_BYTES) {
+      indexWrites.push(indexEntry(project, root, rel, st, null, 'skipped-large'));
+      continue;
+    }
+
+    const text = readTextFile(abs);
+    const hash = text != null ? hashText(text) : null;
+    if (!prev) {
+      events.push({
+        path: rel, op: 'create', old_hash: null, new_hash: hash,
+        lines_added: text ? countLines(text) : 0, lines_removed: 0,
+      });
+      indexWrites.push(indexEntry(project, root, rel, st, hash));
+      continue;
+    }
+    if (prev.hash && hash && prev.hash === hash) {
+      if (Math.abs(prev.mtime - st.mtimeMs) > 5 || prev.size !== st.size) {
+        indexWrites.push(indexEntry(project, root, rel, st, hash));
+      }
+      skipped++;
+      continue;
+    }
+
+    const diff = diffOf(rel);
+    events.push({
+      path: rel, op: 'update', old_hash: prev.hash, new_hash: hash,
+      lines_added: diff.added, lines_removed: diff.removed,
+    });
+    indexWrites.push(indexEntry(project, root, rel, st, hash));
+  }
+
+  // Untracked files deleted since the last pass leave no git status entry, so
+  // reconcile the index against the current file list to catch them.
+  if (!timedOut) {
+    const listed = listWorkspaceFiles(root, { limit: maxFiles });
+    if (!listed.truncated) {
+      const present = new Set(listed.files);
+      const removed = new Set(indexDeletes);
+      for (const prev of listFileIndex(db, { workspace: root, limit: maxFiles + 1000 })) {
+        if (present.has(prev.path) || removed.has(prev.path) || isIgnored(prev.path)) continue;
+        events.push({
+          path: prev.path, op: 'delete', old_hash: prev.hash, new_hash: null,
+          lines_added: 0, lines_removed: 0,
+        });
+        indexDeletes.push(prev.path);
+      }
+    }
+  }
+
+  return { events, indexWrites, indexDeletes, timedOut, skipped, source: 'git-status' };
+}
+
+function scanFull(db, { root, project, baselineDone, budgetMs, maxFiles, startedAt }) {
   const listed = listWorkspaceFiles(root, { limit: maxFiles });
   const indexed = listFileIndex(db, { workspace: root, limit: maxFiles + 1000 });
   const prevMap = new Map(indexed.map((row) => [row.path, row]));
   const exists = new Set();
   const events = [];
-  const numstat = gitNumstat(root);
+  const indexWrites = [];
+  const indexDeletes = [];
+  const numstat = baselineDone ? gitNumstat(root) : new Map();
   let timedOut = false;
   let skipped = 0;
 
@@ -386,24 +539,15 @@ export function reconcile(db, {
     exists.add(rel);
 
     if (st.size > MAX_INDEX_BYTES) {
-      upsertFileIndex(db, {
-        project_id: project, workspace: root, path: rel,
-        mtime: st.mtimeMs, size: st.size, hash: null,
-        lang: languageOf(rel), status: 'skipped-large',
-      });
+      indexWrites.push(indexEntry(project, root, rel, st, null, 'skipped-large'));
       continue;
     }
 
     const prev = prevMap.get(rel);
     if (!baselineDone) {
-      upsertFileIndex(db, {
-        project_id: project, workspace: root, path: rel,
-        mtime: st.mtimeMs, size: st.size, hash: null,
-        lang: languageOf(rel), status: 'clean',
-      });
+      indexWrites.push(indexEntry(project, root, rel, st, null));
       continue;
     }
-
     if (!prev) {
       const text = readTextFile(abs);
       const hash = text != null ? hashText(text) : null;
@@ -411,11 +555,7 @@ export function reconcile(db, {
         path: rel, op: 'create', old_hash: null, new_hash: hash,
         lines_added: text ? countLines(text) : 0, lines_removed: 0,
       });
-      upsertFileIndex(db, {
-        project_id: project, workspace: root, path: rel,
-        mtime: st.mtimeMs, size: st.size, hash,
-        lang: languageOf(rel), status: 'clean',
-      });
+      indexWrites.push(indexEntry(project, root, rel, st, hash));
       continue;
     }
 
@@ -429,11 +569,7 @@ export function reconcile(db, {
     const text = readTextFile(abs);
     const hash = text != null ? hashText(text) : null;
     if (prev.hash && hash && prev.hash === hash) {
-      upsertFileIndex(db, {
-        project_id: project, workspace: root, path: rel,
-        mtime: st.mtimeMs, size: st.size, hash,
-        lang: languageOf(rel), status: 'clean',
-      });
+      indexWrites.push(indexEntry(project, root, rel, st, hash));
       skipped++;
       continue;
     }
@@ -443,11 +579,7 @@ export function reconcile(db, {
       path: rel, op: 'update', old_hash: prev.hash, new_hash: hash,
       lines_added: diff.added, lines_removed: diff.removed,
     });
-    upsertFileIndex(db, {
-      project_id: project, workspace: root, path: rel,
-      mtime: st.mtimeMs, size: st.size, hash,
-      lang: languageOf(rel), status: 'clean',
-    });
+    indexWrites.push(indexEntry(project, root, rel, st, hash));
   }
 
   if (baselineDone) {
@@ -457,52 +589,83 @@ export function reconcile(db, {
         path: prev.path, op: 'delete', old_hash: prev.hash, new_hash: null,
         lines_added: 0, lines_removed: 0,
       });
-      deleteFileIndexEntry(db, root, prev.path);
+      indexDeletes.push(prev.path);
     }
   }
 
+  return {
+    events, indexWrites, indexDeletes, timedOut, skipped,
+    source: listed.source,
+    indexedCount: listed.files.length,
+    truncated: listed.truncated,
+  };
+}
+
+export function reconcile(db, {
+  cwd = process.cwd(),
+  sessionId = 'reconcile',
+  budgetMs = 1500,
+  maxFiles = 20000,
+  emit = true,
+  forceFull = false,
+} = {}) {
+  const root = resolveWorkspace(cwd);
+  const project = resolveProjectId(db, root);
+  const rootKey = hashText(root);
+  const baselineKey = `baseline:${rootKey}`;
+  const baselineDone = Boolean(getMeta(db, baselineKey));
+  const startedAt = Date.now();
+
+  const lastFull = getMeta(db, `last_full:${rootKey}`);
+  const head = gitHead(root);
+  const headMoved = baselineDone && (getMeta(db, `head:${rootKey}`) || 'none') !== (head || 'none');
+  const fullSweep = forceFull || !baselineDone || headMoved
+    || !lastFull || Date.now() - new Date(lastFull).getTime() > FULL_SWEEP_MS;
+
+  const scanOptions = { root, project, baselineDone, budgetMs, maxFiles, startedAt };
+  const scan = (fullSweep ? scanFull : scanIncremental)(db, scanOptions)
+    || scanFull(db, scanOptions);
+
+  const nowIso = new Date().toISOString();
+  applyEvents(db, scan.events, { emit, project, root, sessionId, nowIso });
+  applyIndexWrites(db, scan.indexWrites);
+  applyIndexDeletes(db, root, scan.indexDeletes);
+
   if (!baselineDone) {
-    if (!timedOut && !listed.truncated) setMeta(db, baselineKey, new Date().toISOString());
-    setMeta(db, `last_reconcile:${hashText(root)}`, new Date().toISOString());
+    if (!scan.timedOut && !scan.truncated) {
+      setMeta(db, baselineKey, nowIso);
+      setMeta(db, `last_full:${rootKey}`, nowIso);
+      setMeta(db, `head:${rootKey}`, head || 'none');
+    }
+    setMeta(db, `last_reconcile:${rootKey}`, nowIso);
     return {
       baseline: true,
-      indexed: listed.files.length,
-      partial: timedOut || listed.truncated,
-      source: listed.source,
+      mode: 'full',
+      indexed: scan.indexedCount,
+      partial: scan.timedOut || Boolean(scan.truncated),
+      source: scan.source,
       durationMs: Date.now() - startedAt,
     };
   }
 
-  const nowIso = new Date().toISOString();
-  if (emit && events.length > 0) {
-    if (events.length > MAX_EVENTS_PER_RECONCILE) {
-      insertFileEvent(db, {
-        project_id: project, workspace: root, session_id: sessionId,
-        path: '.', op: 'bulk', tool: null, source: 'reconcile',
-        patch: `Bulk change: ${events.length} file(s)`, created_at: nowIso,
-      });
-    } else {
-      for (const ev of events) {
-        insertFileEvent(db, {
-          project_id: project, workspace: root, session_id: sessionId,
-          source: 'reconcile', ...ev, patch: null, created_at: nowIso,
-        });
-      }
-    }
+  setMeta(db, `last_reconcile:${rootKey}`, nowIso);
+  if (fullSweep && !scan.timedOut) {
+    setMeta(db, `last_full:${rootKey}`, nowIso);
+    setMeta(db, `head:${rootKey}`, head || 'none');
   }
-  setMeta(db, `last_reconcile:${hashText(root)}`, nowIso);
 
   return {
     baseline: false,
+    mode: fullSweep ? 'full' : 'incremental',
     changes: {
-      created: events.filter((e) => e.op === 'create').length,
-      updated: events.filter((e) => e.op === 'update').length,
-      deleted: events.filter((e) => e.op === 'delete').length,
-      total: events.length,
+      created: scan.events.filter((e) => e.op === 'create').length,
+      updated: scan.events.filter((e) => e.op === 'update').length,
+      deleted: scan.events.filter((e) => e.op === 'delete').length,
+      total: scan.events.length,
     },
-    skipped,
-    partial: timedOut || listed.truncated,
-    source: listed.source,
+    skipped: scan.skipped,
+    partial: scan.timedOut || Boolean(scan.truncated),
+    source: scan.source,
     durationMs: Date.now() - startedAt,
   };
 }
@@ -520,16 +683,18 @@ function recordWatchedPath(db, { root, rel, sessionId }) {
   if (isObserverInternal(abs)) return;
   const st = statFile(abs);
   const nowIso = new Date().toISOString();
-  const project = resolveProjectId(root);
+  const project = resolveProjectId(db, root);
 
   if (!st) {
     if (!existing) return;
-    insertFileEvent(db, {
-      project_id: project, workspace: root, session_id: sessionId,
-      path: rel, op: 'delete', source: 'watch', old_hash: existing.hash,
-      created_at: nowIso,
+    transact(db, () => {
+      insertFileEvent(db, {
+        project_id: project, workspace: root, session_id: sessionId,
+        path: rel, op: 'delete', source: 'watch', old_hash: existing.hash,
+        created_at: nowIso,
+      });
+      deleteFileIndexEntry(db, root, rel);
     });
-    deleteFileIndexEntry(db, root, rel);
     return;
   }
   if (st.size > MAX_INDEX_BYTES) return;
@@ -548,16 +713,18 @@ function recordWatchedPath(db, { root, rel, sessionId }) {
     return;
   }
 
-  const eventId = insertFileEvent(db, {
-    project_id: project, workspace: root, session_id: sessionId,
-    path: rel, op: existing ? 'update' : 'create', source: 'watch',
-    old_hash: existing ? existing.hash : null, new_hash: hash,
-    created_at: nowIso,
-  });
-  upsertFileIndex(db, {
-    project_id: project, workspace: root, path: rel,
-    mtime: st.mtimeMs, size: st.size, hash, lang: languageOf(rel),
-    status: 'clean', last_event_id: eventId,
+  transact(db, () => {
+    const eventId = insertFileEvent(db, {
+      project_id: project, workspace: root, session_id: sessionId,
+      path: rel, op: existing ? 'update' : 'create', source: 'watch',
+      old_hash: existing ? existing.hash : null, new_hash: hash,
+      created_at: nowIso,
+    });
+    upsertFileIndex(db, {
+      project_id: project, workspace: root, path: rel,
+      mtime: st.mtimeMs, size: st.size, hash, lang: languageOf(rel),
+      status: 'clean', last_event_id: eventId,
+    });
   });
 }
 
@@ -616,31 +783,80 @@ export function startWatcher(db, { cwd = process.cwd(), debounceMs = 500, sessio
 }
 
 export function ensureObserver(db, { cwd = process.cwd(), watch = true } = {}) {
+  const root = resolveWorkspace(cwd);
   if (observerState.started) return observerState;
   observerState.started = true;
-  try {
-    flushSpool(db);
-  } catch {}
-  if (watch) {
+  observerState.owner = defaultOwner();
+  observerState.leaseKey = `observer:${hashText(root)}`;
+
+  const becomeLeader = () => {
+    if (observerState.leader) return;
+    observerState.leader = true;
     try {
-      startWatcher(db, { cwd });
+      flushSpool(db);
     } catch {}
-  }
-  observerState.timer = setTimeout(() => {
+    if (watch) {
+      try {
+        startWatcher(db, { cwd: root });
+      } catch {}
+    }
+    observerState.timer = setTimeout(() => {
+      try {
+        maybeReconcile(db, { cwd: root, intervalMs: 15000, budgetMs: 2000 });
+      } catch {}
+    }, 50);
+    observerState.timer.unref?.();
+  };
+
+  const stepDown = () => {
+    observerState.leader = false;
+    clearTimeout(observerState.timer);
+    observerState.timer = null;
     try {
-      maybeReconcile(db, { cwd, intervalMs: 15000, budgetMs: 2000 });
+      observerState.watchers.get(root)?.stop?.();
     } catch {}
-  }, 50);
-  observerState.timer.unref?.();
+  };
+
+  observerState.lease = acquireLease(db, observerState.leaseKey, {
+    owner: observerState.owner, ttlMs: LEASE_TTL_MS,
+  });
+  if (observerState.lease.leader) becomeLeader();
+
+  observerState.leaseTimer = setInterval(() => {
+    try {
+      const lease = acquireLease(db, observerState.leaseKey, {
+        owner: observerState.owner, ttlMs: LEASE_TTL_MS,
+      });
+      if (lease.leader) {
+        if (!observerState.leader) becomeLeader();
+      } else if (observerState.leader) {
+        stepDown();
+      }
+    } catch {}
+  }, LEASE_RENEW_MS);
+  observerState.leaseTimer.unref?.();
+
+  process.once('exit', () => {
+    try {
+      releaseLease(db, observerState.leaseKey, { owner: observerState.owner });
+    } catch {}
+  });
+
   return observerState;
 }
 
 export function getObserverStatus(db, { cwd = process.cwd() } = {}) {
   const root = resolveWorkspace(cwd);
   const state = observerState.watchers.get(root);
+  const lease = observerState.leaseKey
+    ? leaseStatus(db, observerState.leaseKey)
+    : { owner: null, expiresAt: 0, active: false };
   return {
     workspace: root,
     mode: state ? state.mode : (observerState.started ? 'idle' : 'stopped'),
+    leader: observerState.leader,
+    leaseOwner: lease.owner,
+    leaseExpiresAt: lease.expiresAt ? new Date(lease.expiresAt).toISOString() : null,
     baseline: Boolean(getMeta(db, `baseline:${hashText(root)}`)),
     lastReconcile: getMeta(db, `last_reconcile:${hashText(root)}`),
     spoolFile: spoolPath(),

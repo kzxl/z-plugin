@@ -2,7 +2,7 @@
   "name": "z-brain",
   "displayName": "Z-Brain",
   "description": "Zero-overhead cognitive episodic memory for AI agents with SQLite WAL and FTS5.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "author": "kzxl",
   "suggestedPrompts": [
     "/z-brain status",

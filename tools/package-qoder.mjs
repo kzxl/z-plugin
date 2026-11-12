@@ -10,7 +10,7 @@ const meta = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')
 const output = path.join(root, 'dist', `z-plugin-qoder-${meta.version}.zip`);
 const runtime = {
   'z-token': ['scan', 'fsindex', 'symbol-cache', 'build', 'diet', 'dashboard', 'run', 'test-runner', 'config', 'ledger'],
-  'z-brain': ['db', 'db-admin', 'search', 'format', 'harvest', 'harvest-queue', 'git-harvester', 'workspace', 'edit-observer', 'preflight'],
+  'z-brain': ['db', 'db-admin', 'leader', 'search', 'format', 'harvest', 'harvest-queue', 'git-harvester', 'workspace', 'edit-observer', 'preflight'],
   'z-mind': ['rules', 'bootstrap', 'doctor', 'plan-generator', 'arch-doctor'],
   'z-gate': ['helper-discovery', 'nev-auditor', 'code-reviewer', 'diff-parser', 'review-formatter', 'git-hook'],
   'z-craft': ['anti-slop-linter', 'spec-generator', 'generative-canvas', 'time-machine', 'scaffolder'],

@@ -143,6 +143,32 @@ ok(rec.changes.deleted === 1, "reconcile detects a deletion");
 const recent = dbApi.getRecentFileEvents(db, { workspace: workspace.resolveWorkspace(repo), limit: 10 });
 ok(recent.some((e) => e.op === "delete"), "deletion appears in recent changes");
 
+console.log("z-brain observer: incremental reconcile and retry");
+const incremental = observer.reconcile(db, { cwd: repo, budgetMs: 5000 });
+ok(incremental.mode === "incremental", "steady-state reconcile uses git status instead of a full sweep");
+git("add", ".");
+git("commit", "-m", "checkpoint");
+const afterCommit = observer.reconcile(db, { cwd: repo, budgetMs: 5000 });
+ok(afterCommit.mode === "full", "a moved HEAD forces a full sweep");
+ok(afterCommit.partial === false, "full sweep completes within the budget");
+
+let attempts = 0;
+const retried = dbApi.withBusyRetry(() => {
+  attempts++;
+  if (attempts < 3) throw new Error("SQLITE_BUSY: database is locked");
+  return "ok";
+}, { retries: 5, baseMs: 1 });
+ok(retried === "ok" && attempts === 3, "locked writes retry with backoff");
+ok(dbApi.isBusyError(new Error("SQLITE_BUSY")) && !dbApi.isBusyError(new Error("syntax error")),
+  "only lock errors are retried");
+let retryExhausted = false;
+try {
+  dbApi.withBusyRetry(() => { throw new Error("database is locked"); }, { retries: 1, baseMs: 1 });
+} catch {
+  retryExhausted = true;
+}
+ok(retryExhausted, "retry gives up after the configured attempts");
+
 console.log("z-brain observer: formatting");
 const historyText = format.formatFileHistory("src/app.ts", history);
 ok(historyText.includes("src/app.ts"), "history formatter includes the file path");

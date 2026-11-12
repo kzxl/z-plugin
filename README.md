@@ -1,10 +1,10 @@
 # 🔌 z-plugin — The Context-Saving & Quality Engine for AI Coding Agents
 
-[![Version](https://img.shields.io/badge/version-1.9.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](package.json)
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/Tests-27%20passing%20%7C%20620%2B%20assertions-brightgreen)](package.json)
+[![Tests](https://img.shields.io/badge/Tests-29%20passing%20%7C%20660%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
@@ -117,13 +117,13 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 
 | Component | Type | Version | Focus & Core Capabilities |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.9.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.9.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.9.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, async harvest queue, automatic edit history + workspace file index, token-capped pre-flight briefs, and one shared per-user database. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.9.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.9.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.9.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.9.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.10.0` | **Core Micro-Kernel:** In-memory EventBus, Cross-Process Local IPC, <1ms Cognitive Router, Adaptive Token Budgeter, and <5ms Hot-Reload Manager. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.10.0` | **Context Diet & Call-Graph:** Sub-2ms shortest-path BFS (`trace_path`), blast radius, AST outline, capped search, and lean build log filter. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.10.0` | **Episodic Memory:** Embedded SQLite WAL, hybrid BM25 + Trigram search, code gotchas graph, async harvest queue, automatic edit history + workspace file index, token-capped pre-flight briefs, and one shared per-user database. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.10.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.10.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.10.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.10.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
 
 ---
 
@@ -212,7 +212,7 @@ All modules are backed by rigorous automated test suites adhering to Level 3+ em
 # Check syntax across all packages & plugins
 npm run check
 
-# Run all 27 test suites (620+ passing assertions)
+# Run all 29 test suites (660+ passing assertions)
 npm test
 
 # Build and verify the Qoder plugin ZIP

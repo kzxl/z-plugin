@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-mind",
   "name": "Z-Mind Cognitive Engineering OS",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Cognitive engineering OS: 56 engineering invariants across 6 pillars, plan synthesis, and workspace doctor.",
   "author": "kzxl",
   "license": "MIT",

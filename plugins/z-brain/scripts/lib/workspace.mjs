@@ -36,6 +36,18 @@ const LANG_BY_EXT = {
 };
 
 const rootCache = new Map();
+const originCache = new Map();
+const ORIGIN_TTL_MS = 5 * 60 * 1000;
+
+function git(root, args, { timeout = 3000, maxBuffer = 64 * 1024 * 1024 } = {}) {
+  return cp.execFileSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    timeout,
+    maxBuffer,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
 
 export function resolveWorkspace(cwd = process.cwd()) {
   const base = process.env.Z_PLUGIN_WORKSPACE || process.env.ZBRAIN_WORKSPACE || cwd || process.cwd();
@@ -44,12 +56,7 @@ export function resolveWorkspace(cwd = process.cwd()) {
 
   let root = key;
   try {
-    const top = cp.execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: key,
-      encoding: 'utf8',
-      timeout: 1500,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const top = git(key, ['rev-parse', '--show-toplevel'], { timeout: 1500 }).trim();
     if (top) root = path.resolve(top);
   } catch {}
 
@@ -58,13 +65,62 @@ export function resolveWorkspace(cwd = process.cwd()) {
   return root;
 }
 
-export function resolveProjectId(root) {
-  const base = path.basename(root).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-  if (!base || ['repos', 'source', 'desktop', 'documents', 'c', 'e'].includes(base)) return 'global';
-  if (base.includes('erp')) return 'erp';
-  if (base.includes('zero_universe') || base.includes('zerouniverse')) return 'zero_universe';
-  if (base.includes('z-plugin') || base.includes('zplugin')) return 'z-plugin';
-  return base;
+export function gitOrigin(root) {
+  const key = path.resolve(root);
+  const cached = originCache.get(key);
+  if (cached && Date.now() - cached.at < ORIGIN_TTL_MS) return cached.remote;
+  let remote = null;
+  try {
+    remote = git(key, ['config', '--get', 'remote.origin.url'], { timeout: 1500, maxBuffer: 1024 * 1024 }).trim() || null;
+  } catch {}
+  originCache.set(key, { remote, at: Date.now() });
+  return remote;
+}
+
+export function gitHead(root) {
+  try {
+    return git(root, ['rev-parse', 'HEAD'], { timeout: 1500, maxBuffer: 1024 * 1024 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// Working-tree delta, O(changes) instead of O(files). Returns null outside git.
+export function gitStatusChanges(root) {
+  let out;
+  try {
+    out = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']);
+  } catch {
+    return null;
+  }
+  const changes = new Map();
+  for (const entry of out.split('\0')) {
+    if (entry.length < 4) continue;
+    const code = entry.slice(0, 2);
+    const rel = normalizeRel(entry.slice(3));
+    if (!rel || isIgnored(rel)) continue;
+    changes.set(rel, code.includes('D') ? 'deleted' : 'changed');
+  }
+  return changes;
+}
+
+// Stable project identity: the slug keeps legacy history readable, the fingerprint
+// separates unrelated repositories that happen to share a folder name.
+export function projectIdentity(root) {
+  const resolved = path.resolve(root);
+  const remote = gitOrigin(resolved);
+  const base = path.basename(resolved).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  let slug;
+  if (!base || ['repos', 'source', 'desktop', 'documents', 'c', 'e'].includes(base)) slug = 'global';
+  else if (base.includes('erp')) slug = 'erp';
+  else if (base.includes('zero_universe') || base.includes('zerouniverse')) slug = 'zero_universe';
+  else if (base.includes('z-plugin') || base.includes('zplugin')) slug = 'z-plugin';
+  else slug = base;
+  const fingerprint = crypto.createHash('sha1')
+    .update(remote ? `remote:${remote.toLowerCase()}` : `path:${resolved.toLowerCase()}`)
+    .digest('hex')
+    .slice(0, 6);
+  return { root: resolved, remote, slug, fingerprint };
 }
 
 export function normalizeRel(relPath) {

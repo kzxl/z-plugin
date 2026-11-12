@@ -1,10 +1,10 @@
 # 🔌 z-plugin — Bộ công cụ Tối ưu Ngữ cảnh & Kiểm soát Chất lượng cho AI Coding Agent
 
-[![Phiên bản](https://img.shields.io/badge/version-1.9.0-blue.svg)](package.json)
+[![Phiên bản](https://img.shields.io/badge/version-1.10.0-blue.svg)](package.json)
 [![Môi trường](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Giao thức](https://img.shields.io/badge/Giao%20th%E1%BB%A9c-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Kiểm thử](https://img.shields.io/badge/Tests-27%20b%E1%BB%99%20test%20%7C%20620%2B%20assertions-brightgreen)](package.json)
+[![Kiểm thử](https://img.shields.io/badge/Tests-29%20b%E1%BB%99%20test%20%7C%20660%2B%20assertions-brightgreen)](package.json)
 [![Giấy phép](https://img.shields.io/badge/Gi%E1%BA%A5y%20ph%C3%A9p-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · [Lộ trình phát triển](ROADMAP.md) · [Lịch sử cập nhật](CHANGELOG.md)
@@ -118,13 +118,13 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 | Thành phần | Loại | Phiên bản | Trọng tâm & Tính năng chính |
 | :--- | :---: | :---: | :--- |
-| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.9.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
-| [**`z-token`**](plugins/z-token) | **Plugin** | `1.9.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`trace_path`), Blast radius, AST outline, Capped search, Lọc log build. |
-| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.9.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ, Lịch sử sửa file và chỉ mục file tự động, Pre-flight Brief giới hạn token, một database dùng chung theo user. |
-| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.9.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
-| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.9.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
-| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.9.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
-| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.9.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
+| [**`z-runtime`**](packages/z-runtime) | **Kernel** | `1.10.0` | **Vi nhân xử lý:** EventBus trong bộ nhớ, Local IPC liên tiến trình, Router nhận thức <1ms, Điều phối ngân sách token linh hoạt. |
+| [**`z-token`**](plugins/z-token) | **Plugin** | `1.10.0` | **Tối ưu ngữ cảnh & Call-Graph:** BFS tìm đường gọi hàm <2ms (`trace_path`), Blast radius, AST outline, Capped search, Lọc log build. |
+| [**`z-brain`**](plugins/z-brain) | **Plugin** | `1.10.0` | **Bộ nhớ dài hạn:** SQLite WAL nhúng, Tìm kiếm lai BM25 + Trigram, Đồ thị bài học gotchas, Hàng đợi ghi bất đồng bộ, Lịch sử sửa file và chỉ mục file tự động, Pre-flight Brief giới hạn token, một database dùng chung theo user. |
+| [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.10.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
+| [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.10.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
+| [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.10.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
+| [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.10.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
 
 ---
 
@@ -217,7 +217,7 @@ Toàn bộ các gói và module đều được kiểm chứng độc lập bở
 # Kiểm tra cú pháp toàn bộ monorepo
 npm run check
 
-# Chạy toàn bộ 27 bộ test (hơn 620 assertions thành công)
+# Chạy toàn bộ 29 bộ test (hơn 660 assertions thành công)
 npm test
 
 # Đóng gói và kiểm tra ZIP plugin cho Qoder

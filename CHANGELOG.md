@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.0
+
+- **Stable project identity**: `file_events` and `file_index` now resolve `project_id` through a `project_registry` table keyed by workspace root and git remote. A folder rename no longer splits history, a clone of the same remote reuses the id, and two unrelated repositories that share a folder name (`api`, `src`) no longer merge. Legacy basename ids are kept when the workspace already owns them.
+- **Leader lease for the observer**: one host per workspace runs the watcher and reconcile pass, coordinated through `observer_meta` with a 90s TTL and 30s renewal. A crashed host on the same machine is replaced immediately by a pid probe, remote hosts expire, and hook capture keeps working on every host.
+- **Incremental reconcile**: steady-state passes use `git status` plus an index-vs-listing diff instead of stat-ing every file. A moved `HEAD`, a non-git workspace or a 10-minute safety window still trigger the full sweep, so committed-offline changes are never missed.
+- **Batched, retried writes**: reconcile, spool flush, hook capture and watcher events write inside `BEGIN IMMEDIATE` transactions in batches, retrying `SQLITE_BUSY` with capped exponential jitter.
+- **Observer status** now reports `leader`, `leaseOwner` and `leaseExpiresAt`.
+
 ## 1.9.0
 
 - **One memory for every IDE**: z-brain now stores its database at `~/.z-plugin/brain.sqlite` (override with `ZBRAIN_DB_PATH` or `ZBRAIN_DATA_DIR`) instead of inside each host's plugin copy. Knowledge harvested in Qoder, ZCode or Antigravity is visible to all of them.

@@ -27,12 +27,15 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 - **Zero Server**: No PostgreSQL, no Docker, no background memory daemon running.
 - **Shared Location**: The database lives at `~/.z-plugin/brain.sqlite` (`ZBRAIN_DATA_DIR` / `ZBRAIN_DB_PATH` override it), so lessons learned in Qoder, ZCode or Antigravity are visible everywhere. On first run the richest pre-1.9 database is adopted automatically (`ZBRAIN_ADOPT_LEGACY=0` disables it) and the old file is kept untouched.
 - **Schema Gate**: `PRAGMA user_version` is stamped; a database written by a newer plugin is rejected instead of being mutated by an older host.
-- **Concurrency**: `PRAGMA journal_mode = WAL`, `synchronous = NORMAL` and an 8s `busy_timeout` for non-blocking concurrent reads and writes across hosts and hooks.
+- **Concurrency**: `PRAGMA journal_mode = WAL`, `synchronous = NORMAL` and an 8s `busy_timeout` for non-blocking concurrent reads and writes across hosts and hooks. Writes run in batched `BEGIN IMMEDIATE` transactions and retry `SQLITE_BUSY` with exponential jitter.
+- **Leader Lease**: per-workspace watcher and reconcile run under a 90s lease in `observer_meta`, so only one host scans while every host keeps recording hook edits.
+- **Stable Project Identity**: `project_registry` maps each workspace root to a `project_id`, preferring the git origin so clones share history and folder renames or same-named repositories do not collide. Legacy basename ids are retained.
+- **Incremental Reconcile**: steady-state passes use `git status` plus an index-vs-listing diff; a moved `HEAD`, a non-git workspace or a 10-minute safety window trigger a full sweep.
 - **FTS Engine**: SQLite FTS5 with BM25 ranking and automatic triggers keeping index in sync with `knowledge_atoms`.
 
 ## Smart Episodic Features
 
-1. **Auto Project Scoping**: Automatically detects git repository identity (`erp`, `zero_universe`, `z-plugin`) to scope queries and lessons without manual flags.
+1. **Auto Project Scoping**: `project_registry` resolves each workspace from its git origin and path, keeping legacy `erp`, `zero_universe` and `z-plugin` ids, so history stays stable without manual flags.
 2. **Smart Deduplication & Upsert**: When harvesting lessons with identical or near-identical problem definitions, `z-brain` updates and enriches the existing record instead of inserting redundant rows.
 3. **Post-Test Harvest Hook**: Monitors test execution tools and reminds agents to capture verified solutions when tests transition to green.
 
