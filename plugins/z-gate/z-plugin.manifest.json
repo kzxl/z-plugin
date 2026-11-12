@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-gate",
   "name": "Z-Gate Unified Quality & Code Review Gate",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Unified quality, security and code review gate: NEV audit, wrapper hell check, helper discovery, and ERP domain invariants.",
   "author": "kzxl",
   "license": "MIT",

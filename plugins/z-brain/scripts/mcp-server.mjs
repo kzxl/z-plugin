@@ -44,6 +44,7 @@ import {
   getObserverStatus
 } from './lib/edit-observer.mjs';
 import { resolveWorkspace, toWorkspaceRel } from './lib/workspace.mjs';
+import { buildPreflight } from './lib/preflight.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -171,13 +172,16 @@ const TOOLS = [
   {
     name: 'zbrain_impact',
     description:
-      'Impact summary for a file: index metadata (size/language/hash), recent edit events, and related knowledge atoms and observations.',
+      'Impact summary for a file: index metadata (size/language/hash), recent edit events, and related knowledge atoms and observations. Pass brief=true before editing to get a hard-capped pre-flight brief with call-graph blast radius, churn, co-edited files, impacted test files, gotchas and language invariants.',
     inputSchema: {
       type: 'object',
       properties: {
         file: { type: 'string', description: 'File path or file name to inspect' },
         project: { type: 'string', description: 'Optional project scope' },
-        limit: { type: 'number', description: 'Max related items (default: 5)' }
+        limit: { type: 'number', description: 'Max related items (default: 5)' },
+        brief: { type: 'boolean', description: 'Return the compact pre-edit brief instead of the full impact summary (default: false)' },
+        symbol: { type: 'string', description: 'Optional symbol to focus the blast radius; defaults to the file\'s types/functions' },
+        budget: { type: 'number', description: 'Brief token budget (default: 300, clamped 60-800)' }
       },
       required: ['file']
     }
@@ -221,7 +225,7 @@ const TOOLS = [
   }
 ];
 
-function handleToolCall(name, args) {
+async function handleToolCall(name, args) {
   try {
     flushSpool(db);
   } catch {}
@@ -326,6 +330,19 @@ function handleToolCall(name, args) {
 
     case 'zbrain_impact': {
       const workspace = resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd());
+      if (args.brief) {
+        const brief = await buildPreflight({
+          db,
+          workspace,
+          file: args.file,
+          symbol: args.symbol,
+          project: args.project,
+          budget: args.budget,
+        });
+        return {
+          content: [{ type: 'text', text: brief.text }]
+        };
+      }
       const abs = path.isAbsolute(args.file) ? args.file : path.join(workspace, args.file);
       const rel = toWorkspaceRel(workspace, abs) || args.file;
       const entry = getFileIndexEntry(db, workspace, rel);
@@ -441,21 +458,19 @@ rl.on('line', (line) => {
   }
 
   if (method === 'tools/call') {
-    try {
-      const toolName = params?.name;
-      const toolArgs = params?.arguments || {};
-      const res = handleToolCall(toolName, toolArgs);
-      send({ jsonrpc: '2.0', id, result: res });
-    } catch (err) {
-      send({
+    const toolName = params?.name;
+    const toolArgs = params?.arguments || {};
+    Promise.resolve()
+      .then(() => handleToolCall(toolName, toolArgs))
+      .then((res) => send({ jsonrpc: '2.0', id, result: res }))
+      .catch((err) => send({
         jsonrpc: '2.0',
         id,
         result: {
           content: [{ type: 'text', text: `[ERROR] ${err.message}` }],
           isError: true
         }
-      });
-    }
+      }));
     return;
   }
 

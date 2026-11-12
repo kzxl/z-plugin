@@ -13,6 +13,8 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 | MCP tool `zbrain_harvest` | POST-task atomic lesson recording (`<problem> \| <cause> \| <fix>` or JSON) with smart deduplication |
 | MCP tool `zbrain_query` | Multi-angle filtered search with project scope and trust levels |
 | MCP tool `zbrain_status` | SQLite database statistics, atom counts, and engine status |
+| MCP tools `zbrain_history`, `zbrain_changes`, `zbrain_impact` | Per-file edit history, recent workspace changes, and file impact context |
+| MCP tool `zbrain_impact(..., brief: true)` | Hard-capped ~300-token pre-flight brief: churn, blast radius, co-edits, impacted tests, gotchas, invariant |
 | Hook `harvest-advisor` | PostToolUse hook that prompts the agent to harvest lessons after successful test runs |
 | CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`) |
 | Skill `z-brain` | Teaches agents to perform progressive disclosure sweeps before writing code |
@@ -52,4 +54,7 @@ node scripts/cli.mjs view 4362
 
 # Harvest new lesson
 node scripts/cli.mjs harvest "Deadlock on RefInId | Missing composite index | Added composite index"
+
+# Pre-edit brief (churn, blast radius, gotchas, invariant)
+node scripts/cli.mjs preflight src/OrderService.cs
 ```

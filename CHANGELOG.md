@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- **Pre-flight Brief**: `zbrain_impact(file, brief: true)`, `z-brain preflight <file>` and `observe.mjs preflight <file>` return a hard-capped (~300-token) pre-edit brief: 30-day churn with recent deltas, call-graph blast radius and God Nodes from the z-token symbol cache, co-edited files from the same sessions, impacted test files, verified gotchas, and the matching z-mind invariant.
+- **Graceful degradation**: a missing symbol cache, missing z-token/z-mind install, unreadable file or empty history shortens the brief instead of failing. `budget` is clamped to 60–800 tokens.
+- **Async MCP dispatch**: `tools/call` now awaits async handlers so pre-flight can lazily load optional engines without blocking other tool calls.
+
 ## 1.7.0
 
 - **Dashboard Edit Activity panel**: edits today, tracked files, 7-day churn leaders, and latest edits with operation, tool and line deltas, read directly from SQLite with zero daemon and zero context cost.

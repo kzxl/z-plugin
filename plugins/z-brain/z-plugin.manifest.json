@@ -2,7 +2,7 @@
   "$schema": "../../schemas/manifest-v2.schema.json",
   "id": "z-brain",
   "name": "Z-Brain Knowledge Engine",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Zero-overhead cognitive episodic memory for AI agents with SQLite WAL and FTS5.",
   "author": "kzxl",
   "license": "MIT",
@@ -33,6 +33,11 @@
         "id": "capability:file-observer",
         "version": "1.0.0",
         "description": "Automatic edit history and file index via host hooks, watcher, and reconcile."
+      },
+      {
+        "id": "capability:preflight",
+        "version": "1.0.0",
+        "description": "Hard-capped pre-edit brief combining churn, call-graph blast radius, co-edits, gotchas, and z-mind invariants."
       }
     ]
   },

@@ -3,7 +3,7 @@
  * z-brain observer entrypoint.
  *
  * Hook mode (default): reads a host hook payload from stdin and records the edit.
- * CLI mode: flush | reconcile | watch | status | history | changes | impact.
+ * CLI mode: flush | reconcile | watch | status | history | changes | impact | preflight.
  *
  * Hooks must never block or break the host, so every failure exits 0.
  */
@@ -29,6 +29,7 @@ import {
 } from './lib/edit-observer.mjs';
 import { resolveWorkspace } from './lib/workspace.mjs';
 import { formatFileHistory, formatRecentChanges, formatImpact } from './lib/format.mjs';
+import { buildPreflight } from './lib/preflight.mjs';
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -142,6 +143,21 @@ async function main() {
       const events = getFileHistory(db, { workspace: root, file, limit: 10 });
       const knowledge = getKnowledgeByFile(db, file, { limit: 5 });
       out(formatImpact(file, entry, events, knowledge.atoms, knowledge.observations) + '\n');
+      return;
+    }
+
+    case 'preflight': {
+      const file = args[1];
+      if (!file) throw new Error('Usage: observe.mjs preflight <file> [--budget=300] [--symbol=Name]');
+      flushSpool(db);
+      const brief = await buildPreflight({
+        db,
+        workspace: resolveWorkspace(cwd),
+        file,
+        symbol: flag(args, 'symbol'),
+        budget: Number(flag(args, 'budget', 300)),
+      });
+      out(brief.text + '\n');
       return;
     }
 

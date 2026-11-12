@@ -8,7 +8,7 @@
     {
       "name": "z-token",
       "source": "./plugins/z-token",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "displayName": "Z-Token",
       "description": "Save up to 95% tokens: Blocks oversized file reads, caps searches, filters build logs, and provides fast symbol outlines.",
       "category": "developer-tools",
@@ -27,7 +27,7 @@
     {
       "name": "z-brain",
       "source": "./plugins/z-brain",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "displayName": "Z-Brain",
       "description": "Long-term episodic memory for AI agents: Recalls past bug fixes, solutions, and gotchas across sessions with sub-millisecond SQLite search.",
       "category": "developer-tools",
@@ -45,7 +45,7 @@
     {
       "name": "z-mind",
       "source": "./plugins/z-mind",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "displayName": "Z-Mind",
       "description": "Engineering discipline & cognitive guardrails: 4-phase bug diagnosis, zero-regression refactoring, deep architecture, and verified TDD.",
       "category": "developer-tools",
@@ -65,7 +65,7 @@
     {
       "name": "z-gate",
       "source": "./plugins/z-gate",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "displayName": "Z-Gate",
       "description": "Pre-commit safety & regression gate: Taint analysis, SQL injection defense, reuse discovery, and wrapper hell prevention.",
       "category": "developer-tools",
@@ -83,7 +83,7 @@
     {
       "name": "z-craft",
       "source": "./plugins/z-craft",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "displayName": "Z-Craft",
       "description": "Anti-slop linter & software craftsmanship: Eliminates neon gradients, arbitrary hex colors, and dead buttons with 4-state UX contracts.",
       "category": "developer-tools",

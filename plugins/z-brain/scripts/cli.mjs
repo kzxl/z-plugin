@@ -20,6 +20,8 @@ import {
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { resolveWorkspace } from './lib/workspace.mjs';
+import { buildPreflight } from './lib/preflight.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const [,, command, ...args] = process.argv;
@@ -36,6 +38,7 @@ Usage:
   z-brain recent [--project=name] [--limit=10]
   z-brain timeline [--project=name] [--limit=10]
   z-brain file <path> [--limit=5]
+  z-brain preflight <path> [--budget=300] [--symbol=Name]
   z-brain query "<search keywords>"
   z-brain status
   z-brain export <file.json>
@@ -152,6 +155,23 @@ switch (command) {
     const limit = parseInt(getArgValue('--limit=') || '5', 10);
     const res = getKnowledgeByFile(db, filePath, { limit });
     console.log(formatFileKnowledge(filePath, res.atoms, res.observations));
+    break;
+  }
+
+  case 'preflight': {
+    const filePath = args.find(a => !a.startsWith('--'));
+    if (!filePath) {
+      console.error('Error: File path is required. Example: z-brain preflight src/OrderService.cs');
+      process.exit(1);
+    }
+    const brief = await buildPreflight({
+      db,
+      workspace: resolveWorkspace(process.env.Z_PLUGIN_WORKSPACE || process.cwd()),
+      file: filePath,
+      symbol: getArgValue('--symbol='),
+      budget: parseInt(getArgValue('--budget=') || '300', 10)
+    });
+    console.log(brief.text);
     break;
   }
 

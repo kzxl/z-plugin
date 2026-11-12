@@ -30,6 +30,7 @@ try {
   assert.equal(fs.readdirSync(path.join(unpacked, 'skills')).length, 9);
   const files = fs.readdirSync(unpacked, { recursive: true }).filter(file => fs.statSync(path.join(unpacked, file)).isFile());
   assert(!files.some(file => /\.(sqlite|db|log)(?:$|-)|node_modules|hooks\.json|settings\.json/.test(file)));
+  assert(files.includes(path.join('plugins', 'z-brain', 'scripts', 'lib', 'preflight.mjs')), 'z-brain preflight runtime is packaged');
   for (const file of files.filter(file => file.endsWith('.mjs'))) execFileSync(process.execPath, ['--check', path.join(unpacked, file)]);
   for (const [name, server] of Object.entries(config.mcpServers)) {
     assert.equal(server.command, 'node');
@@ -67,6 +68,12 @@ try {
       const result = await rpc('tools/call', { name: tool, arguments: name === 'z-token' ? { path: '.' } : {} });
       assert(!result.error && !result.result?.isError, JSON.stringify(result));
       if (name === 'z-token') assert(JSON.stringify(result).includes('qoderFixture'), 'Workspace override was not used');
+      if (name === 'z-brain') {
+        assert(list.result.tools.find(item => item.name === 'zbrain_impact')?.inputSchema?.properties?.brief, 'zbrain_impact brief option is exposed');
+        const brief = await rpc('tools/call', { name: 'zbrain_impact', arguments: { file: 'sample.mjs', brief: true } });
+        assert(!brief.error && !brief.result?.isError, JSON.stringify(brief));
+        assert(brief.result.content[0].text.includes('[Z-BRAIN PREFLIGHT]'), 'packaged pre-flight brief responds');
+      }
       assert(!protocolError, `Non-JSON stdout: ${protocolError}`);
       console.log(`${name}: initialize, tools/list, ${tool} OK (${list.result.tools.length} tools)`);
     } finally {
