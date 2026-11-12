@@ -135,6 +135,18 @@ Run `npx @kzxl/z-plugin init claude`. This creates:
 ### Google Antigravity 2.0 & ZCode
 Run `powershell -ExecutionPolicy Bypass -File install.ps1`. This synchronizes all plugins to `~/.gemini/config/plugins/` (with native Antigravity subagent schemas) and `~/.zcode/plugins/` (automatically adapting subagent frontmatter for ZCode CLI), registers MCP servers, and activates `PreToolUse` / `PostToolUse` guards.
 
+### Qoder Desktop
+Requires Node.js >=22.13 (with `node:sqlite`) and `node` on PATH. Build and verify the plugin ZIP:
+
+```bash
+npm run package:qoder
+npm run test:qoder
+```
+
+This creates `dist/z-plugin-qoder-<version>.zip` (also attached to each GitHub Release). Import it through Qoder's Plugin installer. The package contains 5 MCP servers launched via `${QODER_PLUGIN_ROOT}` and 9 Qoder-adapted Skills. Tools work in the host process's current directory; set `Z_PLUGIN_WORKSPACE` to an absolute project path if Qoder does not start them in your workspace.
+
+The Qoder package intentionally omits hooks, agents, commands, UI registration and the ERP DLC, and does not load extensions from Antigravity/ZCode directories. Do not use `install.ps1` for Qoder.
+
 ### Windsurf, Copilot, Cline, Roo Code
 Run `npx @kzxl/z-plugin init all` to scaffold configurations for all supported agents in a single step.
 

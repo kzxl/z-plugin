@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- **Qoder Desktop support**: `npm run package:qoder` builds a Qoder plugin ZIP (`.qoder-plugin/plugin.json`, `.mcp.json` with 5 MCP servers via `${QODER_PLUGIN_ROOT}`, 9 Qoder-adapted Skills).
+- `npm run test:qoder` verifies the ZIP structure, runtime syntax, MCP handshake, tool listing and a basic tool call per server in an isolated environment.
+- `Z_PLUGIN_WORKSPACE` overrides the workspace directory for packaged MCP servers.
+- The Qoder package omits hooks, agents, commands, UI registration and the ERP DLC, and does not auto-load extensions from Antigravity/ZCode directories.
+
 ## 1.4.0
 
 - **Prefix Cache Invariance (`R_CACHE`)**: Canonical rule and automated audit checks preventing volatile tokens (dynamic timestamps, random nonces, session GUIDs) from breaking LLM KV-cache.

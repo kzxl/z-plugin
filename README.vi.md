@@ -120,6 +120,23 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ## 💻 Hướng dẫn cài đặt theo từng IDE / Agent
 
+### Qoder Desktop
+
+Yêu cầu Node.js >=22.13 có `node:sqlite` và lệnh `node` trong PATH. Từ thư mục repository, chạy:
+
+```bash
+npm run package:qoder
+npm run test:qoder
+```
+
+Gói được tạo tại `dist/z-plugin-qoder-<phiên bản>.zip` (cũng được đính kèm trong mỗi GitHub Release), với `.qoder-plugin/plugin.json` ở gốc ZIP. Nhập ZIP bằng trình cài Plugin của Qoder; script đóng gói không cài đặt hoặc thay đổi cấu hình người dùng. Nếu ZIP đã tồn tại, script từ chối ghi đè: di chuyển bản cũ trước khi đóng gói lại.
+
+Gói gồm 5 MCP server và 9 Skill được điều chỉnh cho Qoder. MCP sử dụng `${QODER_PLUGIN_ROOT}`; mặc định công cụ làm việc trong thư mục hiện tại của tiến trình do host cung cấp. Nếu host không khởi chạy trong workspace dự án, đặt biến môi trường `Z_PLUGIN_WORKSPACE` thành đường dẫn dự án tuyệt đối trước khi khởi chạy Qoder. Giữ nguyên các biến cấu hình như `ZBRAIN_DB_PATH`, `ZERO_TOKEN_CONFIG` và `ZERO_TOKEN_DATA` khi cần vị trí dữ liệu riêng.
+
+Gói không chứa hooks, agents, commands, UI registration, DLC ERP hoặc cấu hình riêng của máy; không tự tải extension từ thư mục Antigravity/ZCode. Không dùng `install.ps1` để cài Qoder. Skill không tự lưu memory, commit, cài Git hook hoặc khôi phục checkpoint. `zmind_init` vẫn dùng template host cũ nên không chạy tự động.
+
+Kiểm thử gói xác minh cấu trúc ZIP, cú pháp runtime, handshake MCP, danh sách tool, một tool cơ bản trên mỗi server và workspace override trong môi trường tạm. Đây chưa phải bằng chứng Qoder Desktop đã nạp plugin hoặc mọi tool đã hoạt động; UI và luồng cài thực tế cần được kiểm tra riêng.
+
 ### Cursor
 Chạy lệnh `npx @kzxl/z-plugin init cursor`. Lệnh sẽ tự động tạo:
 - `.cursorrules`: Hướng dẫn Cursor tuân thủ 58 nguyên tắc kỹ thuật và ưu tiên gọi các công cụ tiết kiệm token.
