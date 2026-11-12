@@ -100,7 +100,7 @@ export function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
   const words = clean
     .split(/\s+/)
     .map(w => w.trim())
-    .filter(w => w.length > 1 && !/^(the|and|for|with|from|this|that|trong|cho|cua|la|cac)$/i.test(w));
+    .filter(w => w.length > 1 && !/^(the|and|for|with|from|this|that|khi|trong|cho|cua|la|cac|nhung|voi|thi|bi|duoc|mot|va|hoac|nhu|de|se|da|dang|nay|do|ra|vao|len|xuong)$/i.test(w));
 
   const lowerRaw = rawQuery.toLowerCase();
   const synonyms = [];
@@ -117,8 +117,30 @@ export function sanitizeFtsQuery(rawQuery, customSynonyms = null) {
   return allTerms.map(w => `"${w}"*`).join(" OR ");
 }
 
-export function calculateSemanticSimilarity(textA, textB) {
-  if (!textA || !textB) return 0;
+const QUERY_STOPWORDS = /^(the|and|for|with|from|this|that|khi|trong|cho|cua|la|cac|nhung|voi|thi|bi|duoc)$/;
+
+function normalizeForMatch(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Accent-insensitive query terms used for coverage and title bonuses.
+ */
+export function queryTerms(rawQuery) {
+  return [...new Set(
+    normalizeForMatch(rawQuery)
+      .split(" ")
+      .filter((word) => word.length > 1 && !QUERY_STOPWORDS.test(word))
+  )];
+}
+
+export function calculateSemanticSimilarity(textA, textB) {  if (!textA || !textB) return 0;
   const strA = String(textA).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const strB = String(textB).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   if (strA.includes(strB) || strB.includes(strA)) return 0.85;
@@ -162,7 +184,7 @@ export function searchKnowledge({
         a.id, a.project_id, a.scope, a.trust_level,
         a.question, a.answer, a.gotcha_fix, a.tags,
         a.evidence, a.created_at,
-        f.rank as bm25_rank
+        bm25(knowledge_fts, 6.0, 1.0, 2.0, 0.4) as bm25_rank
       FROM knowledge_fts f
       JOIN knowledge_atoms a ON a.id = f.rowid
       WHERE knowledge_fts MATCH ?
@@ -180,7 +202,7 @@ export function searchKnowledge({
     }
 
     sql += ` ORDER BY bm25_rank ASC LIMIT ?`;
-    params.push(limit * 2);
+    params.push(limit * 3);
 
     try {
       results = db.prepare(sql).all(...params);
@@ -199,7 +221,7 @@ export function searchKnowledge({
           id, project_id, scope, trust_level,
           question, answer, gotcha_fix, tags,
           evidence, created_at,
-          10.0 as bm25_rank
+          NULL as bm25_rank
         FROM knowledge_atoms
         WHERE (${rawWords.map(() => `(question LIKE ? OR answer LIKE ?)`).join(' OR ')})
       `;
@@ -232,34 +254,54 @@ export function searchKnowledge({
     }
   }
 
-  // 3. Re-score with Trust Level weight and tag matching
+  // 3. Re-score: BM25 relevance dominates (0-40), boosts only break near ties.
+  // Field weights come from bm25(knowledge_fts, question, answer, gotcha_fix, tags).
+  // Absolute scale (not min-max): tiny BM25 gaps inside a small corpus mean "no
+  // signal", so they must not be stretched into a full-range difference.
+  const terms = queryTerms(query);
+  const strongTerms = terms.filter((term) => term.length >= 3);
+  const gateTerms = strongTerms.length >= 2 ? strongTerms : terms;
+  const normalizedQuery = normalizeForMatch(query);
+  const firstTerm = terms[0] || "";
+  const searchTags = (Array.isArray(tags) ? tags : String(tags || "").split(",")).map(t => String(t).trim().toLowerCase()).filter(Boolean);
+
   const scored = results.map(row => {
-    let score = 100 - (row.bm25_rank || 0);
+    let score = 15;
+    if (typeof row.bm25_rank === 'number' && Number.isFinite(row.bm25_rank)) {
+      score = Math.min(40, Math.max(0, -row.bm25_rank * 12));
+    }
 
-    // Trust boost
-    if (row.trust_level === 'verified_fact') score += 20;
-    else if (row.trust_level === 'observation') score += 10;
+    if (row.trust_level === 'verified_fact') score += 5;
+    else if (row.trust_level === 'observation') score += 2;
 
-    // Scope boost
-    if (normalizedProject && row.project_id === normalizedProject) score += 15;
+    if (normalizedProject && row.project_id === normalizedProject) score += 8;
 
-    // Tag boost
-    const searchTags = (Array.isArray(tags) ? tags : String(tags || "").split(",")).map(t => String(t).trim().toLowerCase()).filter(Boolean);
+    // Tags are hints, not proof: cap them so a tag match cannot outrank a title match.
     if (searchTags.length > 0) {
       const rowTags = typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : (row.tags || []);
       const matched = searchTags.filter(t => rowTags.map(x => String(x).toLowerCase()).includes(t)).length;
-      score += matched * 10;
+      score += Math.min(matched, 2) * 3;
     }
 
-    // Semantic trigram similarity boost (up to +30 points)
-    const semanticSim = calculateSemanticSimilarity(query, `${row.question} ${row.gotcha_fix || ''}`);
-    score += semanticSim * 30;
+    const questionNorm = normalizeForMatch(row.question);
+    const haystack = `${questionNorm} ${normalizeForMatch(row.answer)} ${normalizeForMatch(row.gotcha_fix)}`;
+    if (gateTerms.length > 0) {
+      const matchedTerms = gateTerms.filter(t => haystack.includes(t)).length;
+      score += (matchedTerms / gateTerms.length) * 20;
+      // A single term shared with a multi-term query is usually a stopword-like
+      // collision ("khi", "module"), not evidence for this atom.
+      if (gateTerms.length >= 2 && matchedTerms < 2) score -= 10;
+    }
+    if (normalizedQuery && questionNorm.startsWith(normalizedQuery)) score += 12;
+    else if (firstTerm && questionNorm.split(" ")[0] === firstTerm) score += 6;
 
-    // Temporal recency boost (<30 days = +5 points)
+    const semanticSim = calculateSemanticSimilarity(query, `${row.question} ${row.gotcha_fix || ''}`);
+    score += semanticSim * 5;
+
     if (row.created_at) {
       try {
         const daysOld = (Date.now() - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysOld < 30) score += 5;
+        if (daysOld < 30) score += 1;
       } catch {}
     }
 

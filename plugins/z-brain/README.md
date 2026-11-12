@@ -31,7 +31,8 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 - **Leader Lease**: per-workspace watcher and reconcile run under a 90s lease in `observer_meta`, so only one host scans while every host keeps recording hook edits.
 - **Stable Project Identity**: `project_registry` maps each workspace root to a `project_id`, preferring the git origin so clones share history and folder renames or same-named repositories do not collide. Legacy basename ids are retained.
 - **Incremental Reconcile**: steady-state passes use `git status` plus an index-vs-listing diff; a moved `HEAD`, a non-git workspace or a 10-minute safety window trigger a full sweep.
-- **FTS Engine**: SQLite FTS5 with BM25 ranking and automatic triggers keeping index in sync with `knowledge_atoms`.
+- **FTS Engine**: SQLite FTS5 with field-weighted BM25 (question 6x, answer 1x, gotcha/fix 2x, tags 0.4x) and automatic triggers keeping the index in sync with `knowledge_atoms`. Scope, trust and tag bonuses (capped) only break near ties, Vietnamese stopwords are dropped, and query coverage plus title matches decide between near-duplicate atoms.
+- **Measured Retrieval**: `npm run eval:retrieval` scores the search path on a labeled 50-atom corpus with near-duplicate distractors (hit@1 98%, hit@3 100%, MRR 0.99 on the lexical set) and reports the paraphrase gap that a semantic layer must close. `npm run eval:retrieval:live` runs leave-one-out self-retrieval on the real database.
 
 ## Smart Episodic Features
 

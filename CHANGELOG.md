@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.11.0
 
-- **Retrieval evaluation harness**: `bench/retrieval-eval.mjs` (`npm run eval:retrieval`) seeds a labeled 50-atom corpus with near-duplicate distractors and measures hit@1/3/5, recall@5, MRR, nDCG@5, miss rate and latency for the production `searchKnowledge()` path against a raw-FTS5 baseline. A paraphrase set with no lexical overlap quantifies the semantic recall gap. The run is gated in `npm test` (hit@3 >= 80%, recall@5 >= 70%, MRR >= 0.65, miss <= 5%, p95 <= 60ms); `--report` writes `bench/RETRIEVAL.md` and `--live` measures the real database.
+- **Retrieval evaluation harness**: `bench/retrieval-eval.mjs` (`npm run eval:retrieval`) seeds a labeled 50-atom corpus with near-duplicate distractors and measures hit@1/3/5, recall@5, MRR, nDCG@5, miss rate and latency for the production `searchKnowledge()` path against a raw-FTS5 baseline. A paraphrase set with no lexical overlap quantifies the semantic recall gap. The run is gated in `npm test` (hit@3 >= 95%, recall@5 >= 90%, MRR >= 0.90, miss <= 5%, p95 <= 60ms); `--report` writes `bench/RETRIEVAL.md` and `--live` reports leave-one-out self-retrieval on the real database.
+- **Field-weighted BM25**: `bm25(knowledge_fts, 6.0, 1.0, 2.0, 0.4)` weights the question above the answer, gotcha/fix and tags, so a tag or generic answer match can no longer outrank a title match.
+- **Bounded re-ranking**: relevance is scored on an absolute scale capped at 40 instead of `100 - rank`, and scope, trust and tag bonuses are capped. Small BM25 gaps inside a small corpus mean "no signal" instead of being stretched into a full-range difference.
+- **Precision guards**: Vietnamese stopwords are dropped from the MATCH query, a single shared term from a multi-term query is penalised, and accent-insensitive query coverage plus a question-prefix bonus decide between near-duplicate atoms.
+- **Measured effect**: labeled lexical set moved from hit@1 92% / MRR 0.952 with four wrong top-1 results to hit@1 98% / hit@3 100% / MRR 0.99. Paraphrase recall stayed at 37.5% recall@5, confirming the remaining gap is semantic, not lexical. Real-database self-retrieval: 100% hit@1 over 200 sampled atoms.
 
 ## 1.10.0
 

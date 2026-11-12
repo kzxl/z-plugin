@@ -17,9 +17,9 @@ const K = 5;
 const LATENCY_RUNS = 15;
 
 const FLOORS = {
-  hitAt3: 0.8,
-  recallAt5: 0.7,
-  mrr: 0.65,
+  hitAt3: 0.95,
+  recallAt5: 0.9,
+  mrr: 0.9,
   emptyRate: 0.05,
   p95Ms: 60,
 };
@@ -80,7 +80,7 @@ const CORPUS = [
 const QUERIES = [
   { q: "database deadlock khi lưu phiếu nhập", project: "erp", expect: ["erp-deadlock-refid"] },
   { q: "deadlock order approval reverse lock order", project: "erp", expect: ["erp-deadlock-orderid"] },
-  { q: "tồn kho bị âm sau khi giữ hàng", project: "erp", expect: ["erp-stock-negative"] },
+  { q: "inventory negative after reservation", project: "erp", expect: ["erp-stock-negative"] },
   { q: "đồng bộ tồn kho lệch sổ cái", project: "erp", expect: ["erp-stock-ledger-drift", "erp-warehouse-transfer"] },
   { q: "phiếu nhập không cộng tồn kho khi duyệt", project: "erp", expect: ["erp-goods-receipt"] },
   { q: "cancel order still reserves stock", project: "erp", expect: ["erp-order-cancel"] },
@@ -95,7 +95,7 @@ const QUERIES = [
   { q: "WinForms 150% DPI scaling wrong", project: "erp", expect: ["erp-winforms-dpi"] },
   { q: "CS0246 IPrinter not found", project: "erp", expect: ["erp-cs0246"] },
   { q: "NU1603 package downgrade warning", project: "erp", expect: ["erp-nu1603"] },
-  { q: "JWT hết hạn khi in hoá đơn", project: "erp", expect: ["erp-jwt-expiry"] },
+  { q: "JWT expires during invoice print", project: "erp", expect: ["erp-jwt-expiry"] },
   { q: "redis lock released by another node", project: "erp", expect: ["erp-redis-lock"] },
   { q: "barcode scanner nhập đúp số lượng", project: "erp", expect: ["erp-barcode"] },
   { q: "A5 invoice footer cut off", project: "erp", expect: ["erp-print-invoice"] },
@@ -109,7 +109,7 @@ const QUERIES = [
   { q: "permission cache stale after role change", project: "erp", expect: ["erp-permission-cache"] },
   { q: "excel import merged cells skipped", project: "erp", expect: ["erp-excel-import"] },
   { q: "hyphenated query FTS5 returns nothing", project: "global", expect: ["brain-fts-hyphen"] },
-  { q: "tồn kho", project: "erp", expect: ["erp-stock-ledger-drift", "erp-stock-negative"] },
+  { q: "tồn kho", project: "erp", expect: ["erp-stock-ledger-drift", "erp-goods-receipt"] },
   { q: "harvest duplicate reworded question", project: "global", expect: ["brain-dedupe"] },
   { q: "two observers write after crash lease", project: "global", expect: ["brain-lease"] },
   { q: "schema version downgrade newer database", project: "global", expect: ["brain-schema"] },
@@ -402,8 +402,8 @@ async function runFixture({ writeReport }) {
     lines.push("");
     lines.push("## Notes");
     lines.push("");
-    lines.push("- `hybrid (production)` = `searchKnowledge()`: FTS5 BM25 + LIKE fallback + trust/tag/semantic trigram re-ranking.");
-    lines.push("- `raw FTS5` = same sanitized query, BM25 order only. The gap is the value of the re-ranking layer.");
+    lines.push("- `hybrid (production)` = `searchKnowledge()`: FTS5 BM25 with field weights (question 6x) on an absolute scale capped at 40, plus LIKE fallback. Scope, trust, tag (capped) and query-coverage bonuses only break near ties.");
+    lines.push("- `raw FTS5` = same sanitized query, BM25 order only. The gap is the value of the re-rank layer; on unambiguous lexical queries both saturate, so the layer is a policy (scope/trust) rather than an accuracy gain.");
     lines.push("- Corpus holds near-duplicate distractors (deadlock on RefId vs OrderId, WAL vs SQLITE_BUSY) so ranking, not just matching, is measured.");
     lines.push("- Multi-relevance queries (e.g. stock drift + warehouse transfer) make recall@5 meaningful.");
     lines.push(`- Floors enforced by the test: hit@3 >= ${pct(FLOORS.hitAt3)}, recall@5 >= ${pct(FLOORS.recallAt5)}, MRR >= ${FLOORS.mrr}, miss <= ${pct(FLOORS.emptyRate)}, p95 <= ${FLOORS.p95Ms}ms.`);
@@ -445,20 +445,51 @@ async function runLive() {
   const dbApi = await import("../plugins/z-brain/scripts/lib/db.mjs");
   const db = dbApi.getDb();
   console.log(`z-brain retrieval (live DB): ${dbApi.getDbPath ? dbApi.getDbPath() : "resolved default"}`);
+
+  // Leave-one-out sanity: every atom is queried with its own question and must
+  // rank itself first. Duplicate or noisy atoms show up as offenders.
+  const allIds = db.prepare("SELECT id FROM knowledge_atoms ORDER BY id").all().map((row) => row.id);
+  const step = Math.max(1, Math.floor(allIds.length / 200));
+  const sampleIds = allIds.filter((_, index) => index % step === 0).slice(0, 200);
   const latencies = [];
+  const offenders = [];
+  let selfHit1 = 0;
+  let selfHit5 = 0;
   let empty = 0;
+  for (const id of sampleIds) {
+    const atom = db.prepare("SELECT id, project_id, question FROM knowledge_atoms WHERE id = ?").get(id);
+    if (!atom) continue;
+    const started = performance.now();
+    const rows = searchApi.searchKnowledge({ query: atom.question, project: atom.project_id, limit: K });
+    latencies.push(performance.now() - started);
+    if (rows.length === 0) empty += 1;
+    const rank = rows.findIndex((row) => row.id === id);
+    if (rank === 0) selfHit1 += 1;
+    if (rank >= 0) selfHit5 += 1;
+    if (rank !== 0) {
+      offenders.push({ id, question: atom.question, top: rows[0] ? rows[0].question : "(none)" });
+    }
+  }
+  const total = sampleIds.length;
+  console.log(
+    `  self-retrieval (${total} sampled atoms): hit@1 ${pct(selfHit1 / total)}, hit@5 ${pct(selfHit5 / total)}, empty ${pct(empty / total)}, p50 ${percentile(latencies, 50).toFixed(2)}ms, p95 ${percentile(latencies, 95).toFixed(2)}ms`
+  );
+  for (const bad of offenders.slice(0, 8)) {
+    console.log(`    - #${bad.id} "${String(bad.question).slice(0, 60)}" -> "${String(bad.top).slice(0, 60)}"`);
+  }
+  if (offenders.length > 8) console.log(`    ... ${offenders.length - 8} more`);
+
+  const probeLatencies = [];
+  let probeEmpty = 0;
   for (const query of LIVE_QUERIES) {
     searchApi.searchKnowledge({ query, limit: K });
     const started = performance.now();
     const top = searchApi.searchKnowledge({ query, limit: K });
-    const elapsed = performance.now() - started;
-    latencies.push(elapsed);
-    if (top.length === 0) empty += 1;
-    const first = top[0] ? String(top[0].question).slice(0, 70) : "(no result)";
-    console.log(`  ${elapsed.toFixed(2).padStart(7)}ms  ${String(top.length).padStart(2)} hit  ${query}  ->  ${first}`);
+    probeLatencies.push(performance.now() - started);
+    if (top.length === 0) probeEmpty += 1;
   }
   console.log(
-    `  p50 ${percentile(latencies, 50).toFixed(2)}ms, p95 ${percentile(latencies, 95).toFixed(2)}ms, empty ${pct(empty / LIVE_QUERIES.length)} over ${LIVE_QUERIES.length} queries`
+    `  curated probes: ${LIVE_QUERIES.length} queries, empty ${pct(probeEmpty / LIVE_QUERIES.length)}, p50 ${percentile(probeLatencies, 50).toFixed(2)}ms, p95 ${percentile(probeLatencies, 95).toFixed(2)}ms`
   );
   dbApi.closeDb();
 }

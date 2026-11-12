@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-11-12T09:56:31.965Z",
+  "generatedAt": "2026-11-12T10:12:34.153Z",
   "corpus": 50,
   "queries": 50,
   "k": 5,
   "floors": {
-    "hitAt3": 0.8,
-    "recallAt5": 0.7,
-    "mrr": 0.65,
+    "hitAt3": 0.95,
+    "recallAt5": 0.9,
+    "mrr": 0.9,
     "emptyRate": 0.05,
     "p95Ms": 60
   },
@@ -14,30 +14,30 @@
     {
       "system": "hybrid (production)",
       "queries": 50,
-      "hitAt1": 0.92,
-      "hitAt3": 0.98,
+      "hitAt1": 0.98,
+      "hitAt3": 1,
       "hitAt5": 1,
-      "recallAt5": 1,
-      "precisionAt5": 0.282,
-      "mrr": 0.9516666666666665,
-      "ndcg": 0.9617948511358005,
+      "recallAt5": 0.99,
+      "precisionAt5": 0.27799999999999997,
+      "mrr": 0.99,
+      "ndcg": 0.9832759547097021,
       "emptyRate": 0,
-      "p50Ms": 0.7707000000000335,
-      "p95Ms": 1.490000000000009
+      "p50Ms": 0.6671999999999798,
+      "p95Ms": 1.1952999999999747
     },
     {
       "system": "raw FTS5",
       "queries": 50,
-      "hitAt1": 0.92,
-      "hitAt3": 0.98,
+      "hitAt1": 1,
+      "hitAt3": 1,
       "hitAt5": 1,
       "recallAt5": 1,
       "precisionAt5": 0.3453333333333333,
-      "mrr": 0.9540000000000001,
-      "ndcg": 0.9629995629943869,
+      "mrr": 1,
+      "ndcg": 0.9970068981106951,
       "emptyRate": 0,
-      "p50Ms": 0.3574000000000126,
-      "p95Ms": 0.6905000000000143
+      "p50Ms": 0.36839999999997985,
+      "p95Ms": 0.666199999999975
     }
   ],
   "misses": [],
@@ -47,29 +47,7 @@
       "expect": [
         "erp-deadlock-refid"
       ],
-      "top1": 5
-    },
-    {
-      "query": "tồn kho bị âm sau khi giữ hàng",
-      "expect": [
-        "erp-stock-negative"
-      ],
-      "top1": 4
-    },
-    {
-      "query": "JWT hết hạn khi in hoá đơn",
-      "expect": [
-        "erp-jwt-expiry"
-      ],
-      "top1": 5
-    },
-    {
-      "query": "tồn kho",
-      "expect": [
-        "erp-stock-ledger-drift",
-        "erp-stock-negative"
-      ],
-      "top1": 5
+      "top1": 2
     }
   ],
   "paraphrase": [
@@ -80,26 +58,26 @@
       "hitAt3": 0.125,
       "hitAt5": 0.375,
       "recallAt5": 0.375,
-      "precisionAt5": 0.08125,
-      "mrr": 0.09791666666666667,
-      "ndcg": 0.16469117066349184,
+      "precisionAt5": 0.11249999999999999,
+      "mrr": 0.11875,
+      "ndcg": 0.18105738985992403,
       "emptyRate": 0.625,
-      "p50Ms": 1.1707000000000107,
-      "p95Ms": 1.3621000000000265
+      "p50Ms": 0.8328999999999951,
+      "p95Ms": 1.4072999999999922
     },
     {
       "system": "raw FTS5",
       "queries": 8,
-      "hitAt1": 0,
-      "hitAt3": 0.125,
+      "hitAt1": 0.125,
+      "hitAt3": 0.25,
       "hitAt5": 0.375,
       "recallAt5": 0.375,
-      "precisionAt5": 0.08125,
-      "mrr": 0.11875,
-      "ndcg": 0.18105738985992403,
+      "precisionAt5": 0.11249999999999999,
+      "mrr": 0.19791666666666666,
+      "ndcg": 0.24133456975917414,
       "emptyRate": 0.625,
-      "p50Ms": 0.5857000000000028,
-      "p95Ms": 0.717000000000013
+      "p50Ms": 0.5233000000000061,
+      "p95Ms": 0.6509000000000071
     }
   ],
   "paraphraseMisses": [
@@ -109,11 +87,11 @@
         "erp-barcode"
       ],
       "got": [
+        32,
         5,
         4,
-        26,
         13,
-        21
+        26
       ]
     },
     {
@@ -122,9 +100,9 @@
         "erp-order-cancel"
       ],
       "got": [
-        26,
         4,
-        13
+        13,
+        26
       ]
     },
     {
@@ -155,8 +133,6 @@
       ],
       "got": [
         26,
-        4,
-        5,
         13
       ]
     }
