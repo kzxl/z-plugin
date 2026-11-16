@@ -3,7 +3,7 @@
     "z-brain": {
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"
+        "./scripts/mcp-server.mjs"
       ],
       "env": {
         "ZBRAIN_WORKSPACE": "."

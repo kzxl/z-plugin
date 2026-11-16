@@ -76,5 +76,23 @@ assert.ok(totalRuleBytes <= 10500, `Total plugins/*/rules/AGENTS.md size (${tota
 const installPs1 = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
 assert.ok(installPs1.includes("ZCode") && installPs1.includes("[Read, Bash]"), "install.ps1 adapts Antigravity subagent frontmatter for ZCode compatibility");
 
-console.log("  ok   subagent frontmatter, ZCode installer bridge, and SSOT AGENTS.md budgets verified");
+// 3. Antigravity plugin mcp_config.json and root hooks.json must not contain unexpanded ${CLAUDE_PLUGIN_ROOT}
+for (const pName of allPluginNames) {
+  const mcpPath = path.join(root, "plugins", pName, "mcp_config.json");
+  const mcpRaw = fs.readFileSync(mcpPath, "utf8");
+  const mcp = JSON.parse(mcpRaw);
+  assert.equal(mcp.mcpServers?.[pName]?.command, "node", `${pName}/mcp_config.json uses node command`);
+  assert.ok(!JSON.stringify(mcp).includes("${CLAUDE_PLUGIN_ROOT}"), `${pName}/mcp_config.json does not contain unexpanded \${CLAUDE_PLUGIN_ROOT}`);
+  assert.ok(fs.existsSync(path.resolve(root, "plugins", pName, mcp.mcpServers[pName].args[0])), `${pName}/mcp_config.json points to existing script`);
+}
+
+for (const pName of ["z-brain", "z-craft", "z-gate", "z-token"]) {
+  const hooksPath = path.join(root, "plugins", pName, "hooks.json");
+  const hooksRaw = fs.readFileSync(hooksPath, "utf8");
+  const hooks = JSON.parse(hooksRaw);
+  assert.ok(!JSON.stringify(hooks).includes("${CLAUDE_PLUGIN_ROOT}"), `${pName}/hooks.json does not contain unexpanded \${CLAUDE_PLUGIN_ROOT}`);
+  assert.ok(!JSON.stringify(hooks).includes('"type":"process"'), `${pName}/hooks.json uses Antigravity command hook schema`);
+}
+
+console.log("  ok   subagent frontmatter, ZCode installer bridge, Antigravity MCP/hooks configs, and SSOT AGENTS.md budgets verified");
 console.log("\nall standardization tests passed!");

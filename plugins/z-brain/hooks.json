@@ -1,15 +1,10 @@
 {
-  "hooks": {
+  "z-brain-guard": {
     "SessionStart": [
       {
-        "hooks": [
-          {
-            "type": "process",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs"],
-            "timeoutMs": 3000
-          }
-        ]
+        "type": "command",
+        "command": "node ./scripts/session-start.mjs",
+        "timeout": 3
       }
     ],
     "PostToolUse": [
@@ -17,10 +12,9 @@
         "matcher": "Edit|Write|MultiEdit|edit_file|write_file|write_to_file|create_file|search_replace|apply_patch|replace_file_content|multi_replace_file_content|multi_edit",
         "hooks": [
           {
-            "type": "process",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/observe.mjs", "record"],
-            "timeoutMs": 3000
+            "type": "command",
+            "command": "node ./scripts/observe.mjs record",
+            "timeout": 3
           }
         ]
       },
@@ -28,24 +22,18 @@
         "matcher": "Bash|run_command",
         "hooks": [
           {
-            "type": "process",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/harvest-advisor.mjs"],
-            "timeoutMs": 5000
+            "type": "command",
+            "command": "node ./scripts/harvest-advisor.mjs",
+            "timeout": 5
           }
         ]
       }
     ],
-    "SessionEnd": [
+    "Stop": [
       {
-        "hooks": [
-          {
-            "type": "process",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/observe.mjs", "flush", "--quiet"],
-            "timeoutMs": 3000
-          }
-        ]
+        "type": "command",
+        "command": "node ./scripts/observe.mjs flush --quiet",
+        "timeout": 3
       }
     ]
   }

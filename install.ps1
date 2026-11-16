@@ -26,6 +26,21 @@ function Convert-ZCodeSubagents([string]$TargetPluginDir) {
     }
 }
 
+function Convert-AntigravityMcpConfig([string]$TargetPluginDir, [string]$PluginName) {
+    if (-not (Test-Path $TargetPluginDir)) { return }
+    $dirItem = Get-Item $TargetPluginDir -Force
+    if ($dirItem.Attributes -match "ReparsePoint") { return }
+    $mcpConfigPath = Join-Path $TargetPluginDir "mcp_config.json"
+    if (-not (Test-Path $mcpConfigPath)) { return }
+    $resolvedScript = (Join-Path $TargetPluginDir "scripts\mcp-server.mjs") -replace '\\', '/'
+    $rawMcp = Get-Content $mcpConfigPath -Raw
+    $updatedMcp = $rawMcp.Replace('${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs', $resolvedScript).Replace('./scripts/mcp-server.mjs', $resolvedScript)
+    if ($updatedMcp -ne $rawMcp) {
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($mcpConfigPath, $updatedMcp, $utf8NoBom)
+    }
+}
+
 $availablePlugins = Get-ChildItem -Path $pluginsDir -Directory | Select-Object -ExpandProperty Name
 
 if ($Plugin -ne "all" -and $availablePlugins -notcontains $Plugin) {
@@ -137,6 +152,7 @@ foreach ($pName in $pluginsToProcess) {
             Write-Host "[$($ide.Name)] Copied to: $targetDir" -ForegroundColor Green
         }
 
+        if ($ide.Name -eq "Antigravity") { Convert-AntigravityMcpConfig -TargetPluginDir $targetDir -PluginName $pName }
         if ($ide.Name -eq "ZCode") { Convert-ZCodeSubagents -TargetPluginDir $targetDir }
     }
 }
