@@ -27,8 +27,14 @@ async function main() {
     return;
   }
 
-  const tool = ev.tool_name || '';
-  const input = ev.tool_input || {};
+  const isAntigravity = Boolean(ev.toolCall || ev.hookEventName || ev.workspacePaths);
+  if (isAntigravity) {
+    process.stdout.write('{}');
+    return;
+  }
+
+  const tool = ev.toolCall?.name || ev.tool_name || '';
+  const input = ev.toolCall?.args || ev.tool_input || {};
 
   // Extract file path & content if available
   let filePath = input.path || input.Path || input.file_path || '';

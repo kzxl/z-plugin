@@ -29,20 +29,29 @@ async function main() {
   } catch {
     return;
   }
-  const cfg = loadConfig(here, ev.cwd || process.cwd());
+  const isAntigravity = Boolean(ev.toolCall || ev.hookEventName || ev.workspacePaths);
+  const cwd = ev.cwd || ev.workspacePaths?.[0] || process.cwd();
+  const cfg = loadConfig(here, cwd);
   const lb = cfg.loopBreaker || {};
-  if (lb.enabled === false) return;
+  if (lb.enabled === false) {
+    if (isAntigravity) process.stdout.write("{}");
+    return;
+  }
 
   const threshold = lb.threshold ?? 3;
 
-  const rawSession = ev.session_id || ev.sessionId || ev.conversation_id || ev.conversationId || (ev.cwd ? path.basename(ev.cwd) : "default");
+  const rawSession = ev.session_id || ev.sessionId || ev.conversation_id || ev.conversationId || (cwd ? path.basename(cwd) : "default");
   const session = String(rawSession).replace(/[^\w.-]/g, "_");
-  const tool = ev.tool_name || "";
-  if (!tool) return;
+  const tool = ev.toolCall?.name || ev.tool_name || "";
+  const input = ev.toolCall?.args || ev.tool_input || {};
+  if (!tool) {
+    if (isAntigravity) process.stdout.write("{}");
+    return;
+  }
 
   const fingerprint = crypto
     .createHash("sha1")
-    .update(tool + "\u0000" + JSON.stringify(ev.tool_input ?? {}))
+    .update(tool + "\u0000" + JSON.stringify(input ?? {}))
     .digest("hex")
     .slice(0, 16);
 
@@ -68,6 +77,11 @@ async function main() {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, JSON.stringify(state));
   } catch {}
+
+  if (isAntigravity) {
+    process.stdout.write("{}");
+    return;
+  }
 
   if (entry.count === threshold && !entry.warned) {
     entry.warned = true;

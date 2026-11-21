@@ -11,18 +11,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "run_command|read_file",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ./scripts/loop-breaker.mjs",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }

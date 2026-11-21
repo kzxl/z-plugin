@@ -1,5 +1,6 @@
 {
   "z-craft-guard": {
+    "enabled": false,
     "PostToolUse": [
       {
         "matcher": "write_file|edit_file|Edit|Write",

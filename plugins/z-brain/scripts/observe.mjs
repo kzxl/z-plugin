@@ -68,12 +68,25 @@ async function main() {
         payload = JSON.parse(raw || '{}');
       } catch {}
       recordHookInput(db, payload);
+      if (payload.toolCall || payload.hookEventName || payload.workspacePaths) {
+        out('{}');
+      }
       return;
     }
 
     case 'flush': {
+      let isAntigravity = false;
+      if (!process.stdin.isTTY) {
+        try {
+          const raw = await readStdin();
+          const ev = JSON.parse(raw || '{}');
+          isAntigravity = Boolean(ev.hookEventName || ev.workspacePaths || ev.terminationReason !== undefined);
+        } catch {}
+      }
       const res = flushSpool(db);
-      if (!args.includes('--quiet')) {
+      if (isAntigravity) {
+        out('{}');
+      } else if (!args.includes('--quiet')) {
         out(JSON.stringify(res) + '\n');
       }
       return;

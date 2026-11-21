@@ -3,7 +3,9 @@
 // Contract: stdin = hook payload JSON, stdout = hook output JSON (or nothing), exit 0.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
 import { appendLedger } from "./lib/ledger.mjs";
@@ -47,18 +49,75 @@ function approxLines(bytes) {
   return Math.round(bytes / 38);
 }
 
-function deny(reason, meta = {}) {
-  appendLedger({ t: "deny", event: meta.event || "unknown", bytes: meta.bytes || 0, file: meta.file || "", reason });
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: reason,
-      },
-    })
-  );
+function respond(isAntigravity, decision, reason = "") {
+  if (isAntigravity) {
+    const out = reason ? { decision, reason } : { decision };
+    process.stdout.write(JSON.stringify(out));
+    process.exit(0);
+  }
+  if (decision === "deny") {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
+        },
+      })
+    );
+  }
   process.exit(0);
+}
+
+function deny(reason, meta = {}, isAntigravity = false) {
+  appendLedger({ t: "deny", event: meta.event || "unknown", bytes: meta.bytes || 0, file: meta.file || "", reason });
+  respond(isAntigravity, "deny", reason);
+}
+
+function checkLoopAntigravity(cfg, ev, tool, input) {
+  const lb = cfg.loopBreaker || {};
+  if (lb.enabled === false || !tool) return null;
+  const threshold = lb.threshold ?? 3;
+  const rawSession = ev.conversationId || ev.session_id || ev.sessionId || ev.conversation_id || "default";
+  const session = String(rawSession).replace(/[^\w.-]/g, "_");
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(tool + "\u0000" + JSON.stringify(input ?? {}))
+    .digest("hex")
+    .slice(0, 16);
+
+  const dir = path.join(os.tmpdir(), "zero-token");
+  const file = path.join(dir, `loops-${session}.json`);
+  let state = {};
+  try {
+    state = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {}
+
+  const entry = state[fingerprint] || { tool, count: 0, warned: false };
+  entry.count += 1;
+  entry.tool = tool;
+  state[fingerprint] = entry;
+
+  const keys = Object.keys(state);
+  if (keys.length > 200) {
+    for (const k of keys.slice(0, keys.length - 200)) delete state[k];
+  }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(state));
+  } catch {}
+
+  if (entry.count >= threshold && !entry.warned) {
+    entry.warned = true;
+    try {
+      fs.writeFileSync(file, JSON.stringify(state));
+    } catch {}
+    return (
+      `zero-token: this exact ${tool} call has now run ${threshold} times with identical input. ` +
+      `Repeating it will not produce a different result. Change the input, narrow the target, or report what is missing instead of retrying.`
+    );
+  }
+  return null;
 }
 
 // Flatten every path-looking argument, not just the last one.
@@ -119,12 +178,17 @@ async function main() {
     return;
   }
 
-  const cfg = loadConfig(here, ev.cwd || process.cwd());
+  const isAntigravity = Boolean(ev.toolCall || ev.hookEventName || ev.workspacePaths);
+  const cwd = ev.cwd || ev.workspacePaths?.[0] || process.cwd();
+  const cfg = loadConfig(here, cwd);
   const g = cfg.guard || {};
-  if (g.enabled === false) return;
+  if (g.enabled === false) {
+    if (isAntigravity) respond(true, "allow");
+    return;
+  }
 
-  const tool = ev.tool_name || "";
-  const input = ev.tool_input || {};
+  const tool = ev.toolCall?.name || ev.tool_name || ev.toolName || "";
+  const input = ev.toolCall?.args || ev.tool_input || {};
 
   // --- Read without a usable limit on a large file --------------------------
   // Supports ZCode/Claude Code ("Read", file_path, limit) and Antigravity ("read_file", Path, StartLine, EndLine)
@@ -141,7 +205,7 @@ async function main() {
     const hasLimit = limit !== null && limit > 0;
     const tooBig = hasLimit && limit > maxLimitLines;
     if (p && (!hasLimit || tooBig)) {
-      const full = resolveExisting(p, ev.cwd || process.cwd());
+      const full = resolveExisting(p, cwd);
       const size = fileSize(full);
       const budget = effectiveMax(full, size, maxBytes);
       if (size > budget) {
@@ -149,7 +213,6 @@ async function main() {
         const kb = Math.round(size / 1024);
         const lines = approxLines(size);
         const approxK = Math.round(size / 3.6 / 1000);
-        const suggest = Math.min(r.suggestLines ?? maxLimitLines, maxLimitLines);
         const compact = budget < maxBytes ? ` It looks minified, so the read budget is ${Math.round(budget / 1024)} KB.` : "";
         const reason = tooBig
           ? `zero-token blocked ${tool} with limit=${limit}: on ${name} (${kb} KB) that is effectively a full read (~${approxK}k tokens).${compact} ` +
@@ -157,7 +220,7 @@ async function main() {
           : `zero-token blocked a full read of ${name} (${kb} KB, ~${lines} lines): roughly ${approxK}k tokens.${compact} ` +
             `Use limit<=${maxLimitLines} with an offset, or the zero-token "outline" tool; ` +
             `if you have no MCP tools, locate what you need with grep -n -m 20 "<symbol>" ${name}.`;
-        deny(reason, { event: "read", bytes: size, file: name });
+        deny(reason, { event: "read", bytes: size, file: name }, isAntigravity);
       }
     }
   }
@@ -167,106 +230,122 @@ async function main() {
   const isCommand = tool === "Bash" || tool === "run_command" || tool === "Terminal" || tool === "execute_command";
   if (isCommand) {
     const b = g.bash || {};
-    if (b.enabled === false) return;
-    const cmd = String(input.command || input.CommandLine || input.cmd || "").trim();
-    if (!cmd) return;
-    const noHeredoc = stripHeredocs(cmd);
-    const execLike = stripQuoted(noHeredoc);
+    if (b.enabled !== false) {
+      const cmd = String(input.command || input.CommandLine || input.cmd || "").trim();
+      if (cmd) {
+        const noHeredoc = stripHeredocs(cmd);
+        const execLike = stripQuoted(noHeredoc);
 
-    if (b.denyRecursiveGrep !== false) {
-      const recursiveGrep = /\bgrep\s+(-\S*r\S*|--recursive)\b/.test(execLike);
-      const recursiveFindstr = /\bfindstr\s+\/s\b/i.test(execLike) && !/\/m\b/i.test(execLike);
-      const rg = /\brg\b/.test(execLike);
-      const bounded =
-        /\bgrep\s+-\S*l/.test(execLike) ||
-        /(?:^|\s)-[a-zA-Z]*l[a-zA-Z]*(?=\s|$)/.test(execLike) ||
-        /--files-with-matches/.test(execLike) ||
-        /\s-m\s*\d/.test(execLike) ||
-        /--max-count/.test(execLike) ||
-        /\|\s*head\b/.test(execLike);
-      const rgBounded =
-        /\s-l\b/.test(execLike) ||
-        /--files-with-matches/.test(execLike) ||
-        /\s-m\s*\d/.test(execLike) ||
-        /--max-count/.test(execLike) ||
-        /\|\s*head\b/.test(execLike);
-      if (recursiveGrep && !bounded) {
-        deny(
-          `zero-token blocked an unbounded recursive grep. Add -m 5 or -l, pipe through head, ` +
-            `or use the zero-token "search" tool (returns file:line with 2 context lines, capped at 8 KB).`,
-          { event: "grep" }
-        );
-      }
-      if (recursiveFindstr) {
-        deny(`zero-token blocked "findstr /s" without /m. Add /m, or use the zero-token "search" tool.`, { event: "grep" });
-      }
-      if (rg && !rgBounded) {
-        deny(`zero-token blocked rg without a cap. Add -l, -m 5, or pipe through head; or use the zero-token "search" tool.`, { event: "grep" });
-      }
-    }
+        if (b.denyRecursiveGrep !== false) {
+          const recursiveGrep = /\bgrep\s+(-\S*r\S*|--recursive)\b/.test(execLike);
+          const recursiveFindstr = /\bfindstr\s+\/s\b/i.test(execLike) && !/\/m\b/i.test(execLike);
+          const rg = /\brg\b/.test(execLike);
+          const bounded =
+            /\bgrep\s+-\S*l/.test(execLike) ||
+            /(?:^|\s)-[a-zA-Z]*l[a-zA-Z]*(?=\s|$)/.test(execLike) ||
+            /--files-with-matches/.test(execLike) ||
+            /\s-m\s*\d/.test(execLike) ||
+            /--max-count/.test(execLike) ||
+            /\|\s*head\b/.test(execLike);
+          const rgBounded =
+            /\s-l\b/.test(execLike) ||
+            /--files-with-matches/.test(execLike) ||
+            /\s-m\s*\d/.test(execLike) ||
+            /--max-count/.test(execLike) ||
+            /\|\s*head\b/.test(execLike);
+          if (recursiveGrep && !bounded) {
+            deny(
+              `zero-token blocked an unbounded recursive grep. Add -m 5 or -l, pipe through head, ` +
+                `or use the zero-token "search" tool (returns file:line with 2 context lines, capped at 8 KB).`,
+              { event: "grep" },
+              isAntigravity
+            );
+          }
+          if (recursiveFindstr) {
+            deny(`zero-token blocked "findstr /s" without /m. Add /m, or use the zero-token "search" tool.`, { event: "grep" }, isAntigravity);
+          }
+          if (rg && !rgBounded) {
+            deny(`zero-token blocked rg without a cap. Add -l, -m 5, or pipe through head; or use the zero-token "search" tool.`, { event: "grep" }, isAntigravity);
+          }
+        }
 
         if (b.denyPatchLog !== false) {
-      if (/\bgit\s+log\b/.test(execLike) && /(\s-p\b|--patch)/.test(execLike) && !/(-n\s*\d|--max-count)/.test(execLike)) {
-        deny(`zero-token blocked "git log --patch" without a limit. Add -n 20, or use --stat for a summary.`, { event: "git-log" });
-      }
-      if (/^\s*git\s+diff\s*$/i.test(execLike.trim())) {
-        deny(`zero-token blocked a bare "git diff" without target or limit. Use "git diff --stat" for a summary, or specify a target file: "git diff <file>".`, { event: "git-diff" });
-      }
-    }
+          if (/\bgit\s+log\b/.test(execLike) && /(\s-p\b|--patch)/.test(execLike) && !/(-n\s*\d|--max-count)/.test(execLike)) {
+            deny(`zero-token blocked "git log --patch" without a limit. Add -n 20, or use --stat for a summary.`, { event: "git-log" }, isAntigravity);
+          }
+          if (/^\s*git\s+diff\s*$/i.test(execLike.trim())) {
+            deny(`zero-token blocked a bare "git diff" without target or limit. Use "git diff --stat" for a summary, or specify a target file: "git diff <file>".`, { event: "git-diff" }, isAntigravity);
+          }
+        }
 
-    // PowerShell & Windows unbounded directory tree walks
-    const isRecursiveDir = /\b(Get-ChildItem|gci|dir)\b/i.test(execLike) && /(?:^|\s)(?:-r\b|-recurse\b|\/s\b)/i.test(execLike);
-    const isDirBounded = /(?:-depth\s+[1-3]\b|-name\b|-filter\b|-include\b|\|\s*(?:select|sls|head)\b)/i.test(execLike);
-    if (isRecursiveDir && !isDirBounded) {
-      deny(
-        `zero-token blocked an unbounded recursive directory walk ("Get-ChildItem -Recurse" / "dir /s"). Add -Depth 2, or use the zero-token "fsindex" / "search" tool.`,
-        { event: "dir-walk" }
-      );
-    }
-
-    if (b.denyVerboseBuild === true) {
-      if (/\b(dotnet\s+build|msbuild)\b/.test(execLike) && !/(-v:\s*[qm]\b|--verbosity\s+(quiet|minimal))/.test(execLike)) {
-        deny(
-          `zero-token: verbose build logs are huge. Use the zero-token "build" tool (returns only errors and grouped warnings), ` +
-            `or add -v:q.`,
-          { event: "build" }
-        );
-      }
-    }
-
-    if (/\b(cat|type|more|Get-Content|gc)\b/i.test(noHeredoc)) {
-      const maxBytes = b.catMaxBytes ?? 131072;
-      for (const p of pathArgs(noHeredoc)) {
-        const full = resolveExisting(p, ev.cwd || process.cwd());
-        const size = fileSize(full);
-        const budget = effectiveMax(full, size, maxBytes);
-        if (size > budget) {
-          const isCode = /\.(cs|ts|tsx|js|mjs|cjs|java|kt|py|go|rb|php|cpp|h|hpp|c|xaml)$/i.test(p);
+        // PowerShell & Windows unbounded directory tree walks
+        const isRecursiveDir = /\b(Get-ChildItem|gci|dir)\b/i.test(execLike) && /(?:^|\s)(?:-r\b|-recurse\b|\/s\b)/i.test(execLike);
+        const isDirBounded = /(?:-depth\s+[1-3]\b|-name\b|-filter\b|-include\b|\|\s*(?:select|sls|head)\b)/i.test(execLike);
+        if (isRecursiveDir && !isDirBounded) {
           deny(
-            `zero-token blocked dumping ${path.basename(p)} (${Math.round(size / 1024)} KB) to the terminal. ` +
-              (isCode
-                ? `Use the zero-token "outline" tool first, or head -n 100.`
-                : `Read a slice instead: head -n 100, sed -n '1,100p', or the zero-token "search" tool.`),
-            { event: "cat", bytes: size, file: path.basename(p) }
+            `zero-token blocked an unbounded recursive directory walk ("Get-ChildItem -Recurse" / "dir /s"). Add -Depth 2, or use the zero-token "fsindex" / "search" tool.`,
+            { event: "dir-walk" },
+            isAntigravity
           );
+        }
+
+        if (b.denyVerboseBuild === true) {
+          if (/\b(dotnet\s+build|msbuild)\b/.test(execLike) && !/(-v:\s*[qm]\b|--verbosity\s+(quiet|minimal))/.test(execLike)) {
+            deny(
+              `zero-token: verbose build logs are huge. Use the zero-token "build" tool (returns only errors and grouped warnings), ` +
+                `or add -v:q.`,
+              { event: "build" },
+              isAntigravity
+            );
+          }
+        }
+
+        if (/\b(cat|type|more|Get-Content|gc)\b/i.test(noHeredoc)) {
+          const maxBytes = b.catMaxBytes ?? 131072;
+          for (const p of pathArgs(noHeredoc)) {
+            const full = resolveExisting(p, cwd);
+            const size = fileSize(full);
+            const budget = effectiveMax(full, size, maxBytes);
+            if (size > budget) {
+              const isCode = /\.(cs|ts|tsx|js|mjs|cjs|java|kt|py|go|rb|php|cpp|h|hpp|c|xaml)$/i.test(p);
+              deny(
+                `zero-token blocked dumping ${path.basename(p)} (${Math.round(size / 1024)} KB) to the terminal. ` +
+                  (isCode
+                    ? `Use the zero-token "outline" tool first, or head -n 100.`
+                    : `Read a slice instead: head -n 100, sed -n '1,100p', or the zero-token "search" tool.`),
+                { event: "cat", bytes: size, file: path.basename(p) },
+                isAntigravity
+              );
+            }
+          }
+        }
+
+        // PowerShell: [IO.File]::ReadAllText("...") bypasses Get-Content wording.
+        const readAll = noHeredoc.match(/\bReadAllText\(\s*['"]([^'"]+)['"]/i);
+        if (readAll) {
+          const full = resolveExisting(readAll[1], cwd);
+          const size = fileSize(full);
+          const budget = effectiveMax(full, size, b.catMaxBytes ?? 131072);
+          if (size > budget) {
+            deny(
+              `zero-token blocked ReadAllText on ${path.basename(readAll[1])} (${Math.round(size / 1024)} KB). ` +
+                `Read a slice instead: Get-Content -TotalCount 100, or the zero-token "outline" tool.`,
+              { event: "readall", bytes: size, file: path.basename(readAll[1]) },
+              isAntigravity
+            );
+          }
         }
       }
     }
+  }
 
-    // PowerShell: [IO.File]::ReadAllText("...") bypasses Get-Content wording.
-    const readAll = noHeredoc.match(/\bReadAllText\(\s*['"]([^'"]+)['"]/i);
-    if (readAll) {
-      const full = resolveExisting(readAll[1], ev.cwd || process.cwd());
-      const size = fileSize(full);
-      const budget = effectiveMax(full, size, b.catMaxBytes ?? 131072);
-      if (size > budget) {
-        deny(
-          `zero-token blocked ReadAllText on ${path.basename(readAll[1])} (${Math.round(size / 1024)} KB). ` +
-            `Read a slice instead: Get-Content -TotalCount 100, or the zero-token "outline" tool.`,
-          { event: "readall", bytes: size, file: path.basename(readAll[1]) }
-        );
-      }
+  // On Antigravity, PostToolUse cannot inject context; catch identical call loops in PreToolUse.
+  if (isAntigravity) {
+    const loopReason = checkLoopAntigravity(cfg, ev, tool, input);
+    if (loopReason) {
+      deny(loopReason, { event: "loop" }, true);
     }
+    respond(true, "allow");
   }
 }
 

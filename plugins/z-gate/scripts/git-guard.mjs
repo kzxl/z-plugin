@@ -21,6 +21,24 @@ function readStdin() {
   });
 }
 
+function emit(isAntigravity, decision, text = '') {
+  if (isAntigravity) {
+    const out = text ? { decision, reason: text } : { decision };
+    process.stdout.write(JSON.stringify(out));
+    return;
+  }
+  if (text) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: text
+        }
+      })
+    );
+  }
+}
+
 async function main() {
   const raw = await readStdin();
   let ev;
@@ -30,39 +48,46 @@ async function main() {
     return;
   }
 
-  const tool = ev.tool_name || '';
-  if (!['Bash', 'run_command'].includes(tool)) return;
+  const isAntigravity = Boolean(ev.toolCall || ev.hookEventName || ev.workspacePaths);
+  const tool = ev.toolCall?.name || ev.tool_name || ev.toolName || '';
+  if (!['Bash', 'run_command'].includes(tool)) {
+    if (isAntigravity) emit(true, 'allow');
+    return;
+  }
 
-  const input = ev.tool_input || {};
+  const input = ev.toolCall?.args || ev.tool_input || {};
   const cmd = input.command || input.CommandLine || '';
 
   // 1. Intercept lazy git add -A / git add . (R_GIT)
   if (/\bgit\s+add\s+(-A|--all|\.)(?:\s+|$)/i.test(cmd)) {
-    const reminder = {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        additionalContext:
-          "🛡️ [z-gate] Lazy staging detected ('git add -A' / 'git add .'). Invariant R_GIT mandates Targeted Staging: Stage only files strictly in scope (e.g. 'git add <file1> <file2>'). Never bundle unverified files, local rules, or config into staging."
-      }
-    };
-    process.stdout.write(JSON.stringify(reminder));
+    emit(
+      isAntigravity,
+      'deny',
+      "🛡️ [z-gate] Lazy staging detected ('git add -A' / 'git add .'). Invariant R_GIT mandates Targeted Staging: Stage only files strictly in scope (e.g. 'git add <file1> <file2>'). Never bundle unverified files, local rules, or config into staging."
+    );
     return;
   }
 
   // 2. Intercept git commit
-  if (!/\bgit\s+commit\b/i.test(cmd)) return;
+  if (!/\bgit\s+commit\b/i.test(cmd)) {
+    if (isAntigravity) emit(true, 'allow');
+    return;
+  }
 
   // Extract commit message from command line if present (-m "...")
   const msgMatch = cmd.match(/-m\s+["']([^"']+)["']/);
   const commitMsg = msgMatch ? msgMatch[1] : '';
 
-  const cwd = ev.cwd || process.cwd();
+  const cwd = ev.cwd || ev.workspacePaths?.[0] || process.cwd();
   let diff = '';
   try {
     diff = cp.execSync('git diff --cached', { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
   } catch {}
 
-  if (!diff || diff.trim().length === 0) return;
+  if (!diff || diff.trim().length === 0) {
+    if (isAntigravity) emit(true, 'allow');
+    return;
+  }
 
   // Run deep review
   const review = await reviewCode({ diff, commitMessage: commitMsg, cwd });
@@ -75,13 +100,7 @@ async function main() {
       `❌ Action Required: Fix all P0 security leaks / deadlocks before committing (R_NEV, R_DB, R_WPF).`
     ].join('\n');
 
-    const reminder = {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        additionalContext: blockText
-      }
-    };
-    process.stdout.write(JSON.stringify(reminder));
+    emit(isAntigravity, 'deny', blockText);
     return;
   }
 
@@ -94,14 +113,11 @@ async function main() {
       `💡 Resolve these invariants before proceeding with the commit (R_NEV, R_REUSE, R_GIT).`
     ].join('\n');
 
-    const reminder = {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        additionalContext: warningText
-      }
-    };
-    process.stdout.write(JSON.stringify(reminder));
+    emit(isAntigravity, 'ask', warningText);
+    return;
   }
+
+  if (isAntigravity) emit(true, 'allow');
 }
 
 main().catch(() => process.exit(0));

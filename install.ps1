@@ -242,6 +242,8 @@ if (Test-Path $antigravityConfigPath) {
     }
 }
 
+# Antigravity automatically loads plugins/<name>/mcp_config.json when a plugin is enabled.
+# Remove any legacy global mcp_config.json entries for z-plugin servers to prevent duplicate MCP processes/tools.
 $mcpConfigPaths = @(
     (Join-Path $env:USERPROFILE ".gemini\config\mcp_config.json"),
     (Join-Path $env:USERPROFILE ".gemini\antigravity\mcp_config.json")
@@ -250,31 +252,32 @@ foreach ($mcpPath in $mcpConfigPaths) {
     if (Test-Path $mcpPath) {
         try {
             $mcp = Get-Content $mcpPath -Raw | ConvertFrom-Json
-            if (-not $mcp.mcpServers) { $mcp | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value ([PSCustomObject]@{}) }
-            foreach ($p in $pluginsToProcess) {
-                if ($Uninstall) {
-                    if ($mcp.mcpServers.$p) {
+            if ($mcp.mcpServers) {
+                $changed = $false
+                foreach ($p in $pluginsToProcess) {
+                    if ($mcp.mcpServers.PSObject.Properties.Name -contains $p) {
                         $mcp.mcpServers.PSObject.Properties.Remove($p)
+                        $changed = $true
                     }
-                    continue
                 }
-                $serverScript = Join-Path $env:USERPROFILE ".gemini\config\plugins\$p\scripts\mcp-server.mjs"
-                if (Test-Path $serverScript) {
-                    $serverObj = [PSCustomObject]@{
-                        command = "node"
-                        args = @($serverScript -replace '\\', '/')
-                    }
-                    if (-not $mcp.mcpServers.$p) {
-                        $mcp.mcpServers | Add-Member -MemberType NoteProperty -Name $p -Value $serverObj -Force
-                    } else {
-                        $mcp.mcpServers.$p = $serverObj
-                    }
+                if ($changed) {
+                    $mcp | ConvertTo-Json -Depth 10 | Set-Content $mcpPath -Encoding utf8
+                    Write-Host "[Antigravity] Deduplicated plugin MCP servers from global config: $mcpPath" -ForegroundColor Green
                 }
             }
-            $mcp | ConvertTo-Json -Depth 10 | Set-Content $mcpPath -Encoding utf8
-            Write-Host "[Antigravity] Synchronized MCP config: $mcpPath" -ForegroundColor Green
         } catch {
-            Write-Warning "Could not update ${mcpPath}: $_"
+            Write-Warning "Could not clean ${mcpPath}: $_"
+        }
+    }
+}
+
+# Clean stale legacy MCP schema cache directories
+$antigravityMcpCache = Join-Path $env:USERPROFILE ".gemini\antigravity\mcp"
+if (Test-Path $antigravityMcpCache) {
+    foreach ($stale in @("token-diet", "token-diet_token-diet", "zero-token")) {
+        $staleDir = Join-Path $antigravityMcpCache $stale
+        if (Test-Path $staleDir) {
+            Remove-Item -Path $staleDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }

@@ -49,8 +49,25 @@ function git(root, args, { timeout = 3000, maxBuffer = 64 * 1024 * 1024 } = {}) 
   });
 }
 
+const NON_PROJECT_DIR_RE = /(?:^|[\\/])(?:appdata[\\/]local[\\/]programs|program files(?: \(x86\))?|windows[\\/]system32|\.gemini[\\/]config[\\/]plugins|\.zcode[\\/]plugins)(?:[\\/]|$)/i;
+
+export function isNonProjectSystemDir(dirPath) {
+  if (!dirPath) return true;
+  const normalized = path.resolve(String(dirPath));
+  if (NON_PROJECT_DIR_RE.test(normalized)) return true;
+  if (/^\/(?:Applications|System|usr|bin|sbin)(?:\/|$)/.test(normalized)) return true;
+  return false;
+}
+
+function usableWorkspaceEnv(val) {
+  const s = String(val || '').trim();
+  if (!s || s === '.' || s === './') return '';
+  return s;
+}
+
 export function resolveWorkspace(cwd = process.cwd()) {
-  const base = process.env.Z_PLUGIN_WORKSPACE || process.env.ZBRAIN_WORKSPACE || cwd || process.cwd();
+  const envBase = usableWorkspaceEnv(process.env.Z_PLUGIN_WORKSPACE) || usableWorkspaceEnv(process.env.ZBRAIN_WORKSPACE);
+  const base = envBase || cwd || process.cwd();
   const key = path.resolve(base);
   if (rootCache.has(key)) return rootCache.get(key);
 

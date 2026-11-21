@@ -31,10 +31,16 @@ async function main() {
     return;
   }
 
-  const tool = ev.tool_name || '';
+  const isAntigravity = Boolean(ev.toolCall || ev.hookEventName || ev.workspacePaths);
+  if (isAntigravity) {
+    process.stdout.write('{}');
+    return;
+  }
+
+  const tool = ev.toolCall?.name || ev.tool_name || '';
   if (!['Bash', 'run_command'].includes(tool)) return;
 
-  const input = ev.tool_input || {};
+  const input = ev.toolCall?.args || ev.tool_input || {};
   const command = input.command || input.CommandLine || '';
   if (!TEST_COMMAND_REGEX.test(command)) return;
 

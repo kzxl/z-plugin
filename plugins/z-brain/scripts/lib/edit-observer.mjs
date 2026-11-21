@@ -38,6 +38,7 @@ import {
   gitStatusChanges,
   hashText,
   isIgnored,
+  isNonProjectSystemDir,
   languageOf,
   listWorkspaceFiles,
   normalizeRel,
@@ -69,8 +70,8 @@ const FILE_KEYS = [
   'file_path', 'filePath', 'path', 'Path', 'absolute_path', 'absolutePath',
   'target_file', 'targetFile', 'filename', 'fileName', 'file',
 ];
-const CONTENT_KEYS = ['content', 'Content', 'new_string', 'newString', 'new_str', 'replacement', 'text', 'newCode', 'code_edit'];
-const OLD_KEYS = ['old_string', 'oldString', 'old_str', 'original', 'oldText'];
+const CONTENT_KEYS = ['content', 'Content', 'new_string', 'newString', 'new_str', 'replacement', 'Replacement', 'text', 'newCode', 'code_edit'];
+const OLD_KEYS = ['old_string', 'oldString', 'old_str', 'original', 'oldText', 'Target', 'target'];
 
 const SECRET_RULES = [
   [/(api[_-]?key|secret|token|password|passwd|pwd|authorization|client[_-]?secret)(\s*[:=]\s*)(['"]?)([^\s'"]{4,})/gi, '$1$2$3[REDACTED]'],
@@ -731,6 +732,7 @@ function recordWatchedPath(db, { root, rel, sessionId }) {
 export function startWatcher(db, { cwd = process.cwd(), debounceMs = 500, sessionId = 'watch' } = {}) {
   if (process.env.ZBRAIN_OBSERVER === '0' || process.env.ZBRAIN_WATCH === '0') return null;
   const root = resolveWorkspace(cwd);
+  if (isNonProjectSystemDir(root)) return null;
   if (observerState.watchers.has(root)) return observerState.watchers.get(root);
 
   const state = { root, pending: new Set(), mode: 'watch', watcher: null, timer: null, pollTimer: null };
@@ -784,6 +786,7 @@ export function startWatcher(db, { cwd = process.cwd(), debounceMs = 500, sessio
 
 export function ensureObserver(db, { cwd = process.cwd(), watch = true } = {}) {
   const root = resolveWorkspace(cwd);
+  if (isNonProjectSystemDir(root)) return observerState;
   if (observerState.started) return observerState;
   observerState.started = true;
   observerState.owner = defaultOwner();

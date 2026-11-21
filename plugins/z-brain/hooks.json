@@ -17,16 +17,6 @@
             "timeout": 3
           }
         ]
-      },
-      {
-        "matcher": "Bash|run_command",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ./scripts/harvest-advisor.mjs",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "Stop": [
