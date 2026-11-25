@@ -154,8 +154,8 @@ export function generateMicroSpec(prompt, options = {}) {
       errorState: {
         name: "Error / Network Failure State",
         requirements: [
-          "Non-destructive error banner or card with clear explanation.",
-          "Include explicit 'Thử lại (Retry)' action button.",
+          "Non-destructive error banner or card stating cause + next action (AS-11).",
+          "Include explicit single-language 'Thử lại' action button (never bilingual parentheticals).",
           "Never leak raw stack traces or unformatted HTTP 500 dumps to the user."
         ]
       }
@@ -177,10 +177,11 @@ export function generateMicroSpec(prompt, options = {}) {
     reusableAssets,
     historicalGotchas,
     antiSlopChecklist: [
-      "[ ] No arbitrary neon gradients (solid surface or subtle borders only)",
-      "[ ] Colors strictly mapped to design tokens (bg-background, text-foreground, border-border)",
-      "[ ] No nested card wrappers (<Card><Card>)",
-      `[ ] Sample data uses realistic domain identifiers (e.g. ${sampleId}) instead of 'Lorem Ipsum'`
+      "[ ] Flat solid surfaces mapped strictly to tokens (--bg-canvas, --bg-surface, --border-default, --brand-primary; AS-01, AS-06)",
+      "[ ] Neutral black elevation only (--elevation-0/1/overlay), visible :focus-visible outline, and WCAG >= 4.5:1 contrast (AS-02, AS-08, AS-09)",
+      "[ ] Single-level card containment (no nested <Card><Card>) and at most 1 primary CTA per quadrant (AS-S1)",
+      "[ ] Plain verb-first single-language copy, 16px icons without emoji chrome, and real click handlers (AS-05, AS-11, AS-I1)",
+      `[ ] Sample data uses realistic domain identifiers (e.g. ${sampleId}) with right-aligned tabular-nums`
     ]
   };
 

@@ -51,6 +51,7 @@
       ],
       "tools": [
         "zcraft_spec",
+        "zcraft_scaffold",
         "zcraft_lint_ui",
         "zcraft_preview",
         "zcraft_checkpoint",

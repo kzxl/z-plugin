@@ -2,87 +2,67 @@
 
 Autonomous Software Craftsmanship & Disciplined Vibe-Coding Engine for autonomous AI coding agents (**Antigravity 2.0** & **ZCode**).
 
-`z-craft` transforms natural language prompts into production-grade frontend & product software with zero AI slop, disciplined UX state contracts, interactive generative canvas widgets, and non-destructive micro-checkpoints.
+`z-craft` enforces the canonical **Anti-AI-Slop Standard** (`AS-01..AS-12`, `AS-C1..AS-C5`, `AS-I1`, `AS-D1..AS-D4`, `AS-S1`), synthesizes 4-state UX micro-contracts, audits WCAG 2.1 AA token contrast, scaffolds compliant multi-platform components, and provides interactive previews and non-destructive micro-checkpoints.
 
 ---
 
-## 📦 Components
+## Components
 
 | Component | What it does |
-|---|---|
-| MCP tool `zcraft_spec` | Synthesizes natural language vibes into a 4-state UX Micro-Contract (Default, Loading, Empty, Error) |
-| MCP tool `zcraft_lint_ui` | Scans React, Tailwind, HTML, and XAML for arbitrary hex colors, neon gradients, dead clicks, and missing states (`R_ANTI_SLOP`) |
-| MCP tool `zcraft_preview` | Generates a self-contained, interactive HTML/Tailwind canvas widget for live visual verification |
-| MCP tool `zcraft_checkpoint` | Manages non-destructive shadow snapshots in `.zero-craft/snapshots/` for 1-click rollback without polluting git history |
-| MCP tool `zcraft_status` | Reports active craftsmanship metrics, checkpoint counts, and rule catalog |
-| PostToolUse Hook | Audits UI file modifications in real-time and warns against AI-slop patterns |
-| CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`spec`, `lint`, `preview`, `checkpoint`, `status`) |
-| Skill `z-craft` | Teaches agents to establish micro-contracts, eliminate slop, and provide visual proof |
-| Rules `rules/AGENTS.md` | Universal engineering invariants for software craftsmanship and UI quality |
+| :--- | :--- |
+| MCP tool `zcraft_spec` | Synthesizes natural language prompts into a 4-state UX Micro-Contract with `z-gate` helper reuse and `z-brain` gotcha recall |
+| MCP tool `zcraft_scaffold` | Generates 4-state enterprise components (`react`, `wpf`, `winforms`) passing all canonical anti-slop rules |
+| MCP tool `zcraft_lint_ui` | Canonical Anti-Slop linter supporting snippets, files/directories, git `--diff`, motion profiles (`enterprise`/`expressive`), inline suppressions, and WCAG 2.1 token contrast audits (`tokensFile`) |
+| MCP tool `zcraft_preview` | Generates self-contained interactive HTML/Tailwind previews themed with Antigravity host semantic tokens |
+| MCP tool `zcraft_checkpoint` | Manages non-destructive shadow snapshots in `.zero-craft/snapshots/` for 1-click rollback |
+| MCP tool `zcraft_status` | Reports active craftsmanship rule catalog and checkpoint inventory |
+| CLI `scripts/cli.mjs` | Standalone CLI facade (`spec`, `lint`, `preview`, `checkpoint`, `status`) |
+| Skill `z-craft` + `references/anti-slop-standard.md` | Canonical standard and workflow instructions |
+| Rules `rules/AGENTS.md` | Positive-first universal invariants for UI craftsmanship |
 
 ---
 
-## 🏛️ Core Capabilities
+## Canonical Rule Taxonomy
 
-### 1. Vibe-to-Spec Engine (`zcraft_spec`)
-Translates casual user prompts into explicit UX state contracts:
-- **Mandatory 4-State Matrix**:
-  - **Populated (Default)**: Normal data display with compact row heights and pagination.
-  - **Loading (Async)**: High-fidelity skeleton shimmers (never blank screens or single generic spinners).
-  - **Empty (Zero Data)**: Clear explanation distinguishing between 'no data created' vs 'no search match', with an actionable CTA button.
-  - **Error (Failure)**: User-friendly diagnostic message paired with a "Retry" button.
-- **Edge Case Defenses**: Pre-planned mitigations for high-volume data (virtualization), text truncation (tooltips), and responsive collapse.
-
-### 2. Mechanical Anti-AI-Slop AST Linter (`zcraft_lint_ui`)
-Eliminates amateurish AI-generated UI:
-- **AS-1 (Arbitrary Hex Colors)**: Rejects hardcoded arbitrary hex codes; mandates semantic design system tokens.
-- **AS-2 (Neon Gradients)**: Blocks gratuitous purple/pink/indigo ambient gradient blobs.
-- **AS-3 (Floaty Shadows)**: Replaces oversized ambient drop-shadows with crisp 1px borders.
-- **AS-4 (Generic Placeholders)**: Catches "Lorem ipsum" and dummy data in production components.
-- **AS-5 (Dead Interactions)**: Forbids dead click handlers (`onClick={() => {}}` or `href="#"`).
-- **AS-6 (Low Contrast)**: Enforces WCAG AAA compliance.
-- **AS-7 (XAML/WinForms Slop)**: Flags unskinned raw colors in desktop apps.
-
-### 3. Interactive Generative Canvas (`zcraft_preview`)
-- Produces self-contained interactive HTML/Tailwind widgets that render directly in chat via Antigravity Generative UI.
-- Allows developers to click buttons, switch states, and test responsive layouts before saving files to disk.
-
-### 4. Vibe Time-Machine (`zcraft_checkpoint`)
-- Saves lightweight file snapshots in `.zero-craft/snapshots/` prior to radical visual redesigns.
-- Instant 1-click restore (`zcraft_checkpoint restore <id>`) without creating dangling git commits or rebases.
+| Group | Rule IDs | Scope |
+| :--- | :--- | :--- |
+| **UI Visual, Motion & Ergonomics** | `AS-01`..`AS-12` | Token discipline (no arbitrary hex), neutral black elevation, one-shot compositor motion & GSAP allowlist (`AS-03a..f`), rectangular radius, icon/no-emoji chrome, flat surfaces (no gradients), dense row bands & zebra opt-in (`AS-07z`), WCAG 2.1 AA contrast & no `backdrop-blur`, `:focus-visible` & native desktop focus, chart restraint, verb-first copy & no placeholders, 4-state matrix |
+| **Interaction & Structure** | `AS-I1`, `AS-S1` | No dead click handlers/links; no nested `<Card><Card>` wrappers |
+| **Desktop ERP Runtime** | `AS-D1`..`AS-D4` | DevExpress `BeginUpdate`/`EndUpdate` wrapping around loop mutations, WinForms wait indicator on async work, WPF `Dispatcher.InvokeAsync` inside `async` methods, centralized font definitions |
+| **Code Hygiene** | `AS-C1`..`AS-C5` | Self-documenting names (diff-scoped), no commented-out dead code, no AI attribution metadata in source |
 
 ---
 
-## ⚡ CLI Usage
+## CLI Usage
 
 ```bash
 # Generate UX micro-contract from a prompt
-node scripts/cli.mjs spec "Màn hình quản lý kho có scan barcode và cảnh báo tồn"
+node scripts/cli.mjs spec "Warehouse stock reconciliation screen with lot filter"
 
-# Lint UI files for Anti-Slop violations
-node scripts/cli.mjs lint src/components
+# Lint git diff (added lines only, default enterprise profile)
+node scripts/cli.mjs lint --diff
+
+# Lint a file or directory across web, CSS, XAML, and C#
+node scripts/cli.mjs lint src/components --profile enterprise
+
+# Audit CSS custom properties for WCAG 2.1 AA contrast (>= 4.5:1 text, >= 3:1 input/focus)
+node scripts/cli.mjs lint --tokens src/styles/globals.css
 
 # Generate interactive preview widget
 node scripts/cli.mjs preview "Inventory Dashboard"
 
-# Create a shadow checkpoint before refactoring
-node scripts/cli.mjs checkpoint create before_card_redesign
-
-# List all checkpoints
+# Create, list, and restore shadow checkpoints
+node scripts/cli.mjs checkpoint create before_card_redesign src/components/Table.tsx
 node scripts/cli.mjs checkpoint list
-
-# Restore working state from a checkpoint
 node scripts/cli.mjs checkpoint restore before_card_redesign
 
-# Check status
+# Check status and active rules
 node scripts/cli.mjs status
 ```
 
 ---
 
-## 🧪 Testing & Verification
-
-Run the dedicated test suite:
+## Testing & Verification
 
 ```bash
 node bench/craft-test.mjs

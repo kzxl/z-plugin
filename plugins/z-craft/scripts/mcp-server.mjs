@@ -2,7 +2,8 @@
 /**
  * Z-Craft MCP Server (Model Context Protocol)
  * Lightweight, zero-overhead stdio JSON-RPC 2.0 server.
- * Enforces Software Craftsmanship, Anti-Slop (R_ANTI_SLOP), UX Micro-Specs, and Generative UI Previews.
+ * Enforces Canonical Anti-Slop (AS-01..AS-12, AS-C1..AS-C5, AS-I1, AS-D1..AS-D4, AS-S1),
+ * WCAG 2.1 token contrast, UX Micro-Specs, 4-State Scaffolding, and Interactive Previews.
  */
 
 import readline from 'node:readline';
@@ -10,7 +11,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { lintUiContent, lintUiFiles, SLOP_RULES } from './lib/anti-slop-linter.mjs';
+import {
+  lintUiContent,
+  lintUiFiles,
+  lintDiff,
+  auditTokens,
+  SLOP_RULES
+} from './lib/anti-slop-linter.mjs';
 import { generateMicroSpec } from './lib/spec-generator.mjs';
 import { generateCanvasWidget } from './lib/generative-canvas.mjs';
 import { createCheckpoint, listCheckpoints, restoreCheckpoint } from './lib/time-machine.mjs';
@@ -18,7 +25,7 @@ import { scaffoldComponent } from './lib/scaffolder.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let pluginMeta = { name: 'z-craft', version: '1.0.0' };
+let pluginMeta = { name: 'z-craft', version: '1.11.0' };
 try {
   const metaPath = path.resolve(__dirname, '..', 'plugin.json');
   if (fs.existsSync(metaPath)) {
@@ -30,11 +37,11 @@ const TOOLS = [
   {
     name: 'zcraft_spec',
     description:
-      'Generate a disciplined UX Micro-Contract & State Matrix (Default, Loading, Empty, Error) from a natural language vibe prompt to prevent missing edge cases and blank screens.',
+      'Generate a disciplined UX Micro-Contract & 4-State Matrix (Populated, Loading, Empty, Error) from a natural language prompt, cross-referenced with z-gate helpers and z-brain gotchas.',
     inputSchema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'Vibe prompt or feature description (e.g. "Màn hình quản lý tồn kho vật tư có lọc theo kho")' },
+        prompt: { type: 'string', description: 'Feature description or UI prompt' },
         format: { type: 'string', enum: ['markdown', 'json'], description: 'Output format (default: markdown)' }
       },
       required: ['prompt']
@@ -43,26 +50,29 @@ const TOOLS = [
   {
     name: 'zcraft_lint_ui',
     description:
-      'Run the Anti-Slop AST Linter on code snippets or frontend files (React, Tailwind, HTML, XAML) to detect arbitrary hex colors, neon gradients, dead clicks, and missing states (R_ANTI_SLOP).',
+      'Run the Canonical Anti-Slop Linter (AS-01..AS-12, AS-C1..AS-C5, AS-I1, AS-D1..AS-D4, AS-S1) on snippets, files/directories, git diff, or WCAG 2.1 CSS token sheets.',
     inputSchema: {
       type: 'object',
       properties: {
         targetPath: { type: 'string', description: 'Path to source file or directory to audit' },
         snippet: { type: 'string', description: 'Raw code snippet to lint if not reading from file' },
-        filename: { type: 'string', description: 'Virtual filename for snippet (e.g. Component.tsx)' }
+        filename: { type: 'string', description: 'Virtual filename for snippet (e.g. Component.tsx)' },
+        diff: { type: 'boolean', description: 'Audit added lines of git staged/unstaged diff only' },
+        tokensFile: { type: 'string', description: 'CSS file path to audit custom property contrast (WCAG 2.1 AA)' },
+        profile: { type: 'string', enum: ['enterprise', 'expressive'], description: 'Motion profile override' }
       }
     }
   },
   {
     name: 'zcraft_preview',
     description:
-      'Generate a self-contained, interactive HTML/Tailwind canvas widget for live visual verification of UI components in Antigravity chat.',
+      'Generate a self-contained, interactive HTML/Tailwind canvas widget compatible with Antigravity host theme tokens and <agent-embed>.',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Component or feature title' },
-        htmlContent: { type: 'string', description: 'Custom HTML/Tailwind markup (leave empty for crafted enterprise prototype)' },
-        savePath: { type: 'string', description: 'Optional file path to persist the preview HTML' }
+        htmlContent: { type: 'string', description: 'Custom HTML/Tailwind markup (leave empty for enterprise 4-state prototype)' },
+        savePath: { type: 'string', description: 'Optional file path to persist the preview HTML (emits <agent-embed> tag)' }
       },
       required: ['title']
     }
@@ -85,7 +95,7 @@ const TOOLS = [
   {
     name: 'zcraft_scaffold',
     description:
-      'Scaffold a production-grade 4-state enterprise UI component satisfying R_UX_MATRIX (Populated, Loading Skeleton, Empty + CTA, Error + Retry) in React/Tailwind, WPF XAML, or WinForms DevExpress.',
+      'Scaffold a 4-state enterprise UI component satisfying R_UX_MATRIX and canonical Anti-Slop laws in React/Tailwind, WPF XAML, or WinForms DevExpress.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -98,7 +108,7 @@ const TOOLS = [
   {
     name: 'zcraft_status',
     description:
-      'Show active status of Z-Craft, active checkpoints, and Anti-Slop rules catalog.',
+      'Show active status of Z-Craft, active checkpoints, and canonical Anti-Slop rule catalog.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -109,7 +119,6 @@ const TOOLS = [
 function handleRpc(req) {
   const { id, method, params } = req;
 
-  // JSON-RPC 2.0 notifications MUST NOT produce any response
   if (!method || method.startsWith('notifications/')) {
     return null;
   }
@@ -155,15 +164,26 @@ function handleRpc(req) {
 
       if (name === 'zcraft_lint_ui') {
         let resultText = '';
-        if (args.snippet) {
-          const report = lintUiContent(args.snippet, args.filename || 'snippet.tsx');
+        if (args.tokensFile) {
+          const fullPath = path.isAbsolute(args.tokensFile) ? args.tokensFile : path.join(cwd, args.tokensFile);
+          if (!fs.existsSync(fullPath)) {
+            resultText = JSON.stringify({ error: `Token file not found: ${args.tokensFile}` });
+          } else {
+            const audit = auditTokens(fs.readFileSync(fullPath, 'utf8'));
+            resultText = JSON.stringify({ file: path.relative(cwd, fullPath).replace(/\\/g, '/'), ...audit }, null, 2);
+          }
+        } else if (args.diff) {
+          const report = lintDiff(cwd, { profile: args.profile });
+          resultText = JSON.stringify(report, null, 2);
+        } else if (args.snippet) {
+          const report = lintUiContent(args.snippet, args.filename || 'snippet.tsx', { cwd, profile: args.profile });
           resultText = JSON.stringify(report, null, 2);
         } else if (args.targetPath) {
           const fullPath = path.isAbsolute(args.targetPath) ? args.targetPath : path.join(cwd, args.targetPath);
-          const reports = lintUiFiles([fullPath], cwd);
+          const reports = lintUiFiles([fullPath], cwd, { profile: args.profile });
           resultText = JSON.stringify(reports, null, 2);
         } else {
-          resultText = JSON.stringify({ error: 'Please provide either targetPath or snippet to lint.' });
+          resultText = JSON.stringify({ error: 'Provide targetPath, snippet, diff: true, or tokensFile.' });
         }
         return {
           jsonrpc: '2.0',
@@ -173,12 +193,15 @@ function handleRpc(req) {
       }
 
       if (name === 'zcraft_preview') {
+        const outPath = args.savePath
+          ? (path.isAbsolute(args.savePath) ? args.savePath : path.join(cwd, args.savePath))
+          : null;
         const widget = generateCanvasWidget({
           title: args.title,
-          htmlContent: args.htmlContent
+          htmlContent: args.htmlContent,
+          savePath: outPath || ''
         });
-        if (args.savePath) {
-          const outPath = path.isAbsolute(args.savePath) ? args.savePath : path.join(cwd, args.savePath);
+        if (outPath) {
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, widget.html, 'utf8');
         }
@@ -189,7 +212,7 @@ function handleRpc(req) {
             content: [
               {
                 type: 'text',
-                text: `✨ Z-Craft Interactive Preview: ${widget.title}\n\n${widget.previewBlock}`
+                text: `Z-Craft Interactive Preview: ${widget.title}\n\n${widget.previewBlock}`
               }
             ]
           }
@@ -218,7 +241,8 @@ function handleRpc(req) {
         const status = {
           plugin: pluginMeta.name,
           version: pluginMeta.version,
-          activeRules: SLOP_RULES.map(r => ({ id: r.id, name: r.name, severity: r.severity })),
+          standard: 'AS-01..AS-12, AS-C1..AS-C5, AS-I1, AS-D1..AS-D4, AS-S1',
+          activeRules: SLOP_RULES.map((r) => ({ id: r.id, name: r.name, severity: r.severity })),
           checkpointsCount: checkpoints.length,
           recentCheckpoints: checkpoints.slice(0, 5)
         };
@@ -238,7 +262,7 @@ function handleRpc(req) {
             content: [
               {
                 type: 'text',
-                text: `✨ [Z-CRAFT SCAFFOLD: ${scaffold.framework.toUpperCase()}]\nFile: ${scaffold.filename}\nStates verified: ${scaffold.states.join(', ')}\n\n\`\`\`${scaffold.framework === 'wpf' ? 'xml' : scaffold.framework === 'winforms' ? 'csharp' : 'tsx'}\n${scaffold.code}\n\`\`\``
+                text: `[Z-CRAFT SCAFFOLD: ${scaffold.framework.toUpperCase()}]\nFile: ${scaffold.filename}\nStates verified: ${scaffold.states.join(', ')}\n\n\`\`\`${scaffold.framework === 'wpf' ? 'xml' : scaffold.framework === 'winforms' ? 'csharp' : 'tsx'}\n${scaffold.code}\n\`\`\``
               }
             ]
           }
