@@ -164,11 +164,82 @@ ok(symKnowledge.symbol === "OrderService", "relational symbol name matches");
 ok(symKnowledge.edges.length >= 1, "found relational graph edges for OrderService");
 ok(symKnowledge.edges[0].target_name === "InventoryLedger", "relational edge links to InventoryLedger");
 
-// Test temporal supersede
+// Test temporal supersede & search exclusion
 ok(supersedeAtom(db, 1, 2) === true, "atom #1 marked as superseded by atom #2");
 const atom1 = getAtomById(db, 1);
 ok(atom1.superseded_by === 2, "atom #1 superseded_by points to atom #2");
 ok(Boolean(atom1.valid_to), "atom #1 valid_to timestamp is set");
+
+const activeDeadlockSearch = searchKnowledge({ query: "Database Deadlock RefId", project: "erp", limit: 5 });
+ok(!activeDeadlockSearch.some(r => r.id === 1), "superseded atom #1 is excluded from searchKnowledge by default");
+const withSupersededSearch = searchKnowledge({ query: "Database Deadlock RefId", project: "erp", limit: 5, includeSuperseded: true });
+ok(withSupersededSearch.some(r => r.id === 1), "superseded atom #1 is returned when includeSuperseded: true");
+
+console.log("z-brain: generational compaction & supersede reason");
+const { compactKnowledge, supersedeAtom: compactSupersede } = await import("../plugins/z-brain/scripts/lib/compaction.mjs");
+const { insertAtom } = await import("../plugins/z-brain/scripts/lib/db.mjs");
+
+const c1 = insertAtom(db, {
+  project_id: "compaction-proj",
+  question: "SQLite WAL lock contention during concurrent agent writes",
+  answer: "Two agents write without busy_timeout",
+  gotcha_fix: "Set PRAGMA busy_timeout = 8000 and keep transactions short",
+  tags: ["sqlite", "concurrency", "wal"]
+});
+const c2 = insertAtom(db, {
+  project_id: "compaction-proj",
+  question: "SQLITE_BUSY error when two processes write simultaneously in WAL mode",
+  answer: "Concurrent writers hit write lock without retry",
+  gotcha_fix: "Use WAL mode with busy_timeout and jittered retry",
+  tags: ["sqlite", "concurrency", "wal"]
+});
+const c3 = insertAtom(db, {
+  project_id: "compaction-proj",
+  question: "Concurrent SQLite WAL writes fail with database is locked",
+  answer: "Missing busy timeout on concurrent connection",
+  gotcha_fix: "Configure busy_timeout and batch writes inside WAL transaction",
+  tags: ["sqlite", "concurrency", "wal"]
+});
+const cUnrelated = insertAtom(db, {
+  project_id: "compaction-proj",
+  question: "WPF DPI scaling blurs toolbar icons on 150% monitor",
+  answer: "AutoScaleMode set to Font instead of Dpi",
+  gotcha_fix: "Set AutoScaleMode.Dpi and per-monitor manifest",
+  tags: ["wpf", "dpi"]
+});
+
+const supRes = compactSupersede(db, c1, c2, "consolidated test");
+ok(supRes.success === true && supRes.oldAtomId === c1 && supRes.newAtomId === c2, "compaction supersedeAtom updates with reason");
+const c1AfterSup = getAtomById(db, c1);
+ok(c1AfterSup.superseded_by === c2 && c1AfterSup.evidence.some(e => e.includes("consolidated test")), "supersede reason persisted in evidence");
+
+// Restore c1 to active so compaction clusters all 3 SQLite WAL atoms
+db.prepare("UPDATE knowledge_atoms SET superseded_by = NULL, valid_to = NULL WHERE id = ?").run(c1);
+
+const dryPreview = compactKnowledge({ db, project: "compaction-proj", minClusterSize: 3, dryRun: true });
+ok(dryPreview.dryRun === true && dryPreview.clustersFound === 1, "dryRun detects 1 cluster");
+ok(dryPreview.atomsCompacted === 3 && dryPreview.canonicalCreated === 0, "dryRun reports 3 candidate atoms without creating canonical");
+ok(getAtomById(db, c1).superseded_by === null && getAtomById(db, c1).compacted_into === null, "dryRun leaves source atoms untouched");
+
+const compactRes = compactKnowledge({ db, project: "compaction-proj", minClusterSize: 3, dryRun: false });
+ok(compactRes.clustersFound === 1 && compactRes.canonicalCreated === 1 && compactRes.atomsCompacted === 3, "compaction creates 1 canonical block from 3 atoms");
+const canonicalId = compactRes.clusters[0].canonicalId;
+ok(Number.isInteger(canonicalId) && canonicalId > 0, "canonical atom received valid ID");
+const canonicalAtom = getAtomById(db, canonicalId);
+ok(canonicalAtom.trust_level === "verified_fact" && canonicalAtom.category === "canonical_block", "canonical atom is verified_fact canonical_block");
+for (const srcId of [c1, c2, c3]) {
+  const src = getAtomById(db, srcId);
+  ok(src.superseded_by === canonicalId && src.compacted_into === canonicalId, `source atom #${srcId} marked superseded_by and compacted_into #${canonicalId}`);
+}
+const unrelatedAfter = getAtomById(db, cUnrelated);
+ok(unrelatedAfter.superseded_by === null && unrelatedAfter.compacted_into === null, "unrelated WPF atom was not compacted");
+
+const postCompactSearch = searchKnowledge({ query: "SQLite WAL concurrent write lock", project: "compaction-proj", limit: 5 });
+ok(postCompactSearch.some(r => r.id === canonicalId), "searchKnowledge returns consolidated canonical atom");
+ok(!postCompactSearch.some(r => [c1, c2, c3].includes(r.id)), "searchKnowledge excludes compacted source atoms");
+
+const secondCompact = compactKnowledge({ db, project: "compaction-proj", minClusterSize: 3, dryRun: false });
+ok(secondCompact.clustersFound === 0 && secondCompact.canonicalCreated === 0, "compaction is idempotent on already-compacted atoms");
 
 // Cleanup
 closeDb();

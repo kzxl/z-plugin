@@ -177,6 +177,11 @@ export function initSchema(db) {
       category TEXT DEFAULT 'general',
       confidence REAL DEFAULT 0.5,
       pinned INTEGER DEFAULT 0,
+      files_touched TEXT DEFAULT '[]',
+      valid_from TEXT,
+      valid_to TEXT,
+      superseded_by INTEGER DEFAULT NULL,
+      compacted_into INTEGER DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -184,6 +189,7 @@ export function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_atoms_project ON knowledge_atoms(project_id);
     CREATE INDEX IF NOT EXISTS idx_atoms_scope ON knowledge_atoms(scope);
     CREATE INDEX IF NOT EXISTS idx_atoms_trust ON knowledge_atoms(trust_level);
+    CREATE INDEX IF NOT EXISTS idx_atoms_superseded ON knowledge_atoms(superseded_by);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
       question,
@@ -325,7 +331,10 @@ export function initSchema(db) {
       db.exec("ALTER TABLE knowledge_atoms ADD COLUMN valid_to TEXT;");
     }
     if (!cols.includes('superseded_by')) {
-      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN superseded_by INTEGER;");
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN superseded_by INTEGER DEFAULT NULL;");
+    }
+    if (!cols.includes('compacted_into')) {
+      db.exec("ALTER TABLE knowledge_atoms ADD COLUMN compacted_into INTEGER DEFAULT NULL;");
     }
   } catch {}
 }
@@ -338,16 +347,17 @@ export function insertAtom(db, atom) {
   const validFrom = atom.valid_from || atom.created_at || now;
   const validTo = atom.valid_to || null;
   const supersededBy = atom.superseded_by || null;
+  const compactedInto = atom.compacted_into || null;
 
   const stmt = db.prepare(`
     INSERT INTO knowledge_atoms (
       id, project_id, scope, trust_level, question, answer, gotcha_fix,
       tags, evidence, category, confidence, pinned, files_touched,
-      valid_from, valid_to, superseded_by, created_at, updated_at
+      valid_from, valid_to, superseded_by, compacted_into, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?
     )
   `);
 
@@ -370,6 +380,7 @@ export function insertAtom(db, atom) {
     validFrom,
     validTo,
     supersededBy,
+    compactedInto,
     atom.created_at || now,
     now
   );

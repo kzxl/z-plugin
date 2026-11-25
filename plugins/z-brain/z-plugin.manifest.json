@@ -68,7 +68,8 @@
         "zbrain_impact",
         "zbrain_observe",
         "zbrain_harvest_git",
-        "zbrain_status"
+        "zbrain_status",
+        "zbrain_compact"
       ]
     }
   }

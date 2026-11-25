@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-12T10:12:34.153Z",
+  "generatedAt": "2026-11-25T14:56:08.708Z",
   "corpus": 50,
   "queries": 50,
   "k": 5,
@@ -14,16 +14,16 @@
     {
       "system": "hybrid (production)",
       "queries": 50,
-      "hitAt1": 0.98,
+      "hitAt1": 1,
       "hitAt3": 1,
       "hitAt5": 1,
-      "recallAt5": 0.99,
-      "precisionAt5": 0.27799999999999997,
-      "mrr": 0.99,
-      "ndcg": 0.9832759547097021,
+      "recallAt5": 1,
+      "precisionAt5": 0.22133333333333316,
+      "mrr": 1,
+      "ndcg": 1,
       "emptyRate": 0,
-      "p50Ms": 0.6671999999999798,
-      "p95Ms": 1.1952999999999747
+      "p50Ms": 0.8233999999999924,
+      "p95Ms": 1.2607999999999606
     },
     {
       "system": "raw FTS5",
@@ -32,109 +32,45 @@
       "hitAt3": 1,
       "hitAt5": 1,
       "recallAt5": 1,
-      "precisionAt5": 0.3453333333333333,
+      "precisionAt5": 0.348,
       "mrr": 1,
       "ndcg": 0.9970068981106951,
       "emptyRate": 0,
-      "p50Ms": 0.36839999999997985,
-      "p95Ms": 0.666199999999975
+      "p50Ms": 0.38479999999998427,
+      "p95Ms": 0.6672999999999831
     }
   ],
   "misses": [],
-  "rankingErrors": [
-    {
-      "query": "database deadlock khi lưu phiếu nhập",
-      "expect": [
-        "erp-deadlock-refid"
-      ],
-      "top1": 2
-    }
-  ],
+  "rankingErrors": [],
   "paraphrase": [
     {
       "system": "hybrid (production)",
       "queries": 8,
-      "hitAt1": 0,
-      "hitAt3": 0.125,
-      "hitAt5": 0.375,
-      "recallAt5": 0.375,
-      "precisionAt5": 0.11249999999999999,
-      "mrr": 0.11875,
-      "ndcg": 0.18105738985992403,
-      "emptyRate": 0.625,
-      "p50Ms": 0.8328999999999951,
-      "p95Ms": 1.4072999999999922
+      "hitAt1": 0.625,
+      "hitAt3": 1,
+      "hitAt5": 1,
+      "recallAt5": 1,
+      "precisionAt5": 0.20625,
+      "mrr": 0.8125,
+      "ndcg": 0.8615986575892967,
+      "emptyRate": 0,
+      "p50Ms": 1.0508999999999844,
+      "p95Ms": 1.2099999999999795
     },
     {
       "system": "raw FTS5",
       "queries": 8,
-      "hitAt1": 0.125,
+      "hitAt1": 0,
       "hitAt3": 0.25,
-      "hitAt5": 0.375,
-      "recallAt5": 0.375,
-      "precisionAt5": 0.11249999999999999,
-      "mrr": 0.19791666666666666,
-      "ndcg": 0.24133456975917414,
-      "emptyRate": 0.625,
-      "p50Ms": 0.5233000000000061,
-      "p95Ms": 0.6509000000000071
+      "hitAt5": 0.25,
+      "recallAt5": 0.25,
+      "precisionAt5": 0.05,
+      "mrr": 0.08333333333333333,
+      "ndcg": 0.125,
+      "emptyRate": 0.75,
+      "p50Ms": 0.3386999999999887,
+      "p95Ms": 0.5775999999999897
     }
   ],
-  "paraphraseMisses": [
-    {
-      "query": "hàng trong kho bị trừ hai lần khi quét mã vạch",
-      "expect": [
-        "erp-barcode"
-      ],
-      "got": [
-        32,
-        5,
-        4,
-        13,
-        26
-      ]
-    },
-    {
-      "query": "huỷ đơn nhưng hàng vẫn bị giữ chỗ",
-      "expect": [
-        "erp-order-cancel"
-      ],
-      "got": [
-        4,
-        13,
-        26
-      ]
-    },
-    {
-      "query": "hai luồng ghi cùng lúc thì một luồng bị khoá",
-      "expect": [
-        "erp-sqlite-wal"
-      ],
-      "got": [
-        26,
-        13
-      ]
-    },
-    {
-      "query": "trùng lặp ký ức khi nạp lại nội dung diễn đạt khác",
-      "expect": [
-        "brain-dedupe"
-      ],
-      "got": [
-        5,
-        26,
-        4
-      ]
-    },
-    {
-      "query": "lãnh đạo bị mất khi tiến trình chết",
-      "expect": [
-        "brain-lease"
-      ],
-      "got": [
-        26,
-        13
-      ]
-    }
-  ]
+  "paraphraseMisses": []
 }

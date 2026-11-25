@@ -21,6 +21,7 @@ import {
 import fs from 'node:fs';
 import { resolveWorkspace } from './lib/workspace.mjs';
 import { buildPreflight } from './lib/preflight.mjs';
+import { compactKnowledge, supersedeAtom } from './lib/compaction.mjs';
 
 const [,, command, ...args] = process.argv;
 
@@ -38,6 +39,7 @@ Usage:
   z-brain file <path> [--limit=5]
   z-brain preflight <path> [--budget=300] [--symbol=Name]
   z-brain query "<search keywords>"
+  z-brain compact [--project=name] [--min-cluster=3] [--dry-run] [--supersede=oldId:newId] [--reason="..."]
   z-brain status
   z-brain db [info|backup|restore|import] [path]
   z-brain export <file.json>
@@ -178,6 +180,23 @@ switch (command) {
     const query = args.find(a => !a.startsWith('--')) || '';
     const results = searchKnowledge({ query, limit: 5 });
     console.log(formatL0Progressive(results, query));
+    break;
+  }
+
+  case 'compact': {
+    const supersedeArg = getArgValue('--supersede=');
+    if (supersedeArg) {
+      const [oldStr, newStr] = supersedeArg.split(':');
+      const reason = getArgValue('--reason=');
+      const res = supersedeAtom(db, Number(oldStr), Number(newStr), reason);
+      console.log(JSON.stringify(res, null, 2));
+      break;
+    }
+    const project = getArgValue('--project=');
+    const minClusterSize = parseInt(getArgValue('--min-cluster=') || getArgValue('--minClusterSize=') || '3', 10);
+    const dryRun = args.includes('--dry-run');
+    const res = compactKnowledge({ db, project, minClusterSize, dryRun });
+    console.log(JSON.stringify(res, null, 2));
     break;
   }
 

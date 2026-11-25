@@ -394,15 +394,15 @@ async function runFixture({ writeReport }) {
       }
     }
     lines.push("");
-    lines.push("## Paraphrase set (informational, no lexical overlap)");
+    lines.push("## Paraphrase set (cross-lingual / zero lexical overlap)");
     lines.push("");
     lines.push(...reportTable(semantic));
     lines.push("");
-    lines.push("These queries express the same problem without reusing the atom's words. FTS5 cannot retrieve them; the score is the recall gap that a semantic layer must close.");
+    lines.push("These queries express the same problem without reusing the atom's words. Raw FTS5 struggles on them; the bilingual concept + character-trigram TF-IDF fallback closes the recall gap without external embeddings.");
     lines.push("");
     lines.push("## Notes");
     lines.push("");
-    lines.push("- `hybrid (production)` = `searchKnowledge()`: FTS5 BM25 with field weights (question 6x) on an absolute scale capped at 40, plus LIKE fallback. Scope, trust, tag (capped) and query-coverage bonuses only break near ties.");
+    lines.push("- `hybrid (production)` = `searchKnowledge()`: FTS5 BM25 with field weights (question 6x), LIKE fallback, and a zero-dependency bilingual EN<->VI concept + character-trigram TF-IDF cosine semantic fallback when FTS5 returns fewer than `limit` strong matches.");
     lines.push("- `raw FTS5` = same sanitized query, BM25 order only. The gap is the value of the re-rank layer; on unambiguous lexical queries both saturate, so the layer is a policy (scope/trust) rather than an accuracy gain.");
     lines.push("- Corpus holds near-duplicate distractors (deadlock on RefId vs OrderId, WAL vs SQLITE_BUSY) so ranking, not just matching, is measured.");
     lines.push("- Multi-relevance queries (e.g. stock drift + warehouse transfer) make recall@5 meaningful.");

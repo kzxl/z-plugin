@@ -46,6 +46,7 @@ import {
 } from './lib/edit-observer.mjs';
 import { resolveWorkspace, toWorkspaceRel } from './lib/workspace.mjs';
 import { buildPreflight } from './lib/preflight.mjs';
+import { compactKnowledge, supersedeAtom } from './lib/compaction.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -222,6 +223,29 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {}
+    }
+  },
+  {
+    name: 'zbrain_compact',
+    description:
+      'Consolidate clusters of similar active knowledge atoms into canonical verified_fact blocks, or supersede an older atom with a newer one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project scope to compact (defaults to all projects)' },
+        minClusterSize: { type: 'number', description: 'Minimum cluster size to compact (default: 3)' },
+        dryRun: { type: 'boolean', description: 'Preview candidate clusters without mutating the database (default: false)' },
+        supersede: {
+          type: 'object',
+          description: 'Optional direct supersede operation ({ oldId, newId, reason })',
+          properties: {
+            oldId: { type: 'number', description: 'Older atom ID to mark as superseded' },
+            newId: { type: 'number', description: 'Newer atom ID that supersedes oldId' },
+            reason: { type: 'string', description: 'Optional reason for superseding' }
+          },
+          required: ['oldId', 'newId']
+        }
+      }
     }
   }
 ];
@@ -403,6 +427,29 @@ async function handleToolCall(name, args) {
 
       return {
         content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
+      };
+    }
+
+    case 'zbrain_compact': {
+      if (args.supersede && args.supersede.oldId != null && args.supersede.newId != null) {
+        const res = supersedeAtom(
+          db,
+          Number(args.supersede.oldId),
+          Number(args.supersede.newId),
+          args.supersede.reason || null
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(res, null, 2) }]
+        };
+      }
+      const res = compactKnowledge({
+        db,
+        project: args.project || null,
+        minClusterSize: args.minClusterSize ? Number(args.minClusterSize) : 3,
+        dryRun: Boolean(args.dryRun)
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res, null, 2) }]
       };
     }
 
