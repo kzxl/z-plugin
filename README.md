@@ -6,6 +6,7 @@
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
 [![Tests](https://img.shields.io/badge/Tests-30%20passing%20%7C%20660%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/kzxl/z-plugin?style=social)](https://github.com/kzxl/z-plugin/stargazers)
 
 [Tiếng Việt](README.vi.md) · [English](README.md) · [Roadmap](ROADMAP.md) · [Changelog](CHANGELOG.md)
 
@@ -44,7 +45,7 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 
 ---
 
-## 💥 z-plugin? (Before vs. After)
+## 💥 Why `z-plugin`? (Before vs. After)
 
 | Common AI Agent Pain Point | With `z-plugin` Active | Verified Impact |
 | :--- | :--- | :---: |
@@ -237,3 +238,7 @@ npm run eval:retrieval:live
 ## 📄 License
 
 This monorepo is open source under the [MIT License](LICENSE).
+
+---
+
+If `z-plugin` saves you tokens or catches a breaking regression before commit, consider giving it a ⭐ on GitHub!
