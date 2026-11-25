@@ -9,6 +9,7 @@ export { LifecycleState, LifecycleManager, PluginInstance } from './lifecycle-ma
 export { CognitiveRouter, TokenBudgeter, AdaptiveTokenBudgeter, IntentClassifier, DAGPlanner, INTENT_CATEGORIES } from './cognitive-router.mjs';
 export { HotReloadManager } from './hot-reload.mjs';
 export { LocalIpcBridge } from './cross-process-ipc.mjs';
+export { orchestrateTask } from './orchestrator.mjs';
 
 import { EventBus } from './event-bus.mjs';
 import { defaultServiceRegistry, autoBootstrapCoreServices } from './service-registry.mjs';
@@ -16,6 +17,7 @@ import { LifecycleManager } from './lifecycle-machine.mjs';
 import { CognitiveRouter } from './cognitive-router.mjs';
 import { HotReloadManager } from './hot-reload.mjs';
 import { LocalIpcBridge } from './cross-process-ipc.mjs';
+import { orchestrateTask } from './orchestrator.mjs';
 
 export class ZRuntime {
   constructor(options = {}) {
@@ -47,6 +49,15 @@ export class ZRuntime {
 
   route(prompt, context = {}) {
     return this.router.route(prompt, context);
+  }
+
+  async orchestrate(prompt, options = {}) {
+    return orchestrateTask(prompt, {
+      ...options,
+      eventBus: this.eventBus,
+      serviceRegistry: this.services,
+      router: this.router
+    });
   }
 
   async hotReload() {

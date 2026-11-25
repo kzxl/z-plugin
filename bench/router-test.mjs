@@ -139,4 +139,25 @@ ok(planEventSeen, 'emitted router:plan_created on EventBus');
 ok(routeRes.plan.steps.length === 5, 'runtime.route returned valid 5-step DAG plan');
 ok(routeRes.durationMs < 10, `routing executed in <10ms (got: ${routeRes.durationMs}ms)`);
 
-console.log('\nall cognitive router tests passed!');
+console.log('z-runtime: unified cognitive orchestrator (end-to-end multi-plugin pre-flight)');
+
+let orchStarted = false;
+let orchDone = false;
+runtime.eventBus.on('orchestrator:started', () => { orchStarted = true; });
+runtime.eventBus.on('orchestrator:completed', () => { orchDone = true; });
+
+const orchBug = await runtime.orchestrate('Fix database deadlock in stock transfer batch processing', {
+  cwd: process.cwd()
+});
+ok(orchStarted && orchDone, 'orchestrator emitted started and completed lifecycle events');
+ok(orchBug.intent.category === INTENT_CATEGORIES.BUGFIX, 'orchestrator classified bugfix intent');
+ok(Array.isArray(orchBug.execution.rules) && orchBug.execution.rules.length > 0, `orchestrator gathered z-mind invariants (got: ${orchBug.execution.rules.length})`);
+ok(typeof orchBug.briefMarkdown === 'string' && orchBug.briefMarkdown.includes('AEOS Cognitive Route Brief'), 'orchestrator generated compact markdown brief');
+
+const orchUi = await runtime.orchestrate('Create warehouse inventory table screen with filter', {
+  cwd: process.cwd()
+});
+ok(orchUi.intent.category === INTENT_CATEGORIES.UI, 'orchestrator classified UI intent');
+ok(Boolean(orchUi.execution.uiSpec) && orchUi.execution.uiSpec.states.length === 4, 'orchestrator enriched UI intent with 4-state z-craft micro-spec');
+
+console.log('\nall cognitive router & orchestrator tests passed!');

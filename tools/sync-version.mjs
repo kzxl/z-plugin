@@ -134,15 +134,18 @@ if (fs.existsSync(extDir)) {
   }
 }
 
-// 5. README.md Shipped Plugins table
-const readmePath = path.join(root, "README.md");
-let readme = fs.readFileSync(readmePath, "utf8");
-const updatedReadme = readme.replace(/\| \[?\*\*`z-[a-z]+`\*\*\]?\([^\)]+\) \| `[^`]+` \|/g, (match) => {
-  return match.replace(/`\d+\.\d+\.\d+`/g, `\`${targetVersion}\``);
-});
-if (updatedReadme !== readme) {
-  fs.writeFileSync(readmePath, updatedReadme, "utf8");
-  console.log(`  ✓ Updated README.md plugin version badges -> ${targetVersion}`);
+// 5. README.md & README.vi.md version badges and monorepo tables
+for (const readmeName of ["README.md", "README.vi.md"]) {
+  const readmePath = path.join(root, readmeName);
+  if (!fs.existsSync(readmePath)) continue;
+  const readme = fs.readFileSync(readmePath, "utf8");
+  let updated = readme
+    .replace(/badge\/version-\d+\.\d+\.\d+(-[a-zA-Z0-9.\-_]+)?-blue\.svg/g, `badge/version-${targetVersion}-blue.svg`)
+    .replace(/(\|\s*\[?\*\*`(?:z-[a-z]+|dlc-[a-z]+)`\*\*\]?\([^\)]+\)\s*\|[^|]+\|\s*)`\d+\.\d+\.\d+(-[a-zA-Z0-9.\-_]+)?`(\s*\|)/g, `$1\`${targetVersion}\`$3`);
+  if (updated !== readme) {
+    fs.writeFileSync(readmePath, updated, "utf8");
+    console.log(`  ✓ Updated ${readmeName} version badges & table -> ${targetVersion}`);
+  }
 }
 
 console.log(`[SUCCESS] All monorepo components are now synchronized to v${targetVersion}!`);

@@ -8,7 +8,7 @@ import readline from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { queryRules, auditPlan, registerRulesPack } from "./lib/rules.mjs";
 import { bootstrapProjectRule } from "./lib/bootstrap.mjs";
 import { runDoctor } from "./lib/doctor.mjs";
@@ -16,6 +16,22 @@ import { synthesizePlan } from "./lib/plan-generator.mjs";
 import { auditArchitecture } from "./lib/arch-doctor.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+async function loadOrchestrator() {
+  const candidates = [
+    path.resolve(__dirname, "..", "..", "..", "packages", "z-runtime", "src", "orchestrator.mjs"),
+    path.resolve(os.homedir(), ".gemini", "config", "packages", "z-runtime", "src", "orchestrator.mjs")
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const mod = await import(pathToFileURL(p).href);
+        if (typeof mod.orchestrateTask === "function") return mod.orchestrateTask;
+      } catch {}
+    }
+  }
+  return null;
+}
 
 function autoLoadExtensions() {
   const homeDir = os.homedir();
@@ -124,6 +140,20 @@ const TOOLS = [
     }
   },
   {
+    name: "zmind_route",
+    description: "Run the AEOS Cognitive Router & Unified Pre-Flight Orchestrator: classifies intent, allocates token budget, builds a multi-plugin DAG plan, and gathers matching invariants, z-brain gotchas, blast radius, and UI/helper context in one compact call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Task prompt or user request to route and prepare" },
+        targetFile: { type: "string", description: "Optional file path for pre-flight impact brief" },
+        targetSymbol: { type: "string", description: "Optional symbol name for z-token blast radius check" },
+        format: { type: "string", enum: ["markdown", "json"], description: "Output format (default: markdown)" }
+      },
+      required: ["prompt"]
+    }
+  },
+  {
     name: "zmind_status",
     description: "Inspect active Z-Mind engineering rules and loaded discipline skills.",
     inputSchema: {
@@ -175,7 +205,9 @@ rl.on("line", (line) => {
         break;
 
       case "tools/call":
-        handleToolCall(id, params?.name, params?.arguments || {});
+        Promise.resolve(handleToolCall(id, params?.name, params?.arguments || {})).catch((err) => {
+          sendResponse(id, null, { code: -32603, message: `Internal error: ${err.message}` });
+        });
         break;
 
       default:
@@ -187,7 +219,7 @@ rl.on("line", (line) => {
   }
 });
 
-function handleToolCall(id, name, args) {
+async function handleToolCall(id, name, args) {
   switch (name) {
     case "zmind_init": {
       const targetDir = args.targetDir || process.cwd();
@@ -252,6 +284,24 @@ function handleToolCall(id, name, args) {
           content: [{ type: "text", text: JSON.stringify(report, null, 2) }]
         });
       }
+      break;
+    }
+
+    case "zmind_route": {
+      const orchestrate = await loadOrchestrator();
+      if (!orchestrate) {
+        const plan = synthesizePlan(args.prompt || "", { format: args.format || "markdown" });
+        const text = args.format === "json" ? JSON.stringify(plan.raw, null, 2) : plan.markdown;
+        sendResponse(id, { content: [{ type: "text", text }] });
+        break;
+      }
+      const res = await orchestrate(args.prompt || "", {
+        cwd: process.cwd(),
+        targetFile: args.targetFile,
+        targetSymbol: args.targetSymbol
+      });
+      const text = args.format === "json" ? JSON.stringify(res, null, 2) : res.briefMarkdown;
+      sendResponse(id, { content: [{ type: "text", text }] });
       break;
     }
 

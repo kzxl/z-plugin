@@ -36,6 +36,8 @@
         "zmind_init",
         "zmind_rules",
         "zmind_audit",
+        "zmind_plan",
+        "zmind_route",
         "zmind_doctor",
         "zmind_status"
       ]
