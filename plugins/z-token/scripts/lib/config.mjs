@@ -45,6 +45,9 @@ export const DEFAULT_CONFIG = {
     respectGitignore: true,
     cacheTtlMs: 30000,
     cacheMaxBytes: 33554432,
+    contextSparse: 1,
+    sparseThreshold: 10,
+    legacyEncodings: ["windows-1258"],
   },
   run: {
     timeoutMs: 600000,

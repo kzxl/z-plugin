@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { search, outline } from "../plugins/z-token/scripts/lib/scan.mjs";
-import { clearCaches } from "../plugins/z-token/scripts/lib/fsindex.mjs";
+import { clearCaches, readTextCached, readTextWithMeta } from "../plugins/z-token/scripts/lib/fsindex.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "zero-token-fs-"));
 const write = (name, text, encoding = "utf8") => {
@@ -75,6 +75,35 @@ write("pkg/main.go", "package main\n\ntype Server struct {\n}\n\nfunc (s *Server
 const o = outline(tmp, { maxFiles: 20, cacheTtlMs: 0 }).text;
 check("outline honours gitignore", !/generated[\\/]g\.ts/.test(o));
 check("outline decodes UTF-16", /class U16/.test(o));
+
+console.log("legacy encoding fallback & binary rejection");
+clearCaches();
+const legacyFile = path.join(tmp, "legacy-1258.cs");
+// Windows-1258 bytes: "// Viêt công\nclass LegacyWin1258 { string NeedleWin1258; }\n"
+const win1258Comment = Buffer.from([0x2f, 0x2f, 0x20, 0x56, 0x69, 0xea, 0x74, 0x20, 0x63, 0xf4, 0x6e, 0x67, 0x0a]);
+const win1258Body = Buffer.from("class LegacyWin1258 { string NeedleWin1258; }\n", "ascii");
+fs.writeFileSync(legacyFile, Buffer.concat([win1258Comment, win1258Body]));
+
+const legacyMeta = readTextWithMeta(legacyFile);
+check("decodes windows-1258 via readTextWithMeta", legacyMeta !== null && legacyMeta.encoding === "windows-1258" && legacyMeta.legacy === true);
+check("windows-1258 decoded text has no U+FFFD and preserves chars", legacyMeta && !legacyMeta.text.includes("\uFFFD") && legacyMeta.text.includes("Viêt công"));
+check("readTextCached stays backward compatible and accepts legacyEncodings", typeof readTextCached(legacyFile) === "string" && readTextCached(legacyFile, { legacyEncodings: ["windows-1258"] }).includes("Viêt công"));
+
+const legacySearch = search({ pattern: "NeedleWin1258", path: legacyFile, cacheTtlMs: 0 }).text;
+check("search notes [encoding: windows-1258] in legacy file header", /\[encoding: windows-1258\]/.test(legacySearch) && /legacy-1258\.cs:2:/.test(legacySearch), legacySearch);
+
+const utf8File = write("utf8-vn.cs", "// Tiếng Việt\nclass Utf8Clean { string NeedleUtf8; }\n", "utf8");
+const utf8Meta = readTextWithMeta(utf8File);
+check("untouched UTF-8 stays utf8 with legacy=false", utf8Meta !== null && utf8Meta.encoding === "utf8" && utf8Meta.legacy === false && utf8Meta.text.includes("Tiếng Việt"));
+const utf8Search = search({ pattern: "NeedleUtf8", path: utf8File, cacheTtlMs: 0 }).text;
+check("search does not annotate encoding for clean UTF-8", !/\[encoding:/.test(utf8Search) && /utf8-vn\.cs:2:/.test(utf8Search));
+
+const binaryWithNul = path.join(tmp, "binary-nul.cs");
+fs.writeFileSync(binaryWithNul, Buffer.concat([Buffer.from([0xec, 0x00, 0x00, 0x01, 0x02, 0xff]), Buffer.from("NeedleBin")]));
+check("binary with NUL in first 8KB returns null from readTextWithMeta", readTextWithMeta(binaryWithNul) === null);
+check("binary with NUL in first 8KB returns null from readTextCached", readTextCached(binaryWithNul) === null);
+const binSearch = search({ pattern: "NeedleBin", path: binaryWithNul, cacheTtlMs: 0 });
+check("search rejects binary file even with .cs extension", binSearch.stats.matches === 0);
 
 fs.rmSync(tmp, { recursive: true, force: true });
 clearCaches();

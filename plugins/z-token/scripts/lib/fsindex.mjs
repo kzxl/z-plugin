@@ -27,6 +27,8 @@ export const BINARY_EXT = new Set([
 
 const DEFAULT_TTL_MS = 30000;
 const DEFAULT_CACHE_BYTES = 32 * 1024 * 1024;
+const DEFAULT_LEGACY_ENCODINGS = ["windows-1258"];
+const BINARY_SNIFF_BYTES = 8192;
 const MAX_LIST_ENTRIES = 64;
 
 // ---------------------------------------------------------------- decoding
@@ -55,29 +57,61 @@ function sniffUtf16(buf) {
   return null;
 }
 
-// Returns text, or null when the buffer looks binary.
-export function decodeBuffer(buf) {
+function stripBom(text) {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+// Decodes a buffer and reports the encoding used. Falls back to legacyEncodings
+// only when UTF-8 emits U+FFFD and the first 8KB contains no NUL bytes.
+export function decodeBufferWithMeta(buf, legacyEncodings = DEFAULT_LEGACY_ENCODINGS) {
   if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.subarray(2).toString("utf16le");
+    return { text: buf.subarray(2).toString("utf16le"), encoding: "utf16le", legacy: false };
   }
   if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
     const copy = Buffer.from(buf.subarray(2));
     copy.swap16();
-    return copy.toString("utf16le");
+    return { text: copy.toString("utf16le"), encoding: "utf16be", legacy: false };
   }
   if (buf.includes(0)) {
     const enc = sniffUtf16(buf);
-    if (enc === "le") return buf.toString("utf16le");
+    if (enc === "le") return { text: buf.toString("utf16le"), encoding: "utf16le", legacy: false };
     if (enc === "be") {
       const copy = Buffer.from(buf);
       copy.swap16();
-      return copy.toString("utf16le");
+      return { text: copy.toString("utf16le"), encoding: "utf16be", legacy: false };
     }
-    return null;
+    return { text: null, encoding: null, legacy: false };
   }
-  let text = buf.toString("utf8");
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  return text;
+
+  const text = stripBom(buf.toString("utf8"));
+  if (!text.includes("\uFFFD")) {
+    return { text, encoding: "utf8", legacy: false };
+  }
+
+  // Never fallback on buffers with NUL bytes in the first 8KB.
+  if (buf.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+    return { text: null, encoding: null, legacy: false };
+  }
+
+  if (Array.isArray(legacyEncodings)) {
+    for (const enc of legacyEncodings) {
+      if (!enc) continue;
+      try {
+        const decoder = new TextDecoder(enc);
+        const decoded = stripBom(decoder.decode(buf));
+        if (!decoded.includes("\uFFFD")) {
+          return { text: decoded, encoding: decoder.encoding || enc, legacy: true };
+        }
+      } catch {}
+    }
+  }
+
+  return { text, encoding: "utf8", legacy: false };
+}
+
+// Returns text, or null when the buffer looks binary.
+export function decodeBuffer(buf) {
+  return decodeBufferWithMeta(buf, []).text;
 }
 
 // ---------------------------------------------------------------- gitignore
@@ -167,8 +201,44 @@ export function clearCaches() {
   textBytes = 0;
 }
 
-export function readTextCached(file, stat, maxBytes = DEFAULT_CACHE_BYTES) {
-  const key = `${file}|${stat.mtimeMs}|${stat.size}`;
+function normalizeReadArgs(file, statOrOpts, maybeOpts) {
+  let stat = null;
+  let opts = {};
+  let maxBytes = DEFAULT_CACHE_BYTES;
+
+  if (statOrOpts && typeof statOrOpts === "object" && typeof statOrOpts.mtimeMs === "number" && typeof statOrOpts.size === "number") {
+    stat = statOrOpts;
+    if (typeof maybeOpts === "number") {
+      maxBytes = maybeOpts;
+    } else if (maybeOpts && typeof maybeOpts === "object") {
+      opts = maybeOpts;
+      maxBytes = opts.cacheMaxBytes ?? opts.maxBytes ?? DEFAULT_CACHE_BYTES;
+    }
+  } else {
+    if (statOrOpts && typeof statOrOpts === "object") {
+      opts = statOrOpts;
+    }
+    stat = opts.stat ?? null;
+    maxBytes = opts.cacheMaxBytes ?? opts.maxBytes ?? DEFAULT_CACHE_BYTES;
+    if (!stat) {
+      try {
+        stat = fs.statSync(file);
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  return { stat, opts, maxBytes };
+}
+
+export function readTextWithMeta(file, statOrOpts, maybeOpts) {
+  const normalized = normalizeReadArgs(file, statOrOpts, maybeOpts);
+  if (!normalized) return null;
+  const { stat, opts, maxBytes } = normalized;
+  const legacyEncodings = opts.legacyEncodings === undefined ? DEFAULT_LEGACY_ENCODINGS : opts.legacyEncodings;
+  const encKey = Array.isArray(legacyEncodings) && legacyEncodings.length > 0 ? legacyEncodings.join(",") : "";
+  const key = `${file}|${stat.mtimeMs}|${stat.size}|${encKey}`;
   const hit = textCache.get(key);
   if (hit !== undefined) {
     textCache.delete(key);
@@ -181,19 +251,38 @@ export function readTextCached(file, stat, maxBytes = DEFAULT_CACHE_BYTES) {
   } catch {
     return null;
   }
-  const text = decodeBuffer(buf);
-  if (text === null) return null;
-  const cost = text.length * 2 + 64;
+  const meta = decodeBufferWithMeta(buf, legacyEncodings);
+  if (meta.text === null) return null;
+  const cost = meta.text.length * 2 + 64;
   if (cost <= maxBytes) {
-    textCache.set(key, text);
+    textCache.set(key, meta);
     textBytes += cost;
     for (const [k, v] of textCache) {
       if (textBytes <= maxBytes) break;
       textCache.delete(k);
-      textBytes -= v.length * 2 + 64;
+      textBytes -= v.text.length * 2 + 64;
     }
   }
-  return text;
+  return meta;
+}
+
+export function readTextCached(file, statOrOpts, maybeOpts) {
+  let optsWithLegacy = maybeOpts;
+  if (!(statOrOpts && typeof statOrOpts === "object" && typeof statOrOpts.mtimeMs === "number")) {
+    const opts = statOrOpts && typeof statOrOpts === "object" ? statOrOpts : {};
+    optsWithLegacy = { ...opts, legacyEncodings: opts.legacyEncodings ?? [] };
+    const meta = readTextWithMeta(file, optsWithLegacy);
+    return meta ? meta.text : null;
+  }
+  if (typeof maybeOpts === "number") {
+    optsWithLegacy = { cacheMaxBytes: maybeOpts, legacyEncodings: [] };
+  } else if (maybeOpts && typeof maybeOpts === "object") {
+    optsWithLegacy = { ...maybeOpts, legacyEncodings: maybeOpts.legacyEncodings ?? [] };
+  } else {
+    optsWithLegacy = { legacyEncodings: [] };
+  }
+  const meta = readTextWithMeta(file, statOrOpts, optsWithLegacy);
+  return meta ? meta.text : null;
 }
 
 // ---------------------------------------------------------------- walking

@@ -12,7 +12,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { collectFiles, readTextCached } from "./fsindex.mjs";
+import { DEFAULT_CONFIG } from "./config.mjs";
+import { collectFiles, readTextWithMeta } from "./fsindex.mjs";
 import {
   lookupSymbol,
   storeSymbolsForFile,
@@ -73,16 +74,16 @@ const PATTERNS = [
   { kind: "sql", re: /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?(?:TABLE|PROCEDURE|PROC|FUNCTION|VIEW|INDEX|TRIGGER|TYPE|SCHEMA|DATABASE)\b/i },
   {
     kind: "func",
-    re: /^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>|class\b)/,
+    re: /^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s*)?(?:function\b|class\b|[A-Za-z_$][\w$]*\s*=>|(?:<[^>]+>\s*)?\(.*\)\s*(?::\s*[^=]+)?=>)/,
   },
   { kind: "func", re: /^\s*(?:function\s+[A-Za-z_][\w-]*|[A-Za-z_][\w-]*\s*\(\)\s*\{)/ },
   {
     kind: "method",
-    re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|new|synchronized|final|native|default)\s+)+(?:[\w.]+(?:<[\w\s,.<>[\]?]+>)?(?:\[\]|\?)?)\s+[A-Za-z_]\w*\s*(?:<[\w\s,.<>[\]?]+>)?\s*\(/,
+    re: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|new|synchronized|final|native|default)\s+)+(?:[\w.:]+(?:<[\w\s,.<>[\]?():]+>)?(?:\[\]|\?)*)\s+[A-Za-z_]\w*\s*(?:<[\w\s,.<>[\]?():]+>)?\s*\(/,
   },
   {
     kind: "method",
-    re: /^\s*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*(?::\s*[^{]+)?\{/,
+    re: /^\s*(?:(?:public|private|protected|abstract|override|readonly|static|async)\s+)*(?:get\s+|set\s+)?[A-Za-z_$][\w$]*\s*(?:<[^;{}]+>\s*)?\(.*\)\s*(?::\s*[^;={]+(?:\{|;)|\{)/,
   },
   {
     kind: "prop",
@@ -102,12 +103,115 @@ function symbolKind(line) {
   return null;
 }
 
+function updateSigBalance(maskedLine, state) {
+  const cleaned = maskedLine.replace(/=>|->|<=|>=/g, "  ");
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (ch === "(") state.paren++;
+    else if (ch === ")") state.paren = Math.max(0, state.paren - 1);
+    else if (ch === "<") {
+      const prev = i > 0 ? cleaned[i - 1] : " ";
+      const next = i + 1 < cleaned.length ? cleaned[i + 1] : " ";
+      if (prev !== " " || next !== " ") state.angle++;
+    } else if (ch === ">" && state.angle > 0) {
+      state.angle--;
+    }
+  }
+}
+
+function isSignatureContinuation(curMasked, nextMasked, isMultiline) {
+  if (!nextMasked) return false;
+  if (/^where\s+[A-Za-z_]\w*\s*:/.test(nextMasked)) return true;
+  if (/^(?:extends|implements)\b/.test(nextMasked)) return true;
+  if (/^:\s*[A-Za-z_$([{]/.test(nextMasked)) return true;
+  if (/^=>/.test(nextMasked)) return true;
+  if (/^,\s*[A-Za-z_]/.test(nextMasked)) return true;
+  if (curMasked.endsWith(",") && /^[A-Za-z_][\w.<>,\s?]*$/.test(nextMasked)) return true;
+  if (isMultiline && nextMasked === "{") return true;
+  return false;
+}
+
+function foldOutlineSignature(rows, maskedRows, startIdx, maxFoldLines = 12, initialKind = null) {
+  const firstMasked = (maskedRows[startIdx] || "").trim();
+  if (!firstMasked || COMMENT_RE.test(firstMasked) || CONTROL_RE.test(firstMasked)) return null;
+
+  const state = { paren: 0, angle: 0 };
+  updateSigBalance(firstMasked, state);
+
+  const braceIdx = firstMasked.indexOf("{");
+  const parenIdx = firstMasked.indexOf("(");
+  const angleIdx = firstMasked.indexOf("<");
+  const openerIdx = parenIdx === -1 ? angleIdx : angleIdx === -1 ? parenIdx : Math.min(parenIdx, angleIdx);
+  if (braceIdx !== -1 && (openerIdx === -1 || braceIdx < openerIdx)) {
+    return null;
+  }
+
+  let endIdx = startIdx;
+  const limit = Math.min(rows.length - 1, startIdx + maxFoldLines);
+  let enteredMultiline = state.paren > 0 || state.angle > 0;
+
+  if (!enteredMultiline && !initialKind && startIdx < limit && !/[{;]$/.test(firstMasked) && !firstMasked.includes("=>")) {
+    const nextMasked = (maskedRows[startIdx + 1] || "").trim();
+    const isSplitReturn =
+      /^(?:(?:public|private|protected|internal|static|sealed|abstract|partial|async|virtual|override|extern|unsafe|export|pub)\s+)+[\w.<>,[\]\s?*&:]+$/.test(firstMasked) &&
+      /^[A-Za-z_$][\w$]*\s*(?:<[^>]+>)?\s*\(/.test(nextMasked);
+    const isSplitConst =
+      /^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s*)?$/.test(firstMasked) &&
+      /^(?:async\s*)?(?:function\b|\(|<|[A-Za-z_$][\w$]*\s*=>)/.test(nextMasked);
+    if (isSplitReturn || isSplitConst) {
+      endIdx = startIdx + 1;
+      enteredMultiline = true;
+      updateSigBalance(nextMasked, state);
+    }
+  }
+
+  if (enteredMultiline) {
+    while ((state.paren > 0 || state.angle > 0) && endIdx < limit) {
+      endIdx++;
+      const mLine = (maskedRows[endIdx] || "").trim();
+      updateSigBalance(mLine, state);
+      if (state.paren === 0 && state.angle === 0 && /[{};]$/.test(mLine)) break;
+    }
+  }
+
+  while (endIdx < limit && state.paren === 0 && state.angle === 0) {
+    const curMasked = (maskedRows[endIdx] || "").trim();
+    if (/[{};]$/.test(curMasked) || curMasked.includes("{")) break;
+    if (curMasked.includes("=>") && (endIdx === startIdx || !/^\s*=>/.test(curMasked))) break;
+    const nextMasked = (maskedRows[endIdx + 1] || "").trim();
+    if (!isSignatureContinuation(curMasked, nextMasked, endIdx > startIdx || enteredMultiline)) break;
+    endIdx++;
+    updateSigBalance(nextMasked, state);
+    while ((state.paren > 0 || state.angle > 0) && endIdx < limit) {
+      endIdx++;
+      updateSigBalance((maskedRows[endIdx] || "").trim(), state);
+    }
+  }
+
+  if (endIdx === startIdx) return null;
+
+  const rawParts = [];
+  const maskedParts = [];
+  for (let k = startIdx; k <= endIdx; k++) {
+    const rawPart = rows[k].trim();
+    const maskedPart = (maskedRows[k] || "").trim();
+    if (rawPart) rawParts.push(rawPart);
+    if (maskedPart) maskedParts.push(maskedPart);
+  }
+  return {
+    combinedRaw: rawParts.join(" "),
+    combinedMasked: maskedParts.join(" "),
+    endSigIdx: endIdx,
+  };
+}
+
 export function outline(target, opts = {}) {
   if (opts.symbol) {
     return readSymbol(target, opts.symbol, opts);
   }
   const maxFiles = opts.maxFiles ?? 10;
   const maxPerFile = opts.maxPerFile ?? 60;
+  const legacyEncodings = opts.legacyEncodings ?? DEFAULT_CONFIG.search.legacyEncodings;
   const { files, error } = collectFiles(target, CODE_EXT, opts);
   if (error) return { text: error, stats: { files: 0, symbols: 0 } };
   if (files.length === 0) {
@@ -131,8 +235,9 @@ export function outline(target, opts = {}) {
   const workspaceRoot = opts.workspaceRoot ? path.resolve(opts.workspaceRoot) : process.cwd();
 
   for (const { f, stat } of selected) {
-    const text = readTextCached(f, stat, opts.cacheMaxBytes);
-    if (text === null) continue;
+    const meta = readTextWithMeta(f, stat, { cacheMaxBytes: opts.cacheMaxBytes, legacyEncodings });
+    if (!meta || meta.text === null) continue;
+    const { text, encoding, legacy } = meta;
     const rows = text.split(/\r?\n/);
     const maskedRows = maskSourceCode(text).split(/\r?\n/);
     const rel = path.relative(process.cwd(), f) || f;
@@ -140,13 +245,15 @@ export function outline(target, opts = {}) {
     for (let i = 0; i < rows.length; i++) {
       const mLine = maskedRows[i] || "";
       if (!mLine.trim() || COMMENT_RE.test(mLine) || CONTROL_RE.test(mLine)) continue;
-      let kind = symbolKind(mLine);
+      const initialKind = symbolKind(mLine);
+      const folded = foldOutlineSignature(rows, maskedRows, i, 12, initialKind);
+      let kind = initialKind;
       let displayLine = rows[i].trim();
       let skipTo = i;
-      if (!kind) {
-        const folded = foldSignatureLines(rows, maskedRows, i, 8);
-        if (folded.endSigIdx > i && symbolKind(folded.combinedMasked)) {
-          kind = symbolKind(folded.combinedMasked);
+      if (folded && folded.endSigIdx > i) {
+        const foldedKind = symbolKind(folded.combinedMasked);
+        if (foldedKind || initialKind) {
+          kind = initialKind || foldedKind;
           displayLine = folded.combinedRaw;
           skipTo = folded.endSigIdx;
         }
@@ -159,7 +266,7 @@ export function outline(target, opts = {}) {
     }
     if (found.length === 0) continue;
     symbols += found.length;
-    lines.push(`${rel} (${rows.length} lines)`);
+    lines.push(`${rel} (${rows.length} lines)${legacy ? ` [encoding: ${encoding}]` : ""}`);
     lines.push(...found.slice(0, maxPerFile));
     if (found.length > maxPerFile) lines.push(`      ... more symbols omitted`);
     lines.push("");
@@ -487,7 +594,12 @@ export function search(opts) {
   const pattern = String(opts.pattern ?? "");
   if (!pattern) return { text: "search: pattern is required", stats: { matches: 0 } };
   const maxMatches = Math.min(opts.maxMatches ?? 30, 200);
-  const context = Math.min(opts.context ?? 2, 5);
+  const explicitContext = opts.contextLines ?? opts.context;
+  const hasExplicitContext = explicitContext !== undefined && explicitContext !== null;
+  const defaultContext = 2;
+  const contextSparse = opts.contextSparse ?? DEFAULT_CONFIG.search.contextSparse;
+  const sparseThreshold = opts.sparseThreshold ?? DEFAULT_CONFIG.search.sparseThreshold;
+  const legacyEncodings = opts.legacyEncodings ?? DEFAULT_CONFIG.search.legacyEncodings;
   const maxBytes = opts.maxBytes ?? 8192;
 
   let re;
@@ -507,8 +619,35 @@ export function search(opts) {
   let matches = 0;
   let totalMatches = 0;
   const hitFiles = new Set();
+  const emittedFileHeaders = new Set();
   let bytes = 0;
   let stoppedEarly = false;
+
+  const renderHit = (hit, ctxLines) => {
+    if (hit.legacy && !emittedFileHeaders.has(hit.rel)) {
+      emittedFileHeaders.add(hit.rel);
+      const fileHeader = `${hit.rel} [encoding: ${hit.encoding}]`;
+      bytes += fileHeader.length + 1;
+      out.push(fileHeader);
+    }
+    const from = Math.max(0, hit.lineIdx - ctxLines);
+    const to = Math.min(hit.rows.length - 1, hit.lineIdx + ctxLines);
+    for (let j = from; j <= to; j++) {
+      const prefix = j === hit.lineIdx ? `${hit.rel}:${j + 1}: ` : `  ${j + 1}| `;
+      const line = prefix + hit.rows[j].slice(0, 240);
+      bytes += line.length + 1;
+      out.push(line);
+    }
+    out.push("");
+    if (bytes >= maxBytes) {
+      stoppedEarly = true;
+      return false;
+    }
+    return true;
+  };
+
+  let resolvedContext = hasExplicitContext ? Math.min(Math.max(0, Number(explicitContext)), 5) : null;
+  const pendingHits = [];
 
   for (const f of files) {
     if (stoppedEarly) break;
@@ -519,8 +658,9 @@ export function search(opts) {
     } catch {
       continue;
     }
-    const text = readTextCached(f, stat, opts.cacheMaxBytes);
-    if (text === null) continue;
+    const meta = readTextWithMeta(f, stat, { cacheMaxBytes: opts.cacheMaxBytes, legacyEncodings });
+    if (!meta || meta.text === null) continue;
+    const { text, encoding, legacy } = meta;
     const rows = text.split(/\r?\n/);
     const rel = path.relative(process.cwd(), f) || f;
     for (let i = 0; i < rows.length; i++) {
@@ -528,22 +668,39 @@ export function search(opts) {
       re.lastIndex = 0;
       if (!hit) continue;
       totalMatches++;
+
+      if (resolvedContext === null) {
+        if (pendingHits.length < maxMatches) {
+          pendingHits.push({ rel, encoding, legacy, rows, lineIdx: i });
+        }
+        if (totalMatches > sparseThreshold) {
+          resolvedContext = Math.min(defaultContext, 5);
+          for (const ph of pendingHits) {
+            matches++;
+            hitFiles.add(ph.rel);
+            if (!renderHit(ph, resolvedContext)) break;
+          }
+          pendingHits.length = 0;
+          if (stoppedEarly) break;
+        }
+        continue;
+      }
+
       if (matches >= maxMatches) continue;
       matches++;
       hitFiles.add(rel);
-      const from = Math.max(0, i - context);
-      const to = Math.min(rows.length - 1, i + context);
-      for (let j = from; j <= to; j++) {
-        const prefix = j === i ? `${rel}:${j + 1}: ` : `  ${j + 1}| `;
-        const line = prefix + rows[j].slice(0, 240);
-        bytes += line.length + 1;
-        out.push(line);
-      }
-      out.push("");
-      if (bytes >= maxBytes) {
-        stoppedEarly = true;
+      if (!renderHit({ rel, encoding, legacy, rows, lineIdx: i }, resolvedContext)) {
         break;
       }
+    }
+  }
+
+  if (resolvedContext === null && pendingHits.length > 0) {
+    resolvedContext = Math.min(Math.max(0, contextSparse), 5);
+    for (const ph of pendingHits) {
+      matches++;
+      hitFiles.add(ph.rel);
+      if (!renderHit(ph, resolvedContext)) break;
     }
   }
 
@@ -553,6 +710,9 @@ export function search(opts) {
       `${hitFiles.size} file(s), showing ${matches}. Narrow the pattern or reduce context.`
     : `Found ${totalMatches} match(es) in ${hitFiles.size} file(s)` +
       (totalMatches > matches ? `, showing ${matches} (capped; narrow the pattern or set maxMatches)` : "");
-  if (out.length === 0) return { text: `${header}\nNo matching lines.`, stats: { matches: 0 } };
-  return { text: `${header}\n\n${out.join("\n").trimEnd()}`, stats: { matches } };
+  if (out.length === 0) return { text: `${header}\nNo matching lines.`, stats: { matches: 0, totalMatches: 0, contextLines: resolvedContext ?? 0 } };
+  return {
+    text: `${header}\n\n${out.join("\n").trimEnd()}`,
+    stats: { matches, totalMatches, contextLines: resolvedContext ?? 0 },
+  };
 }

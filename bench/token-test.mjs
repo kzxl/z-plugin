@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { compactTestLog } from "../plugins/z-token/scripts/lib/test-runner.mjs";
 import { smartDiff } from "../plugins/z-token/scripts/lib/diet.mjs";
+import { DEFAULT_CONFIG } from "../plugins/z-token/scripts/lib/config.mjs";
 
 console.log("z-token: test runner condenser (v1.1.0)");
 
@@ -204,6 +205,141 @@ namespace Enterprise.Orders {
   const outlineRes = outline(complexFile, { workspaceRoot: tempWs });
   assert.ok(outlineRes.text.includes("CreateComplexOrderAsync"), "outline must recognize multi-line method declaration");
   console.log("  ok   Shadow Masking, Multi-line Signatures, Scope Stack, and Receiver Type Resolution verified");
+
+  // 6. Adaptive Sparse Search & Config Defaults
+  assert.strictEqual(DEFAULT_CONFIG.search.contextSparse, 1);
+  assert.strictEqual(DEFAULT_CONFIG.search.sparseThreshold, 10);
+  assert.deepStrictEqual(DEFAULT_CONFIG.search.legacyEncodings, ["windows-1258"]);
+
+  const { search } = await import("../plugins/z-token/scripts/lib/scan.mjs");
+  const { clearCaches } = await import("../plugins/z-token/scripts/lib/fsindex.mjs");
+
+  const sparseLines = [
+    "// ctx-before-2",
+    "// ctx-before-1",
+    "const SparseNeedle = 1;",
+    "// ctx-after-1",
+    "// ctx-after-2",
+    "// filler-6",
+    "// filler-7",
+    "// ctx2-before-2",
+    "// ctx2-before-1",
+    "const SparseNeedle = 2;",
+    "// ctx2-after-1",
+    "// ctx2-after-2",
+  ];
+  const sparseFile = path.join(tempWs, "sparse.ts");
+  fs.writeFileSync(sparseFile, sparseLines.join("\n"), "utf8");
+
+  clearCaches();
+  const sparseSearch = search({ pattern: "SparseNeedle", path: sparseFile, cacheTtlMs: 0 });
+  assert.strictEqual(sparseSearch.stats.matches, 2);
+  assert.strictEqual(sparseSearch.stats.contextLines, 1, "matches <= 10 must default to contextSparse=1");
+  assert.ok(sparseSearch.text.includes("ctx-before-1") && sparseSearch.text.includes("ctx-after-1"));
+  assert.ok(!sparseSearch.text.includes("ctx-before-2") && !sparseSearch.text.includes("ctx-after-2"));
+
+  const explicitCtxSearch = search({ pattern: "SparseNeedle", path: sparseFile, contextLines: 2, cacheTtlMs: 0 });
+  assert.strictEqual(explicitCtxSearch.stats.contextLines, 2, "explicit contextLines must override sparse context");
+  assert.ok(explicitCtxSearch.text.includes("ctx-before-2") && explicitCtxSearch.text.includes("ctx-after-2"));
+
+  const denseLines = [];
+  for (let idx = 1; idx <= 12; idx++) {
+    denseLines.push(`// dense-${idx}-b2`, `// dense-${idx}-b1`, `const DenseNeedle_${idx} = ${idx};`, `// dense-${idx}-a1`, `// dense-${idx}-a2`);
+  }
+  const denseFile = path.join(tempWs, "dense.ts");
+  fs.writeFileSync(denseFile, denseLines.join("\n"), "utf8");
+
+  clearCaches();
+  const denseSearch = search({ pattern: "DenseNeedle_", path: denseFile, cacheTtlMs: 0 });
+  assert.strictEqual(denseSearch.stats.totalMatches, 12);
+  assert.strictEqual(denseSearch.stats.contextLines, 2, "matches > 10 must use standard 2-line context");
+  assert.ok(denseSearch.text.includes("dense-1-b2") && denseSearch.text.includes("dense-1-a2"));
+  console.log("  ok   Adaptive sparse context (<= 10 -> 1 line, > 10 -> 2 lines, explicit override) verified");
+
+  // 7. Multiline C# & TypeScript Outline Declarations
+  const multiCsFile = path.join(tempWs, "MultiOutline.cs");
+  fs.writeFileSync(
+    multiCsFile,
+    [
+      "namespace Demo.Multi {",
+      "  public class RepositoryBase<TEntity, TKey>",
+      "      : IRepository<TEntity>,",
+      "        IDisposable",
+      "      where TEntity : class",
+      "      where TKey : notnull",
+      "  {",
+      "    public async Task<TOutput> ExecutePipelineAsync<TInput, TOutput>(",
+      "        TInput input,",
+      "        CancellationToken ct = default)",
+      "        where TInput : class",
+      "        where TOutput : new()",
+      "    {",
+      "      return new TOutput();",
+      "    }",
+      "  }",
+      "",
+      "  public sealed record OrderCreatedEvent<TPayload>(",
+      "      Guid EventId,",
+      "      TPayload Payload)",
+      "      where TPayload : class;",
+      "}",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const multiTsFile = path.join(tempWs, "MultiOutline.ts");
+  fs.writeFileSync(
+    multiTsFile,
+    [
+      "export interface IOrderStore {",
+      "  findOrders(",
+      "    customerId: string,",
+      "    limit?: number",
+      "  ): Promise<string[]>;",
+      "}",
+      "",
+      "export async function mergeEntities<",
+      "  TBase extends object,",
+      "  TPatch extends Partial<TBase>",
+      ">(",
+      "  base: TBase,",
+      "  patch: TPatch",
+      "): Promise<TBase> {",
+      "  return { ...base, ...patch };",
+      "}",
+      "",
+      "export const buildReport = async (",
+      "  reportId: string,",
+      "  onProgress: (pct: number) => void",
+      "): Promise<string> => {",
+      "  return reportId;",
+      "};",
+      "",
+      "export class OrderApi {",
+      "  public async dispatchOrder(",
+      "    orderId: string,",
+      "    callback: (ok: boolean) => void",
+      "  ): Promise<void> {",
+      "    callback(true);",
+      "  }",
+      "}",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const csOutline = outline(multiCsFile, { workspaceRoot: tempWs, cacheTtlMs: 0 }).text;
+  assert.ok(/^\s*2\s+public class RepositoryBase<TEntity, TKey>/m.test(csOutline), "C# multiline class must start at line 2");
+  assert.ok(/^\s*8\s+public async Task<TOutput> ExecutePipelineAsync<TInput, TOutput>\(/m.test(csOutline), "C# multiline method must start at line 8");
+  assert.ok(/^\s*18\s+public sealed record OrderCreatedEvent<TPayload>\(/m.test(csOutline), "C# multiline record must start at line 18");
+  assert.ok(!/^\s*9\s+/m.test(csOutline) && !/^\s*10\s+/m.test(csOutline), "C# parameter lines must not be emitted as standalone symbols");
+
+  const tsOutline = outline(multiTsFile, { workspaceRoot: tempWs, cacheTtlMs: 0 }).text;
+  assert.ok(/^\s*1\s+export interface IOrderStore/m.test(tsOutline), "TS interface must start at line 1");
+  assert.ok(/^\s*2\s+findOrders\(/m.test(tsOutline), "TS multiline interface method must start at line 2");
+  assert.ok(/^\s*8\s+export async function mergeEntities</m.test(tsOutline), "TS multiline generic export function must start at line 8");
+  assert.ok(/^\s*18\s+export const buildReport = async \(/m.test(tsOutline), "TS multiline export const arrow must start at line 18");
+  assert.ok(/^\s*26\s+public async dispatchOrder\(/m.test(tsOutline), "TS multiline class method must start at line 26");
+  console.log("  ok   Multiline C# & TypeScript outline folding and line numbers verified");
 } finally {
   try { fs.rmSync(tempWs, { recursive: true, force: true }); } catch {}
 }
