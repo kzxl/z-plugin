@@ -372,6 +372,101 @@ const taintReview = await reviewCode({
 
 ok(taintReview.findings.some(f => f.category === "SECURITY" && f.rule.includes("Taint Sink Hazard")), "caught untrusted parameter data-flow to SQL sink as P1 security hazard");
 
+// 9. Test-file exclusion from refactoring LOC inflation in reviewCode()
+console.log("z-gate: test-file LOC exclusion & canonical z-craft delegation");
+const refactorWithTestsDiff = `
+diff --git a/Services/OrderService.cs b/Services/OrderService.cs
+--- a/Services/OrderService.cs
++++ b/Services/OrderService.cs
+@@ -10,6 +10,3 @@
+-    var a = 1;
+-    var b = 2;
+-    var c = 3;
+-    var d = 4;
++    var total = Calculate();
++    return total;
+diff --git a/Tests/OrderServiceTests.cs b/Tests/OrderServiceTests.cs
+--- a/Tests/OrderServiceTests.cs
++++ b/Tests/OrderServiceTests.cs
+@@ -1,2 +1,12 @@
++    public void Test1() { Assert.True(true); }
++    public void Test2() { Assert.True(true); }
++    public void Test3() { Assert.True(true); }
++    public void Test4() { Assert.True(true); }
++    public void Test5() { Assert.True(true); }
++    public void Test6() { Assert.True(true); }
++    public void Test7() { Assert.True(true); }
++    public void Test8() { Assert.True(true); }
++    public void Test9() { Assert.True(true); }
++    public void Test10() { Assert.True(true); }
+`;
+
+const refactorTestsReview = await reviewCode({
+  diff: refactorWithTestsDiff,
+  commitMessage: "refactor(order): simplify service and expand unit tests",
+  cwd: tempRepo
+});
+ok(!refactorTestsReview.findings.some(f => f.rule.includes("LOC Inflation")), "test files excluded from refactoring LOC inflation in reviewCode()");
+
+// 10. Canonical z-craft UI Anti-Slop delegation in reviewCode()
+const uiCanonicalDiff = `
+diff --git a/src/components/SlopCard.tsx b/src/components/SlopCard.tsx
+--- a/src/components/SlopCard.tsx
++++ b/src/components/SlopCard.tsx
+@@ -1,3 +1,6 @@
++export function SlopCard() {
++  return (
++    <div className="bg-gradient-to-r from-purple-500 to-indigo-500 backdrop-blur-md">
++      <button onClick={() => {}}>🚀 Launch</button>
++    </div>
++  );
++}
+`;
+
+const uiCanonicalReview = await reviewCode({
+  diff: uiCanonicalDiff,
+  commitMessage: "feat(ui): add slop card",
+  cwd: tempRepo,
+  focus: "ui"
+});
+ok(uiCanonicalReview.findings.some(f => f.category === "CRAFTSMANSHIP" && f.severity === "P2" && f.rule.includes("AS-06")), "reviewCode() delegates to z-craft and flags AS-06 gradient");
+ok(uiCanonicalReview.findings.some(f => f.category === "CRAFTSMANSHIP" && f.severity === "P2" && f.rule.includes("AS-I1")), "reviewCode() delegates to z-craft and flags AS-I1 dead click");
+ok(uiCanonicalReview.findings.some(f => f.category === "CRAFTSMANSHIP" && f.severity === "P2" && f.rule.includes("AS-05")), "reviewCode() delegates to z-craft and flags AS-05 emoji");
+ok(uiCanonicalReview.findings.some(f => f.category === "CRAFTSMANSHIP" && f.severity === "P2" && f.rule.includes("AS-08")), "reviewCode() delegates to z-craft and flags AS-08 backdrop-blur");
+
+// Verify canonical rule IDs in nev-auditor.mjs as well
+ok(auditSlop.warnings.some(w => w.includes("AS-06")), "auditDiff uses canonical AS-06 rule ID");
+const blurAudit = auditDiff({
+  diff: `
+diff --git a/src/components/GlassModal.tsx b/src/components/GlassModal.tsx
+--- a/src/components/GlassModal.tsx
++++ b/src/components/GlassModal.tsx
+@@ -1,2 +1,3 @@
++  <div className="backdrop-blur-md bg-surface">Modal</div>
+`,
+  commitMessage: "feat(ui): add glass modal",
+  cwd: tempRepo
+});
+ok(blurAudit.warnings.some(w => w.includes("AS-08")), "auditDiff detects backdrop-blur as canonical AS-08");
+
+const emojiAudit = auditDiff({
+  diff: `
+diff --git a/src/components/Header.tsx b/src/components/Header.tsx
+--- a/src/components/Header.tsx
++++ b/src/components/Header.tsx
+@@ -1,2 +1,3 @@
++  <h1>🚀 Dashboard</h1>
+`,
+  commitMessage: "feat(ui): add header",
+  cwd: tempRepo
+});
+ok(emojiAudit.warnings.some(w => w.includes("AS-05")), "auditDiff detects UI emoji as canonical AS-05");
+
+// 11. Windows DLC ESM URL fix in mcp-server.mjs
+const mcpServerSrc = fs.readFileSync(path.resolve(here, "../plugins/z-gate/scripts/mcp-server.mjs"), "utf8");
+ok(mcpServerSrc.includes("pathToFileURL"), "mcp-server.mjs imports and uses pathToFileURL");
+ok(!mcpServerSrc.includes("`file://${"), "mcp-server.mjs has no raw file://${...} template import");
+
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });
 

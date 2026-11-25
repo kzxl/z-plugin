@@ -57,7 +57,7 @@ const WALK_EXCLUDED_DIRS = new Set([
   ".zero-token", ".zero-gate", ".zero-craft", ".z-plugin"
 ]);
 
-const DIFF_EXCLUDED_PATH = /(?:^|\/)(?:node_modules|dist|build|bin|obj)\/|\.min\.|(?:^|\/)fixtures\/anti-slop\//;
+const DIFF_EXCLUDED_PATH = /(?:^|\/)(?:node_modules|dist|build|bin|obj)\/|\.min\.|(?:^|\/)fixtures\/anti-slop\/|(?:^|\/)(?:bench|tests?)\/[^/]*(?:test|spec)\.[cm]?[jt]sx?$/i;
 const TOKEN_FILE_EXCLUDE = /(?:tailwind\.config\.|tokens\.|theme\.|colors\.|globals\.css|variables\.css)/i;
 const FONT_FILE_EXCLUDE = /(?:theme|designer|tokens)/i;
 

@@ -104,19 +104,27 @@ export function auditDiff({ diff = '', commitMessage = '', cwd = process.cwd(), 
     }
 
     // D. UI Software Craftsmanship & Anti-Slop (R_ANTI_SLOP, R_UI)
-    const isUiFile = /\.(tsx|jsx|html|vue|svelte|xaml)$/i.test(lineObj.file);
+    const isUiFile = /\.(tsx|jsx|html|vue|svelte|xaml|css|scss)$/i.test(lineObj.file);
     if (!flaggedAntiSlop && isUiFile) {
-      if (/(?:from-(?:purple|violet|fuchsia|pink)-(?:400|500|600)\s+to-(?:indigo|pink|purple|blue)-(?:400|500|600)|bg-gradient-to-(?:r|br|tr)\s+from-(?:violet|purple))/i.test(code)) {
-        warnings.push(`AI-Slop detected (AS-2): Gratuitous neon gradient in UI. Use solid/subtle enterprise surfaces (R_ANTI_SLOP). File: ${lineObj.file}`);
-        checks.push({ check: "Software Craftsmanship: No Neon Gradients (R_ANTI_SLOP)", passed: false });
+      if (/(?:from-(?:purple|violet|fuchsia|pink)-(?:400|500|600)\s+to-(?:indigo|pink|purple|blue)-(?:400|500|600)|\bbg-gradient-to-(?:t|tr|r|br|b|bl|l|tl)\b|\b(?:linear|radial|conic)-gradient\s*\()/i.test(code)) {
+        warnings.push(`AI-Slop detected (AS-06): Gratuitous neon gradient in UI. Use solid/subtle enterprise surfaces (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: Flat Surfaces (R_ANTI_SLOP, AS-06)", passed: false });
         flaggedAntiSlop = true;
-      } else if (/(?:onClick=\{\s*\(\)\s*=>\s*\{\}\s*\}|href=["']#["']|href=["']javascript:void\(0\)["'])/i.test(code)) {
-        warnings.push(`AI-Slop detected (AS-5): Dead click handler in UI. Wire up a real handler or loading state (R_ANTI_SLOP). File: ${lineObj.file}`);
-        checks.push({ check: "Software Craftsmanship: No Dead Interactions (R_ANTI_SLOP)", passed: false });
+      } else if (/(?:onClick=\{\s*\(\)\s*=>\s*\{\s*\}\s*\}|href=["']#["']|href=["']javascript:void\(0\)["'])/i.test(code)) {
+        warnings.push(`AI-Slop detected (AS-I1): Dead click handler in UI. Wire up a real handler or loading state (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: No Dead Interactions (R_ANTI_SLOP, AS-I1)", passed: false });
         flaggedAntiSlop = true;
-      } else if (/#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/i.test(code) && !/(?:tailwind\.config|tokens\.|theme\.)/i.test(lineObj.file)) {
-        warnings.push(`AI-Slop detected (AS-1): Arbitrary hex color in UI. Map to Design System tokens (R_ANTI_SLOP). File: ${lineObj.file}`);
-        checks.push({ check: "Software Craftsmanship: Design Token Discipline (R_ANTI_SLOP)", passed: false });
+      } else if (/(?:backdrop-filter|backdropFilter)\s*:|\bbackdrop-blu[r]\b/i.test(code)) {
+        warnings.push(`AI-Slop detected (AS-08): Glassmorphism blur degrades text contrast. Use opaque surface tokens (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: Opaque Contrast Surfaces (R_ANTI_SLOP, AS-08)", passed: false });
+        flaggedAntiSlop = true;
+      } else if (!/^\s*(?:\/\/|\/\*|\*)/.test(code) && /(?![\u00A9\u00AE\u2122])\p{Extended_Pictographic}/u.test(code)) {
+        warnings.push(`AI-Slop detected (AS-05): Emoji in UI chrome detected. Use 16px project icons and plain text (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: No Emoji Chrome (R_ANTI_SLOP, AS-05)", passed: false });
+        flaggedAntiSlop = true;
+      } else if (/#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/i.test(code) && !/^\s*--[\w-]+\s*:/.test(code) && !/(?:tailwind\.config|tokens\.|theme\.|globals\.css|variables\.css)/i.test(lineObj.file)) {
+        warnings.push(`AI-Slop detected (AS-01): Arbitrary hex color in UI. Map to Design System tokens (R_ANTI_SLOP). File: ${lineObj.file}`);
+        checks.push({ check: "Software Craftsmanship: Design Token Discipline (R_ANTI_SLOP, AS-01)", passed: false });
         flaggedAntiSlop = true;
       }
     }

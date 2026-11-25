@@ -10,7 +10,7 @@ import cp from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { findHelpers } from './lib/helper-discovery.mjs';
 import { auditDiff } from './lib/nev-auditor.mjs';
@@ -49,7 +49,7 @@ async function autoLoadExtensions() {
                 if (manifest.contributions?.gateChecks) {
                   const entryFile = path.resolve(extDir, ent.name, manifest.main || 'index.mjs');
                   if (fs.existsSync(entryFile)) {
-                    const dlcModule = await import(`file://${entryFile}`);
+                    const dlcModule = await import(pathToFileURL(entryFile).href);
                     if (dlcModule.gateChecks) {
                       for (const gc of manifest.contributions.gateChecks) {
                         const fn = dlcModule.gateChecks[gc.handler];

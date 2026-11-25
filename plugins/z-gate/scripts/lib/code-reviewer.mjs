@@ -11,7 +11,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDiff } from './diff-parser.mjs';
 import { findHelpers } from './helper-discovery.mjs';
 
@@ -209,6 +209,93 @@ async function analyzeBlastRadius(files, addedLines, cwd) {
   } catch {}
 
   return blastFindings;
+}
+
+const UI_LINT_FILE_RE = /\.(tsx|jsx|html|vue|svelte|xaml|css|scss|cs)$/i;
+const WEB_UI_FILE_RE = /\.(tsx|jsx|html|vue|svelte|xaml|css|scss)$/i;
+const CANONICAL_UI_ERROR_RE = /^(?:AS-0[1-9](?:[a-z])?|AS-I1|AS-D[13]|AS-C[23])$/;
+const DESKTOP_CS_RULE_RE = /^AS-D[1-4]$/;
+const TEST_FILE_RE = /(?:test|spec)s?[\/\._-]|(?:tests?|specs?)\.(?:cs|ts|js|jsx|tsx|py)$|Tests\.cs$/i;
+
+/**
+ * Lazy-load z-craft's canonical Anti-Slop linter from repo-relative or installed plugin paths.
+ */
+async function loadCanonicalUiLinter() {
+  try {
+    const repoRel = await import('../../../z-craft/scripts/lib/anti-slop-linter.mjs');
+    if (typeof repoRel?.lintUiContent === 'function') return repoRel;
+  } catch {}
+
+  const homeDir = os.homedir();
+  const hereDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidatePaths = [
+    process.env.ZCRAFT_LINTER_PATH,
+    path.resolve(hereDir, '..', '..', '..', 'z-craft', 'scripts', 'lib', 'anti-slop-linter.mjs'),
+    path.resolve(homeDir, '.gemini', 'config', 'plugins', 'z-craft', 'scripts', 'lib', 'anti-slop-linter.mjs'),
+    path.resolve(homeDir, '.zcode', 'plugins', 'z-craft', 'scripts', 'lib', 'anti-slop-linter.mjs')
+  ].filter(Boolean);
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const mod = await import(pathToFileURL(p).href);
+        if (typeof mod?.lintUiContent === 'function') return mod;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * Delegate UI craftsmanship & desktop anti-slop checks on added lines to z-craft.
+ */
+async function runCanonicalUiReview(addedLines, cwd) {
+  const uiLinesByFile = new Map();
+  let runningIndex = 0;
+
+  for (const lineObj of addedLines) {
+    runningIndex++;
+    const file = lineObj.file || '';
+    if (!UI_LINT_FILE_RE.test(file)) continue;
+    if (!uiLinesByFile.has(file)) uiLinesByFile.set(file, []);
+    uiLinesByFile.get(file).push({ code: lineObj.code, lineIndex: runningIndex });
+  }
+
+  if (uiLinesByFile.size === 0) return [];
+
+  const linter = await loadCanonicalUiLinter();
+  if (!linter || typeof linter.lintUiContent !== 'function') return [];
+
+  const profile = typeof linter.resolveProfile === 'function' ? linter.resolveProfile(cwd) : undefined;
+  const uiFindings = [];
+
+  for (const [file, entries] of uiLinesByFile) {
+    const isWebUi = WEB_UI_FILE_RE.test(file);
+    const content = entries.map((e) => e.code).join('\n');
+    const report = linter.lintUiContent(content, file, { cwd, profile });
+    if (!report || !Array.isArray(report.violations)) continue;
+
+    for (const v of report.violations) {
+      if (v.severity !== 'error') continue;
+      const inScope = isWebUi
+        ? CANONICAL_UI_ERROR_RE.test(v.ruleId)
+        : DESKTOP_CS_RULE_RE.test(v.ruleId);
+      if (!inScope) continue;
+
+      const mappedLine = entries[v.line - 1]?.lineIndex ?? v.line;
+      uiFindings.push({
+        severity: 'P2',
+        category: 'CRAFTSMANSHIP',
+        file,
+        line: mappedLine,
+        rule: `AI Slop UI Defense (R_ANTI_SLOP, ${v.ruleId})`,
+        message: v.message,
+        suggestion: v.fixHint || 'Follow Z-Craft canonical UI design tokens and invariants.'
+      });
+    }
+  }
+
+  return uiFindings;
 }
 
 /**
@@ -427,34 +514,7 @@ export async function reviewCode({
       }
     }
 
-    // F. [P2] UI Software Craftsmanship & Anti-Slop (R_ANTI_SLOP)
-    if ((focus === 'all' || focus === 'ui') && /\.(tsx|jsx|html|xaml|vue|svelte)$/i.test(currentFile)) {
-      if (/from-(purple|indigo|pink)-[45]00\s+to-(indigo|pink|purple)-[45]00/i.test(code)) {
-        findings.push({
-          severity: 'P2',
-          category: 'CRAFTSMANSHIP',
-          file: currentFile,
-          line: lineIndex,
-          rule: 'AI Slop UI Defense (R_ANTI_SLOP, AS-2)',
-          message: 'Cliché neon gradient detected (purple-500 to indigo-500).',
-          suggestion: 'Use solid theme background with crisp border: bg-card border border-border.'
-        });
-      }
-
-      if (/onClick=\{?\s*\(\)\s*=>\s*\{\s*\}?\s*\}/.test(code)) {
-        findings.push({
-          severity: 'P2',
-          category: 'CRAFTSMANSHIP',
-          file: currentFile,
-          line: lineIndex,
-          rule: 'Dead Click Handler (AS-5)',
-          message: 'Interactive button with empty dead click handler onClick={() => {}}.',
-          suggestion: 'Provide real action handler or mark button disabled: disabled aria-disabled="true".'
-        });
-      }
-    }
-
-    // G. Custom DLC Review Checks (extensible review hooks)
+    // F. Custom DLC Review Checks (extensible review hooks)
     for (const rev of customLineReviewers) {
       try {
         const finding = rev(code, currentFile, lineIndex);
@@ -474,6 +534,16 @@ export async function reviewCode({
         message: `Deep nesting detected (indentation depth ${indentMatch[1].length / 4} levels).`,
         suggestion: 'Flatten nested if/else blocks using early returns / guard clauses.'
       });
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2b. UI Software Craftsmanship & Anti-Slop (delegated to z-craft)
+  // -------------------------------------------------------------
+  if (focus === 'all' || focus === 'ui') {
+    const uiFindings = await runCanonicalUiReview(parsed.addedLines, cwd);
+    for (const uf of uiFindings) {
+      findings.push(uf);
     }
   }
 
@@ -498,8 +568,8 @@ export async function reviewCode({
     }
 
     if (isRefactoringTask && parsed.addedLines.length > 0) {
-      const added = parsed.addedLines.length;
-      const deleted = parsed.deletedLines.length;
+      const added = parsed.addedLines.filter((l) => !TEST_FILE_RE.test(l.file || '')).length;
+      const deleted = parsed.deletedLines.filter((l) => !TEST_FILE_RE.test(l.file || '')).length;
 
       if (deleted > 0 && (added - deleted) / deleted > 0.3) {
         const inflation = Math.round(((added - deleted) / deleted) * 100);
