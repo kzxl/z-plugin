@@ -10,8 +10,9 @@ Net Engineering Value (NEV) gate, codebase asset discovery (`R_REUSE`), wrapper 
 
 | Component | What it does |
 |---|---|
+| MCP tool `zgate_review` | Deep multi-dimensional differential reviewer covering Security, Concurrency, NEV (excluding test files from LOC inflation), `z-brain` historical gotchas, `z-token` blast radius/taint, `dlc-erp` checks, and canonical `z-craft` UI Anti-Slop delegation |
 | MCP tool `zgate_find_helpers` | Searches `Helpers/`, `Extensions/`, `Utils/`, `Common/`, and `Shared/` for reusable methods (<5ms disk cache) |
-| MCP tool `zgate_audit_diff` | Audits staged unified git diffs against NEV, the Deletion Test, LOC inflation, and platform invariants |
+| MCP tool `zgate_audit_diff` | Audits staged unified git diffs against NEV, the Deletion Test, LOC inflation, canonical Anti-Slop (`AS-01`, `AS-05`, `AS-06`, `AS-08`, `AS-I1`), and platform invariants |
 | MCP tool `zgate_status` | Reports indexed helper counts, cache file stats, and recent gate audit metrics |
 | PreToolUse Hook | Blocks `git add -A` / `git add .` (enforcing targeted staging per `R_GIT`) and bare `git diff` commands |
 | CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`find`, `audit`, `status`) |

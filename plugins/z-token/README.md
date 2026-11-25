@@ -14,7 +14,7 @@ Cuts the tokens a coding session spends on file dumps, unbounded greps and raw b
 | Commands `/build`, `/diet`, `/saved` | Manual entry points: compact build, baseline report, savings ledger |
 | Panel `ui://z-token/panel.html` | Experimental side-panel dashboard of the ledger (no conversation tokens) |
 
-Language coverage: the guard is language-agnostic; `search` scans any text file, decodes UTF-16 (BOM or sniffed) and honours `.gitignore`; `outline` has declaration heuristics for C-family, JS/TS, Python, Ruby, PHP, Go, Rust, Swift/Kotlin, Scala, Dart, shell, Lua, Perl and SQL; `build` is .NET only; `run` covers npm/pnpm/yarn, cargo, go, maven, gradle, make and pytest.
+Language coverage: the guard is language-agnostic; `search` scans any text file, decodes UTF-16 (BOM or sniffed), falls back non-destructively to `windows-1258` on legacy files whose UTF-8 decode contains `\uFFFD`, adapts context lines on sparse result sets ($\le 10$ matches), and honours `.gitignore`; `outline` folds multiline C#/TypeScript signatures and covers C-family, JS/TS, Python, Ruby, PHP, Go, Rust, Swift/Kotlin, Scala, Dart, shell, Lua, Perl and SQL; `build` is .NET only; `run` covers npm/pnpm/yarn, cargo, go, maven, gradle, make and pytest.
 
 ## Install
 
@@ -47,6 +47,8 @@ Edit `scripts/config.json`:
 - `build.configuration` / `build.platform` — defaults `Debug` / `Any CPU` for the MSBuild path. SDK builds ignore `platform` unless you pass it explicitly.
 - `search.extensions` — empty scans every text file; a list like `[".cs",".ts"]` narrows it.
 - `search.respectGitignore` (default `true`), `search.cacheTtlMs` (30000), `search.cacheMaxBytes` (32 MB) — ignore handling and caches for repeated searches.
+- `search.contextSparse` (default `1`), `search.sparseThreshold` (default `10`) — reduces surrounding context lines automatically when total matches are sparse.
+- `search.legacyEncodings` (default `["windows-1258"]`) — fallback encodings attempted only when UTF-8 decoding produces replacement characters on non-binary files.
 - `run.timeoutMs` (default 600000) — timeout for the `run` tool.
 
 Changes take effect on the next tool call; no restart needed.

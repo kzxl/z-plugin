@@ -15,8 +15,9 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 | MCP tool `zbrain_status` | SQLite database statistics, atom counts, and engine status |
 | MCP tools `zbrain_history`, `zbrain_changes`, `zbrain_impact` | Per-file edit history, recent workspace changes, and file impact context |
 | MCP tool `zbrain_impact(..., brief: true)` | Hard-capped ~300-token pre-flight brief: churn, blast radius, co-edits, impacted tests, gotchas, invariant |
+| MCP tool `zbrain_compact` | Generational compaction (`R_ACP`) clustering recurring atoms ($\ge 3$) into canonical `verified_fact` blocks and marking `superseded_by` |
 | Hook `harvest-advisor` | PostToolUse hook that prompts the agent to harvest lessons after successful test runs |
-| CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`, `preflight`, `db`) |
+| CLI `scripts/cli.mjs` | Standalone CLI facade for terminal workflows (`status`, `fetch`, `view`, `harvest`, `preflight`, `compact`, `db`) |
 | Skill `z-brain` | Teaches agents to perform progressive disclosure sweeps before writing code |
 | Rules `rules/z-brain-rules.md` | Universal invariant rules for episodic memory management |
 | Database `~/.z-plugin/brain.sqlite` | One WAL-mode SQLite database per user (FTS5 + triggers), shared by every IDE; override with `ZBRAIN_DB_PATH` |
@@ -32,7 +33,7 @@ It replaces remote PostgreSQL databases and background memory daemons with a pur
 - **Stable Project Identity**: `project_registry` maps each workspace root to a `project_id`, preferring the git origin so clones share history and folder renames or same-named repositories do not collide. Legacy basename ids are retained.
 - **Incremental Reconcile**: steady-state passes use `git status` plus an index-vs-listing diff; a moved `HEAD`, a non-git workspace or a 10-minute safety window trigger a full sweep.
 - **FTS Engine**: SQLite FTS5 with field-weighted BM25 (question 6x, answer 1x, gotcha/fix 2x, tags 0.4x) and automatic triggers keeping the index in sync with `knowledge_atoms`. Scope, trust and tag bonuses (capped) only break near ties, Vietnamese stopwords are dropped, and query coverage plus title matches decide between near-duplicate atoms.
-- **Measured Retrieval**: `npm run eval:retrieval` scores the search path on a labeled 50-atom corpus with near-duplicate distractors (hit@1 98%, hit@3 100%, MRR 0.99 on the lexical set) and reports the paraphrase gap that a semantic layer must close. `npm run eval:retrieval:live` runs leave-one-out self-retrieval on the real database.
+- **Measured Retrieval**: `npm run eval:retrieval` scores the search path on a labeled 50-atom corpus with near-duplicate distractors (`Hit@1` 100%, `Hit@3` 100%, `Recall@5` 100%, `MRR` 1.000, `p95` 1.26ms on the lexical set; `Recall@5` 100%, `Hit@1` 62.5%, `MRR` 0.813, `p95` 1.21ms on the zero-overlap cross-lingual paraphrase set via bilingual EN/VI concept expansion + trigram TF-IDF fallback). `npm run eval:retrieval:live` runs leave-one-out self-retrieval on the real database.
 
 ## Smart Episodic Features
 

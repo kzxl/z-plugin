@@ -19,6 +19,8 @@ It equips agents with senior engineering rigor: 4-phase bug diagnosis, zero-regr
 | MCP tool `zmind_init` | Bootstrap a standard `.project-rule.md` tailored to current workspace stack and protect in `.gitignore` |
 | MCP tool `zmind_rules` | Query engineering invariants by topic (`core`, `tdd`, `perf`, `git`, `refactor`) |
 | MCP tool `zmind_audit` | Audit technical plans or commit messages against engineering rules |
+| MCP tool `zmind_plan` | Synthesize a 5-phase TDD execution plan with reproduction and seam gates |
+| MCP tool `zmind_route` | Run the live `z-runtime` Cognitive Orchestrator (`orchestrateTask`) to classify intent, allocate token budget, and assemble multi-plugin pre-flight context in 1 call |
 | MCP tool `zmind_doctor` | Run architectural health-checks and rule compliance audits across the repository |
 | Rules `engineering-rules.md` | Full catalog of 58 engineering standards across 6 pillars (Invariants, Languages, Architecture, Cognition, Domain ERP, Ops) |
 | Rules `rules.json` | Machine-readable SSoT dictionary containing all 58 rules with titles, tags, and summaries |

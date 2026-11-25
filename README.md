@@ -29,6 +29,20 @@ npx @kzxl/z-plugin init claude
 # Or set up all supported AI agents at once (Cursor, Claude, Windsurf, Copilot, Cline)
 npx @kzxl/z-plugin init all
 
+# Run the AEOS Cognitive Router & unified multi-plugin pre-flight brief
+npx @kzxl/z-plugin route "Fix stock transfer deadlock" --file src/StockService.cs
+
+# Audit staged/unstaged changes (Security, NEV, Canonical Anti-Slop, Gotchas)
+npx @kzxl/z-plugin review
+
+# Lint UI files, git diff, or CSS token WCAG 2.1 AA contrast
+npx @kzxl/z-plugin lint --diff
+npx @kzxl/z-plugin lint --tokens src/styles/globals.css
+
+# Run per-file pre-flight brief or workspace compliance doctor
+npx @kzxl/z-plugin preflight src/OrderService.cs
+npx @kzxl/z-plugin doctor
+
 # Run the interactive visual capability demo
 npx @kzxl/z-plugin demo
 
@@ -80,13 +94,15 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 
 ### 1. 🛡️ `z-token` — Context Firewall & Call-Graph Engine
 - **Token Protection:** Cuts context consumption by up to **95.5%** on large file inspections and **99.2%** on warning-heavy build logs.
-- **AST Outline:** One-shot extraction of classes, interfaces, and methods with line numbers across 16+ languages (`outline`).
+- **Multiline AST Outline:** One-shot extraction of classes, interfaces, and methods with multiline C#/TypeScript signature folding across 16+ languages (`outline`).
+- **Adaptive Sparse Search & Legacy Encoding:** Automatically trims context to 1 line when matches are sparse ($\le 10$) and falls back cleanly to `windows-1258` only when UTF-8 yields replacement chars on legacy ERP files.
 - **Sub-2ms BFS Call-Graph:** Traces the shortest invocation path between any two symbols (`trace_path`) across polymorphic interfaces (`IService` ↔ `Service`) and MediatR/CQRS pipelines in $<1\text{ms}$.
 - **Blast Radius & God Node Detection:** Identifies upstream dependents, downstream callees, and high-degree God Nodes before edits are made.
 
 ### 2. 🧠 `z-brain` — Episodic Memory & Semantic Gotchas
 - **Persistent Knowledge:** Automatically saves and retrieves past debugging lessons, domain rules, and gotchas across chat sessions.
-- **Hybrid Retrieval:** FTS5 BM25 search combined with Trigram semantic similarity and recency decay.
+- **Cross-Lingual Hybrid Retrieval:** SQLite FTS5 BM25 combined with bilingual EN/VI engineering concept expansion and zero-dependency TF-IDF trigram cosine fallback (`100%` lexical Hit@1, `100%` paraphrase Recall@5, `p95 <= 1.26ms`).
+- **Generational Compaction & Temporal Supersede (`zbrain_compact`):** Clusters recurring lessons ($\ge 3$) into canonical `verified_fact` blocks and marks superseded atoms (`superseded_by`) so stale gotchas stay out of default retrieval (`R_ACP`).
 - **Progressive Disclosure:** Compact L0 index (~30 tokens/entry) for pre-task context sweep; fetches L2 detailed code fixes strictly on-demand.
 - **Automatic Edit History:** Host hooks capture every file edit (tool, line counts, redacted patch) into `file_events`; a git-aware watcher and reconcile pass cover hosts without hooks, so no manual logging is needed.
 - **Workspace File Index:** `file_index` tracks path, mtime, size, hash, language and symbol count; `zbrain_history`, `zbrain_changes` and `zbrain_impact` query what changed and what depends on it.
@@ -95,22 +111,22 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 - **Token-Capped Answers:** history views show the newest 10–12 events with at most two short patch previews, and timeline/file answers clip long summaries, so lookups stay cheap in context.
 - **Async Write Queue:** Serializes concurrent SQLite write locks under multi-agent workloads with exponential backoff, with a JSONL spool fallback when the database is busy.
 
-### 3. ⚖️ `z-mind` — Cognitive Framework & Engineering Discipline
-- **58 Canonical Invariants:** Mechanically enforces SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), and Zero-Trust Empirical Proof (`R_PROOF`) with deduplicated Single Source of Truth (`AGENTS.md`) rules.
+### 3. ⚖️ `z-mind` — Cognitive Framework & Live Orchestration
+- **58+ Canonical Invariants:** Mechanically enforces SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), and Zero-Trust Empirical Proof (`R_PROOF`) with deduplicated Single Source of Truth (`AGENTS.md`) rules.
+- **Live Cognitive Router (`zmind_route`):** Executes `z-runtime` `orchestrateTask()` in one call — classifying intent, budgeting tokens, and assembling matching invariants, `z-brain` gotchas, `z-token` blast radius, and `z-craft`/`z-gate` hints.
 - **Autonomous 4-Tier Subagent Routing (`R_TEAM`):** Routes `scout` (`flash_lite`), parallel `self` coding workers (`flash`), and specialist `architect` / `investigator` / `reviewer` subagents (`pro` / `inherit`) under zero-collision file ownership contracts.
-- **4-Phase Bugfix Diagnosis:** Structured root-cause isolation before touching production code.
-- **Dynamic Rule Packs:** Extensible rule packs for domain-specific projects (e.g. ERP, Fintech, Healthcare).
+- **4-Phase Bugfix Diagnosis & Dynamic Rule Packs:** Structured root-cause isolation plus extensible domain rule packs (e.g., `dlc-erp`).
 
-### 4. 🔍 `z-gate` — Asset Discovery, Taint Flow & Pre-Commit Review
+### 4. 🔍 `z-gate` — Asset Discovery, Taint Flow & Unified Pre-Commit Review
 - **Codebase Asset Discovery (`R_REUSE`):** Scans existing utilities and extension methods to stop the agent from re-inventing existing helpers.
 - **Inter-Procedural Taint Analysis (`trace_data_flow`):** Detects SQL injections, shell command executions, and path traversals with early-return guard awareness (`if return`, `ThrowIfNull`).
-- **Pre-Commit Diff Audit:** Automatically catches wrapper hell (single-impl interfaces), sync-over-async deadlocks (`.Result`, `.Wait()`), and excessive LOC bloat.
+- **Unified Pre-Commit Diff Audit (`zgate_review`):** Catches wrapper hell (single-impl interfaces), sync-over-async deadlocks (`.Result`, `.Wait()`), production LOC bloat (excluding test files), cross-platform `dlc-erp` checks, and delegates UI diffs directly to `z-craft`'s canonical Anti-Slop linter.
 
-### 5. ✨ `z-craft` — Anti-Slop Linter & UI Craftsmanship
-- **Anti-AI-Slop AST Linter (`R_ANTI_SLOP`):** Eliminates neon gradients, arbitrary hex colors, floaty shadows, and dead click handlers across React, Tailwind, WPF, and WinForms.
-- **Mandatory 4-State UX Matrix:** Enforces default, loading skeleton, empty state, and error handling with retry triggers.
-- **Interactive Force Physics Canvas:** Generates zero-dependency SVG topology graphs with Leiden community clustering to visualize architecture.
-- **Vibe Time-Machine:** 1-click snapshot checkpoints to safely experiment with UI redesigns without polluting Git history.
+### 5. ✨ `z-craft` — Canonical Anti-Slop Linter & UI Craftsmanship
+- **Canonical Anti-AI-Slop Linter (`AS-01..AS-12`, `AS-C1..AS-C5`, `AS-I1`, `AS-S1`, `AS-D1..AS-D4`):** Enforces token discipline, flat surfaces, neutral elevation, one-shot compositor motion (`enterprise`/`expressive` GSAP allowlist), inline `anti-slop-ignore` suppressions, git `--diff` scoping, and **WCAG 2.1 AA CSS token contrast math** (`--tokens`).
+- **Mandatory 4-State UX Matrix & Scaffolder (`zcraft_spec`, `zcraft_scaffold`):** Generates compliant Populated, Loading skeleton, Empty, and Error+Retry components across React/Tailwind, WPF XAML, and WinForms DevExpress.
+- **Host-Aligned Interactive Previews & Real Topology Canvas (`zcraft_preview`, `z-plugin canvas`):** Renders Antigravity CSP-compliant (`gstatic` Tailwind + host CSS tokens + `<agent-embed>`) previews and force-directed SVG topology graphs from real indexed workspace symbols.
+- **Vibe Time-Machine (`zcraft_checkpoint`):** 1-click snapshot checkpoints to safely experiment with UI redesigns without polluting Git history.
 
 ---
 

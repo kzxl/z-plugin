@@ -28,6 +28,20 @@ npx @kzxl/z-plugin init claude
 # Hoặc cấu hình cho TẤT CẢ các agent (Cursor, Claude, Windsurf, Copilot, Cline)
 npx @kzxl/z-plugin init all
 
+# Chạy bộ định tuyến nhận thức & tóm tắt tiền kiểm đa plugin trong 1 lệnh
+npx @kzxl/z-plugin route "Sửa lỗi deadlock đồng bộ tồn kho" --file src/StockService.cs
+
+# Review diff bảo mật, NEV, Anti-Slop chuẩn hóa và bài học cũ
+npx @kzxl/z-plugin review
+
+# Quét Anti-Slop theo git diff hoặc đo tương phản token CSS chuẩn WCAG 2.1 AA
+npx @kzxl/z-plugin lint --diff
+npx @kzxl/z-plugin lint --tokens src/styles/globals.css
+
+# Tóm tắt tác động trước khi sửa file hoặc khám sức khỏe kiến trúc workspace
+npx @kzxl/z-plugin preflight src/OrderService.cs
+npx @kzxl/z-plugin doctor
+
 # Xem giao diện demo trực quan các tính năng
 npx @kzxl/z-plugin demo
 
@@ -81,13 +95,15 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ### 1. 🛡️ `z-token` — Tường lửa Token & Phân tích Call-Graph
 - **Tiết kiệm token kỷ lục:** Giảm tới **95.5% token** khi đọc các file lớn và **99.2% token** khi đọc log build nhiều warning.
-- **AST Outline:** Trích xuất nhanh chữ ký class, hàm, method kèm số dòng cho hơn 16 ngôn ngữ (`outline`), không cần nạp cả file vào ngữ cảnh.
+- **Multiline AST Outline:** Trích xuất nhanh chữ ký class, hàm, method (hỗ trợ gộp chữ ký C#/TypeScript nhiều dòng) kèm số dòng cho hơn 16 ngôn ngữ (`outline`).
+- **Tìm kiếm thích ứng & Legacy Encoding:** Tự động co context xuống 1 dòng khi kết quả thưa ($\le 10$ matches) và tự fallback `windows-1258` cho các file ERP cũ không phải UTF-8.
 - **Call-Graph BFS <2ms:** Tìm đường dẫn gọi hàm ngắn nhất giữa 2 hàm/lớp bất kỳ (`trace_path`), tự động bắc cầu giữa Interface (`IService` ↔ `Service`) và MediatR/CQRS.
 - **Tính toán bán kính ảnh hưởng (Blast Radius):** Cảnh báo agent khi sửa các "God Node" có quá nhiều class phụ thuộc.
 
 ### 2. 🧠 `z-brain` — Bộ nhớ dài hạn & Truy vết bài học kinh nghiệm
 - **Ghi nhớ liên phiên:** Tự động lưu và truy xuất các giải pháp sửa lỗi, bài học kiến trúc, và gotcha giữa các phiên làm việc khác nhau.
-- **Tìm kiếm lai (Hybrid Search):** Kết hợp SQLite FTS5 BM25 với Trigram Semantic Similarity và hệ số suy giảm theo thời gian.
+- **Tìm kiếm lai đa ngôn ngữ (Cross-Lingual Semantic Recall):** Kết hợp SQLite FTS5 BM25 với từ điển khái niệm kỹ thuật Việt↔Anh và fallback TF-IDF Trigram Cosine (0 dependency), đạt **100% Hit@1** lexical và **100% Recall@5** trên câu hỏi diễn đạt lại khác từ khóa (`p95 <= 1.26ms`).
+- **Nén thế hệ & Thay thế theo thời gian (`zbrain_compact`, `superseded_by`):** Gom cụm các bài học lặp lại ($\ge 3$) thành block chuẩn hóa (`canonical_block`) và tự ẩn các atom lỗi thời (`R_ACP`).
 - **Mở rộng ngữ cảnh từng bước (Progressive Disclosure):** Chỉ nạp mục lục tóm tắt L0 (~30 token/bài học) trước khi làm; chỉ tải chi tiết L2 khi thật sự cần thiết.
 - **Lịch sử sửa file tự động:** Hook của host ghi mọi lần sửa file (tool, số dòng thêm/xóa, patch đã che secrets) vào `file_events`; watcher theo dõi git và lượt reconcile bù cho host không có hook, không cần ghi log thủ công.
 - **Chỉ mục file workspace:** `file_index` lưu path, mtime, size, hash, ngôn ngữ và số symbol; `zbrain_history`, `zbrain_changes`, `zbrain_impact` trả lời file đã đổi gì và phụ thuộc gì.
@@ -96,21 +112,21 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - **Câu trả lời có trần token:** lịch sử chỉ hiện 10–12 event mới nhất, tối đa 2 patch preview ngắn; timeline và thông tin file cắt bớt summary dài để tra cứu không phình ngữ cảnh.
 - **Hàng đợi ghi bất đồng bộ (`AsyncHarvestQueue`):** Điều phối khóa ghi SQLite khi có nhiều sub-agent hoạt động đồng thời, kèm spool JSONL khi database bận.
 
-### 3. ⚖️ `z-mind` — Bộ khung tư duy kỹ thuật & Kỷ luật phát triển
-- **58 Nguyên tắc bất biến:** Tự động áp dụng SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), và Bằng chứng thực nghiệm (`R_PROOF`).
-- **Chẩn đoán lỗi 4 giai đoạn:** Buộc agent phải lập luận cô lập nguyên nhân gốc rễ trước khi đụng vào code chạy thật.
-- **Gói quy tắc mở rộng (Rule Packs):** Dễ dàng mở rộng cho các lĩnh vực chuyên biệt (ERP, Fintech, Y tế).
+### 3. ⚖️ `z-mind` — Bộ khung tư duy kỹ thuật & Điều phối tập trung
+- **58+ Nguyên tắc bất biến:** Tự động áp dụng SOLID (`R_CORE`), Test-Driven Development (`R_TDD`), Net Engineering Value (`R_NEV`), và Bằng chứng thực nghiệm (`R_PROOF`).
+- **Điều phối nhận thức trực tiếp (`zmind_route`):** Nối trực tiếp `z-runtime` `orchestrateTask()` — phân loại tác vụ, phân bổ ngân sách token và tổng hợp invariant `z-mind`, gotcha `z-brain`, blast radius `z-token` cùng gợi ý `z-craft`/`z-gate` trong 1 lượt gọi.
+- **Chẩn đoán lỗi 4 giai đoạn & Gói quy tắc mở rộng:** Cô lập nguyên nhân gốc rễ và hỗ trợ mở rộng rule pack theo nghiệp vụ (`dlc-erp`).
 
 ### 4. 🔍 `z-gate` — Tái sử dụng code, Taint Analysis & Đánh giá trước commit
 - **Tận dụng tài nguyên sẵn có (`R_REUSE`):** Quét các hàm tiện ích (`Helpers/`, `Extensions/`) có sẵn trong repo, ngăn agent viết code trùng lặp vô ích.
 - **Phân tích luồng dữ liệu bẩn (`trace_data_flow`):** Phát hiện nguy cơ SQL Injection, Command Injection trước khi code chạy.
-- **Audit Diff trước khi commit:** Chặn tình trạng "Wrapper Hell" (tạo interface chỉ có 1 implementation), bẫy deadlock sync-over-async (`.Result`, `.Wait()`), và phình dòng code vô lý.
+- **Audit Diff thống nhất (`zgate_review`):** Chặn "Wrapper Hell", bẫy deadlock sync-over-async (`.Result`, `.Wait()`), phình dòng code sản phẩm (loại trừ file test), nạp `dlc-erp` an toàn trên Windows (`pathToFileURL`), và ủy quyền kiểm tra UI trực tiếp sang linter canonical của `z-craft`.
 
-### 5. ✨ `z-craft` — Linter chống AI Slop & Chuẩn hóa trải nghiệm người dùng
-- **Anti-AI-Slop AST Linter (`R_ANTI_SLOP`):** Quét và loại bỏ gradient tím neon sến sẩm, mã màu hex tùy tiện, shadow quá khổ, và các event handler rỗng.
-- **Ma trận 4 trạng thái giao diện (4-State UX):** Bắt buộc component phải có: Mặc định, Loading skeleton, Trạng thái rỗng (Empty), và Báo lỗi kèm nút Thử lại (Retry).
-- **Topology Canvas tương tác:** Sinh biểu đồ lực SVG tương tác để trực quan hóa kiến trúc codebase theo cụm Leiden.
-- **Cỗ máy thời gian (Vibe Time-Machine):** Chụp checkpoint 1 cú click để thoải mái thử nghiệm thiết kế giao diện mà không làm bẩn lịch sử Git.
+### 5. ✨ `z-craft` — Linter chống AI Slop chuẩn hóa & Tay nghề UI
+- **Linter Anti-AI-Slop chuẩn hóa (`AS-01..AS-12`, `AS-C1..AS-C5`, `AS-I1`, `AS-S1`, `AS-D1..AS-D4`):** Kiểm tra kỷ luật design token, bề mặt phẳng, motion chạy 1 lần (`enterprise`/`expressive` GSAP allowlist), suppression có lý do (`anti-slop-ignore`), quét `--diff`, và **đo tương phản CSS chuẩn WCAG 2.1 AA** (`--tokens`).
+- **Ma trận 4 trạng thái & Scaffolder (`zcraft_spec`, `zcraft_scaffold`):** Sinh đặc tả và mã nguồn mẫu đạt điểm 100/100 cho React/Tailwind, WPF XAML và WinForms DevExpress.
+- **Preview tương thích Host & Topology Canvas thật (`zcraft_preview`, `z-plugin canvas`):** Sinh preview chuẩn CSP Antigravity (`gstatic` Tailwind + CSS vars của host + `<agent-embed>`) và đồ thị SVG tương tác từ dữ liệu symbol thực tế của workspace.
+- **Cỗ máy thời gian (`zcraft_checkpoint`):** Chụp checkpoint 1 cú click để thử nghiệm thiết kế giao diện mà không làm bẩn lịch sử Git.
 
 ---
 
