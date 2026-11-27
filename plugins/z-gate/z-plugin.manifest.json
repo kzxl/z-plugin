@@ -53,7 +53,8 @@
         "zgate_review",
         "zgate_find_helpers",
         "zgate_audit_diff",
-        "zgate_status"
+        "zgate_status",
+        "zgate_install_hook"
       ]
     }
   }

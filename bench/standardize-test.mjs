@@ -87,6 +87,9 @@ for (const rel of disclosedDocs) {
 const installPs1 = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
 assert.ok(installPs1.includes("ZCode") && installPs1.includes("[Read, Bash]"), "install.ps1 adapts Antigravity subagent frontmatter for ZCode compatibility");
 
+const installSh = fs.readFileSync(path.join(root, "install.sh"), "utf8");
+assert.ok(installSh.includes("[Read, Bash]") && installSh.includes("mcp_config.json") && installSh.includes("npm link"), "install.sh aligns with install.ps1 on ZCode subagent bridging, MCP path resolution, and CLI linking");
+
 // 3. Antigravity plugin mcp_config.json and root hooks.json must not contain unexpanded ${CLAUDE_PLUGIN_ROOT}
 for (const pName of allPluginNames) {
   const mcpPath = path.join(root, "plugins", pName, "mcp_config.json");

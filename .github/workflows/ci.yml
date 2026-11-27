@@ -7,10 +7,18 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        node: [22, 24]
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: ubuntu-latest
+            node: 24
+          - os: windows-latest
+            node: 22
+            skip_gui: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,5 +26,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm run check
       - run: npm test
+        env:
+          ZVISION_SKIP_GUI: ${{ matrix.skip_gui || '' }}
       - run: npm run smoke
       - run: npm run bench

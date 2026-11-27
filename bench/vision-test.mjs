@@ -674,6 +674,9 @@ if (process.platform === 'win32') {
     ok(typeof st.pen_injection_available === 'boolean', `Native status reports pen_injection_available=${st.pen_injection_available}`);
     ok(st.region_lock && st.region_lock.active === false, 'Native status reports region_lock.active=false initially');
 
+    if (process.env.ZVISION_SKIP_GUI === '1') {
+      console.log('  skip  Interactive WinForms desktop probe (ZVISION_SKIP_GUI=1)');
+    } else {
     // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel + Phase 1/2 tests
     const markerTplPath = path.join(tmpNativeDir, 'marker-tpl.png');
     const escapedMarkerPath = markerTplPath.replace(/'/g, "''");
@@ -1216,6 +1219,7 @@ if (process.platform === 'win32') {
       ]
     });
     ok(shapePlan.ok === true && shapePlan.completed_steps === 3, `Native draw_shape (bezier/ellipse/rect fill) completed (${shapePlan.completed_steps}/3, err=${JSON.stringify(shapePlan.error || null)})`);
+    }
   } finally {
     if (engine && priorClipRestore) {
       try {
