@@ -26,7 +26,23 @@ namespace ZVision.Native
         public static void SetEmergencyStopped(bool value)
         {
             Interlocked.Exchange(ref _emergencyStopped, value ? 1 : 0);
-            if (value) ReleaseAll();
+            if (value)
+            {
+                ArrowOverlay.ClearAll();
+                ReleaseAll();
+            }
+        }
+
+        public static void GetCursorPosition(out int x, out int y)
+        {
+            POINT pt;
+            if (GetCursorPos(out pt)) { x = pt.X; y = pt.Y; }
+            else { x = 0; y = 0; }
+        }
+
+        public static void RestoreCursor(int x, int y)
+        {
+            MoveAbs(x, y);
         }
 
         public static int ReleaseAll()
@@ -327,14 +343,21 @@ namespace ZVision.Native
             int vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
             int vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
 
-            int ax = (int)Math.Round(((x - vx) * 65535.0) / Math.Max(1, vw - 1));
-            int ay = (int)Math.Round(((y - vy) * 65535.0) / Math.Max(1, vh - 1));
-            if (ax < 0) ax = 0; if (ax > 65535) ax = 65535;
-            if (ay < 0) ay = 0; if (ay > 65535) ay = 65535;
+            // Win32 virtual-desktop normalized coordinate formula mapping pixel centers cleanly
+            long axL = ((long)(x - vx) * 65536L + 32768L) / vw;
+            long ayL = ((long)(y - vy) * 65536L + 32768L) / vh;
+            int ax = (int)Math.Max(0, Math.Min(65535, axL));
+            int ay = (int)Math.Max(0, Math.Min(65535, ayL));
 
             SendInputs(new INPUT[] {
                 MakeMouseInput(ax, ay, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, 0)
             });
+
+            POINT check;
+            if (GetCursorPos(out check) && (Math.Abs(check.X - x) > 1 || Math.Abs(check.Y - y) > 1))
+            {
+                SetCursorPos(x, y);
+            }
         }
 
         private static ushort ResolveVirtualKey(string token)
@@ -525,6 +548,9 @@ namespace ZVision.Native
 
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int X, int Y);
 
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int nIndex);

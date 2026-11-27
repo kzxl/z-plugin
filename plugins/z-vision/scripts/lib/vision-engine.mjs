@@ -2,8 +2,10 @@ import { createHostClient } from './host-client.mjs';
 import {
   ObservationStore,
   checkActionSafety,
+  mapCoordsToScreen,
   mapPixelToScreen,
-  validatePlanSteps
+  validatePlanSteps,
+  validateParallelLanes
 } from './safety-policy.mjs';
 
 export function hammingDistanceHex(hexA, hexB) {
@@ -90,7 +92,7 @@ function resolveTarget(obs, opts) {
   }
 
   if (opts.x != null && opts.y != null) {
-    const pt = mapPixelToScreen(obs, opts.x, opts.y);
+    const pt = mapCoordsToScreen(obs, opts.x, opts.y, opts.coord_space || 'image');
     return { node: null, screenX: pt.x, screenY: pt.y };
   }
 
@@ -106,8 +108,13 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('status', {});
   }
 
-  async function windows({ include_hidden = false, filter = '' } = {}) {
-    return host.request('windows', { include_hidden, filter });
+  async function windows({ include_hidden = false, filter = '', launch_exe = '', launch_args = '', timeout_ms = 8000 } = {}) {
+    let launched = null;
+    if (launch_exe) {
+      launched = await host.request('launch', { exe: launch_exe, args: launch_args, timeout_ms });
+    }
+    const res = await host.request('windows', { include_hidden, filter });
+    return launched ? { ...res, launched } : res;
   }
 
   async function launch({ exe, args = '', timeout_ms = 8000 } = {}) {
@@ -146,13 +153,18 @@ export function createVisionEngine({ client = null, store = null } = {}) {
 
     const nodes = Array.isArray(raw.nodes) ? raw.nodes : [];
     const suppressImage = with_image === 'auto' && prevDhash !== null && dist <= 2 && nodes.length >= 5;
+    const hideImage = suppressImage || with_image === false;
+    const effectiveImageSize = hideImage && raw.bounds
+      ? { w: raw.bounds.w, h: raw.bounds.h }
+      : raw.image_size;
 
     const record = observations.create({
       hwnd: raw.hwnd,
       process: raw.process,
       title: raw.title,
       bounds: raw.bounds,
-      imageSize: raw.image_size,
+      clientBounds: raw.client_bounds || null,
+      imageSize: effectiveImageSize,
       nodes,
       dhash: raw.dhash,
       ocr: raw.ocr || null
@@ -165,15 +177,17 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       process: raw.process,
       title: raw.title,
       bounds: raw.bounds,
-      image_size: raw.image_size,
+      raw_bounds: raw.raw_bounds || null,
+      client_bounds: raw.client_bounds || null,
+      image_size: effectiveImageSize,
       dhash: raw.dhash,
       dhash_distance: prevDhash ? dist : null,
       nodes,
       compact_tree: formatCompactNodes(nodes),
       ocr: raw.ocr || null,
       image_suppressed: suppressImage,
-      image_base64: suppressImage || with_image === false ? null : (raw.image_base64 || null),
-      image_mime: suppressImage || with_image === false ? null : (raw.image_mime || null)
+      image_base64: hideImage ? null : (raw.image_base64 || null),
+      image_mime: hideImage ? null : (raw.image_mime || null)
     };
   }
 
@@ -196,10 +210,15 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       throw err;
     }
 
+    const mode = opts.mode || (opts.physical === false ? 'uia' : 'physical');
+    const coordSpace = opts.coord_space || 'image';
+
     const payload = {
-      hwnd: obs.hwnd,
+      hwnd: opts.hwnd ?? obs.hwnd,
       action: opts.action,
-      physical: opts.physical !== false,
+      mode,
+      physical: mode !== 'uia' && opts.physical !== false,
+      restore_cursor: opts.restore_cursor === true,
       button: opts.button || 'left',
       clicks: opts.clicks || 1,
       steps: opts.steps || 6,
@@ -211,6 +230,9 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       height: opts.height,
       click_first: opts.click_first === true
     };
+    if (opts.show_arrows != null) {
+      payload.show_arrows = opts.show_arrows === true;
+    }
 
     if (resolved.node && typeof resolved.node.i === 'number') {
       payload.index = resolved.node.i;
@@ -223,14 +245,14 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       }
     }
     if (Array.isArray(opts.from) && opts.from.length === 2 && Array.isArray(opts.to) && opts.to.length === 2) {
-      const fPt = mapPixelToScreen(obs, opts.from[0], opts.from[1]);
-      const tPt = mapPixelToScreen(obs, opts.to[0], opts.to[1]);
+      const fPt = mapCoordsToScreen(obs, opts.from[0], opts.from[1], coordSpace);
+      const tPt = mapCoordsToScreen(obs, opts.to[0], opts.to[1], coordSpace);
       payload.from = [fPt.x, fPt.y];
       payload.to = [tPt.x, tPt.y];
     }
     if (Array.isArray(opts.points) && opts.points.length >= 2) {
       payload.points = opts.points.map(([px, py]) => {
-        const pt = mapPixelToScreen(obs, px, py);
+        const pt = mapCoordsToScreen(obs, px, py, coordSpace);
         return [pt.x, pt.y];
       });
     }
@@ -309,7 +331,7 @@ export function createVisionEngine({ client = null, store = null } = {}) {
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 150));
             const snap = await observe({ hwnd: currentObs.hwnd, with_image: false });
-            currentObs = { ...snap, bounds: snap.bounds, imageSize: snap.image_size };
+            currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
             if (hammingDistanceHex(prev, snap.dhash) <= 1) {
               stableCount++;
               if (stableCount >= 2) break;
@@ -323,7 +345,7 @@ export function createVisionEngine({ client = null, store = null } = {}) {
           let matched = false;
           while (Date.now() < deadline) {
             const snap = await observe({ hwnd: currentObs.hwnd, query: step.text, with_image: false });
-            currentObs = { ...snap, bounds: snap.bounds, imageSize: snap.image_size };
+            currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
             if (snap.nodes && snap.nodes.length > 0) {
               matched = true;
               break;
@@ -338,6 +360,10 @@ export function createVisionEngine({ client = null, store = null } = {}) {
         } else {
           const payload = await buildActPayload(currentObs, {
             ...step,
+            coord_space: step.coord_space || opts.coord_space,
+            mode: step.mode || opts.mode,
+            restore_cursor: step.restore_cursor ?? opts.restore_cursor,
+            show_arrows: step.show_arrows ?? opts.show_arrows,
             confirm_sensitive: step.confirm_sensitive ?? opts.confirm_sensitive,
             allow_restricted: step.allow_restricted ?? opts.allow_restricted,
             reason: step.reason || opts.reason || 'plan step'
@@ -368,6 +394,89 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     };
   }
 
+  async function parallel(opts = {}) {
+    const obs = observations.get(opts.observation_id);
+    if (!obs) {
+      const err = new Error(`Unknown or expired observation_id '${opts.observation_id}'. Call zvision_observe first.`);
+      err.code = 'stale_observation';
+      throw err;
+    }
+
+    const validation = validateParallelLanes(opts.lanes, {
+      processName: obs.process,
+      confirmSensitive: opts.confirm_sensitive === true,
+      allowRestricted: opts.allow_restricted === true,
+      reason: opts.reason || ''
+    });
+    if (!validation.valid) {
+      const err = new Error(validation.message);
+      err.code = validation.code;
+      err.laneIndex = validation.laneIndex;
+      err.stepIndex = validation.stepIndex;
+      throw err;
+    }
+
+    let currentBounds = null;
+    try {
+      const info = await host.request('window_info', { hwnd: opts.hwnd ?? obs.hwnd });
+      currentBounds = info?.bounds || null;
+    } catch {}
+    observations.consume(opts.observation_id, opts.hwnd ?? obs.hwnd, currentBounds);
+
+    const parallelMode = opts.mode || 'virtual';
+    const mappedLanes = [];
+    for (let li = 0; li < opts.lanes.length; li++) {
+      const lane = opts.lanes[li];
+      const mappedSteps = [];
+      for (let si = 0; si < lane.steps.length; si++) {
+        const step = lane.steps[si];
+        if (step.action === 'sleep') {
+          mappedSteps.push({ action: 'sleep', ms: Math.min(step.ms || 200, 5000) });
+        } else {
+          const stepPayload = await buildActPayload(obs, {
+            ...step,
+            hwnd: step.hwnd ?? lane.hwnd ?? opts.hwnd ?? obs.hwnd,
+            coord_space: step.coord_space || lane.coord_space || opts.coord_space || 'image',
+            mode: step.mode || lane.mode || parallelMode,
+            restore_cursor: step.restore_cursor ?? opts.restore_cursor,
+            show_arrows: step.show_arrows ?? opts.show_arrows ?? true,
+            confirm_sensitive: step.confirm_sensitive ?? opts.confirm_sensitive,
+            allow_restricted: step.allow_restricted ?? opts.allow_restricted,
+            reason: step.reason || opts.reason || 'parallel step'
+          });
+          mappedSteps.push(stepPayload);
+        }
+      }
+      mappedLanes.push({
+        id: lane.id || `lane_${li + 1}`,
+        hwnd: lane.hwnd ?? opts.hwnd ?? obs.hwnd,
+        steps: mappedSteps
+      });
+    }
+
+    const res = await host.request('parallel', {
+      mode: parallelMode,
+      show_arrows: opts.show_arrows !== false,
+      lanes: mappedLanes
+    });
+
+    const lanes = Array.isArray(res?.lanes) ? res.lanes : [];
+    const ok = lanes.length > 0 ? lanes.every((l) => l.ok !== false) : true;
+    let finalObs = null;
+    if (opts.observe_after !== false) {
+      try {
+        finalObs = await observe({ hwnd: opts.hwnd ?? obs.hwnd, with_image: 'auto' });
+      } catch {}
+    }
+
+    return {
+      ok,
+      mode: res?.mode || parallelMode,
+      lanes,
+      observation: finalObs
+    };
+  }
+
   async function ocr({ hwnd = 0, roi = null, language = '' } = {}) {
     return host.request('ocr', { hwnd, roi, language });
   }
@@ -391,6 +500,7 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     observe,
     act,
     plan,
+    parallel,
     ocr,
     matchTemplate,
     stop,

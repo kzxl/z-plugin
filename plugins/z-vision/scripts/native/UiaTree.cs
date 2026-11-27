@@ -56,14 +56,29 @@ namespace ZVision.Native
                     continue;
                 }
 
-                string role = MapControlType(cur.ControlType);
-                string name = SafeStr(cur.Name);
-                string aid = SafeStr(cur.AutomationId);
-                string cls = SafeStr(cur.ClassName);
-                bool enabled = cur.IsEnabled;
-                bool offscreen = cur.IsOffscreen;
-                bool focusable = cur.IsKeyboardFocusable;
-                Rect r = cur.BoundingRectangle;
+                string role;
+                string name;
+                string aid;
+                string cls;
+                bool enabled;
+                bool offscreen;
+                bool focusable;
+                Rect r;
+                try
+                {
+                    role = MapControlType(cur.ControlType);
+                    name = SafeStr(cur.Name);
+                    aid = SafeStr(cur.AutomationId);
+                    cls = SafeStr(cur.ClassName);
+                    enabled = cur.IsEnabled;
+                    offscreen = cur.IsOffscreen;
+                    focusable = cur.IsKeyboardFocusable;
+                    r = cur.BoundingRectangle;
+                }
+                catch
+                {
+                    continue;
+                }
 
                 bool hasRect = !r.IsEmpty && !double.IsInfinity(r.Width) && !double.IsInfinity(r.Height) && r.Width > 0 && r.Height > 0;
                 List<object> patterns = GetSupportedPatternNames(el);

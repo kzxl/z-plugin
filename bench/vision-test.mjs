@@ -27,7 +27,9 @@ const {
   checkActionSafety,
   ObservationStore,
   mapPixelToScreen,
-  validatePlanSteps
+  mapCoordsToScreen,
+  validatePlanSteps,
+  validateParallelLanes
 } = await import('../plugins/z-vision/scripts/lib/safety-policy.mjs');
 
 ok(classifyProcessTier('WindowsTerminal.exe') === 'click-only', 'WindowsTerminal classified as click-only');
@@ -140,6 +142,25 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
   const pt = mapPixelToScreen(obs1, 200, 150);
   ok(pt.x === 500 && pt.y === 500, `mapPixelToScreen scales DPI/downscaled image accurately (${pt.x},${pt.y})`);
 
+  // coord_space tests: screen, window, client, image
+  const obsSpaces = store.create({
+    hwnd: 1002,
+    process: 'mspaint.exe',
+    bounds: { x: 100, y: 200, w: 800, h: 600 },
+    clientBounds: { x: 110, y: 340, w: 780, h: 450 },
+    imageSize: { w: 400, h: 300 },
+    nodes: [],
+    dhash: '0000000000000000'
+  });
+  const pScreen = mapCoordsToScreen(obsSpaces, 500, 400, 'screen');
+  ok(pScreen.x === 500 && pScreen.y === 400, 'coord_space=screen preserves physical pixels');
+  const pWin = mapCoordsToScreen(obsSpaces, 50, 60, 'window');
+  ok(pWin.x === 150 && pWin.y === 260, 'coord_space=window offsets by visible bounds');
+  const pClient = mapCoordsToScreen(obsSpaces, 20, 30, 'client');
+  ok(pClient.x === 130 && pClient.y === 370, 'coord_space=client offsets by client_bounds');
+  const pImg = mapCoordsToScreen(obsSpaces, 200, 150, 'image');
+  ok(pImg.x === 500 && pImg.y === 500, 'coord_space=image scales from imageSize to bounds');
+
   // Wrong hwnd fails
   assert.throws(
     () => store.consume(obs1.observationId, 9999, { x: 100, y: 200, w: 800, h: 600 }),
@@ -205,6 +226,27 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
   ok(goodPlan.valid === true, 'Valid plan passes pre-validation');
 }
 
+// Parallel lanes pre-validation
+{
+  const emptyLanes = validateParallelLanes([], { processName: 'mspaint.exe' });
+  ok(emptyLanes.valid === false, 'Empty parallel lanes rejected');
+
+  const tooMany = validateParallelLanes(new Array(9).fill({ id: 'L', steps: [{ action: 'click', x: 10, y: 10, reason: 'p' }] }), { processName: 'mspaint.exe' });
+  ok(tooMany.valid === false, 'Parallel >8 lanes rejected');
+
+  const unsafeLane = validateParallelLanes([
+    { id: 'lane1', steps: [{ action: 'click', x: 10, y: 10, reason: 'ok' }] },
+    { id: 'lane2', steps: [{ action: 'type', text: 'rm -rf', reason: 'bad' }] }
+  ], { processName: 'pwsh.exe' });
+  ok(unsafeLane.valid === false && unsafeLane.code === 'restricted_process', 'Parallel pre-validation blocks unsafe lane before execution');
+
+  const validLanes = validateParallelLanes([
+    { id: 'sky', steps: [{ action: 'drag', from: [10, 10], to: [100, 10], reason: 'stroke' }] },
+    { id: 'field', steps: [{ action: 'drag', from: [10, 50], to: [100, 50], reason: 'stroke' }] }
+  ], { processName: 'mspaint.exe' });
+  ok(validLanes.valid === true, 'Valid multi-lane parallel plan passes pre-validation');
+}
+
 // ---------------------------------------------------------------------------
 // 2. Vision Engine Unit Tests (Mock Host Transport)
 // ---------------------------------------------------------------------------
@@ -249,16 +291,24 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
       }
       if (cmd === 'observe') {
         frameSeq++;
+        const downscale = params.with_image !== false && (params.max_width || 1280) < 1000;
         return {
           hwnd: params.hwnd,
           process: 'demo.exe',
           title: 'Demo App',
           bounds: mockBounds,
-          image_size: { w: 1000, h: 700 },
+          client_bounds: { x: 8, y: 40, w: 984, h: 652 },
+          image_size: downscale ? { w: 500, h: 350 } : { w: 1000, h: 700 },
           dhash: frameSeq <= 2 ? 'aaaaaaaaaaaaaaaa' : 'ffffffffffffffff',
           nodes: mockNodes,
           image_base64: params.with_image === false ? null : Buffer.from('fakejpeg').toString('base64'),
           image_mime: params.with_image === false ? null : 'image/jpeg'
+        };
+      }
+      if (cmd === 'parallel') {
+        return {
+          mode: params.mode || 'virtual',
+          lanes: (params.lanes || []).map((l) => ({ id: l.id, ok: true, completed_steps: l.steps.length }))
         };
       }
       if (cmd === 'act') {
@@ -278,13 +328,14 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
 
   const engine = createVisionEngine({ client: mockClient });
 
-  // First observe attaches image
-  const o1 = await engine.observe({ hwnd: 4242, with_image: 'auto' });
-  ok(Boolean(o1.image_base64) && o1.image_suppressed === false, 'First observe(with_image=auto) attaches screenshot');
+  // First observe attaches image (simulate max_width=500 downscale)
+  const o1 = await engine.observe({ hwnd: 4242, with_image: 'auto', max_width: 500 });
+  ok(Boolean(o1.image_base64) && o1.image_suppressed === false && o1.image_size.w === 500, 'First observe(with_image=auto) attaches scaled screenshot');
 
-  // Second observe with identical dhash + >=5 UIA nodes suppresses redundant image
-  const o2 = await engine.observe({ hwnd: 4242, with_image: 'auto' });
+  // Second observe with identical dhash + >=5 UIA nodes suppresses redundant image AND keeps image_size unscaled (=bounds)
+  const o2 = await engine.observe({ hwnd: 4242, with_image: 'auto', max_width: 500 });
   ok(o2.image_base64 === null && o2.image_suppressed === true && o2.dhash_distance === 0, 'Unchanged dHash with UIA nodes suppresses duplicate screenshot to save tokens');
+  ok(o2.image_size.w === 1000 && o2.image_size.h === 700, 'Suppressed auto-image resets image_size to window bounds (no phantom scaling)');
 
   // Ambiguous name selector refused before consuming observation
   await assert.rejects(
@@ -316,6 +367,20 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
     ]
   });
   ok(planRes.ok === false && planRes.completed_steps === 1 && planRes.failed_step === 1 && Boolean(planRes.observation), 'plan stops on first failure and returns post-failure observation');
+
+  // Parallel lanes execution (mock)
+  const o4 = await engine.observe({ hwnd: 4242, with_image: false });
+  const parRes = await engine.parallel({
+    hwnd: 4242,
+    observation_id: o4.observation_id,
+    mode: 'virtual',
+    coord_space: 'screen',
+    lanes: [
+      { id: 'arrow1', steps: [{ action: 'drag', from: [100, 100], to: [300, 100], reason: 'lane 1' }] },
+      { id: 'arrow2', steps: [{ action: 'drag', from: [100, 200], to: [300, 200], reason: 'lane 2' }] }
+    ]
+  });
+  ok(parRes.ok === true && parRes.lanes.length === 2 && Boolean(parRes.observation), 'parallel executes multi-lane virtual strokes and returns fresh observation');
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +429,7 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
 
     const list = await rpc('tools/list', {});
     const toolNames = (list.result?.tools || []).map((t) => t.name);
-    for (const expected of ['zvision_status', 'zvision_windows', 'zvision_observe', 'zvision_act', 'zvision_plan', 'zvision_ocr', 'zvision_stop']) {
+    for (const expected of ['zvision_status', 'zvision_windows', 'zvision_observe', 'zvision_act', 'zvision_plan', 'zvision_parallel', 'zvision_ocr', 'zvision_stop']) {
       ok(toolNames.includes(expected), `MCP tools/list exposes ${expected}`);
     }
     const schemaTokens = Math.round(JSON.stringify(list.result?.tools || []).length / 4);
@@ -398,56 +463,90 @@ if (process.platform === 'win32') {
     const st = await engine.status();
     ok(Array.isArray(st.monitors) && st.monitors.length >= 1, `Native status detected ${st.monitors.length} monitor(s)`);
     ok(st.emergency_stopped === false, 'Native status reports emergency_stopped=false initially');
+    ok(st.virtual_mouse === true, 'Native status reports virtual_mouse=true');
 
-    let winRes = await engine.windows({ include_hidden: false });
-    if (winRes.windows.length === 0) {
-      // Isolated/headless desktop (e.g. sandboxed test runner): spawn a local WinForms probe window in this desktop.
-      const psScript = [
-        'Add-Type -AssemblyName System.Windows.Forms',
-        'Add-Type -AssemblyName System.Drawing',
-        '$f = New-Object System.Windows.Forms.Form',
-        "$f.Text = 'ZVisionProbeWindow'",
-        '$f.Width = 420; $f.Height = 260',
-        "$f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(40, 40)",
-        '$f.BackColor = [System.Drawing.Color]::White',
-        '$lbl = New-Object System.Windows.Forms.Label',
-        "$lbl.Text = 'ZVision Probe Ready 2026'",
-        "$lbl.Font = New-Object System.Drawing.Font('Segoe UI', 14)",
-        '$lbl.SetBounds(20, 20, 360, 40)',
-        '$btn = New-Object System.Windows.Forms.Button',
-        "$btn.Text = 'ApplyProbe'",
-        "$btn.Name = 'btnApplyProbe'",
-        '$btn.SetBounds(20, 80, 140, 40)',
-        '$f.Controls.Add($lbl); $f.Controls.Add($btn)',
-        "$f.Add_Shown({ [Console]::Out.WriteLine('READY:' + $f.Handle.ToInt64()); [Console]::Out.Flush() })",
-        '[System.Windows.Forms.Application]::Run($f)'
-      ].join('\n');
-      const encodedPs = Buffer.from(psScript, 'utf16le').toString('base64');
-      probeFormProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', encodedPs], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: false
+    // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel test
+    const psScript = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      'Add-Type -AssemblyName System.Drawing',
+      '$f = New-Object System.Windows.Forms.Form',
+      "$f.Text = 'ZVisionProbeWindow'",
+      '$f.Width = 420; $f.Height = 260',
+      "$f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(40, 40)",
+      '$f.BackColor = [System.Drawing.Color]::White',
+      '$lbl = New-Object System.Windows.Forms.Label',
+      "$lbl.Text = 'ZVision Probe Ready 2026'",
+      "$lbl.Font = New-Object System.Drawing.Font('Segoe UI', 14)",
+      '$lbl.SetBounds(20, 20, 360, 40)',
+      '$btn = New-Object System.Windows.Forms.Button',
+      "$btn.Text = 'ApplyProbe'",
+      "$btn.Name = 'btnApplyProbe'",
+      '$btn.SetBounds(20, 80, 140, 40)',
+      "$btn.Add_Click({ $lbl.Text = 'CLICKED_VIRTUAL' })",
+      '$f.Controls.Add($lbl); $f.Controls.Add($btn)',
+      "$f.Add_Shown({ [Console]::Out.WriteLine('READY:' + $f.Handle.ToInt64()); [Console]::Out.Flush() })",
+      '[System.Windows.Forms.Application]::Run($f)'
+    ].join('\n');
+    const encodedPs = Buffer.from(psScript, 'utf16le').toString('base64');
+    probeFormProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', encodedPs], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: false
+    });
+    let probeErr = '';
+    probeFormProc.stderr.on('data', (d) => { probeErr += d.toString('utf8'); });
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Probe WinForms window timed out: ${probeErr}`)), 15000);
+      probeFormProc.stdout.on('data', (d) => {
+        if (d.toString('utf8').includes('READY:')) {
+          clearTimeout(timer);
+          resolve();
+        }
       });
-      let probeErr = '';
-      probeFormProc.stderr.on('data', (d) => { probeErr += d.toString('utf8'); });
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Probe WinForms window timed out: ${probeErr}`)), 15000);
-        probeFormProc.stdout.on('data', (d) => {
-          if (d.toString('utf8').includes('READY:')) {
-            clearTimeout(timer);
-            resolve();
-          }
-        });
-      });
-      winRes = await engine.windows({ include_hidden: false, filter: 'ZVisionProbeWindow' });
-    }
-    ok(Array.isArray(winRes.windows) && winRes.windows.length >= 1, `Native windows enumerated ${winRes.windows.length} visible window(s)`);
+    });
 
-    // Pick a non-blocked visible window with reasonable area for read-only observe
-    const candidate = winRes.windows.find((w) => w.bounds && w.bounds.w >= 200 && w.bounds.h >= 150) || winRes.windows[0];
+    const winRes = await engine.windows({ include_hidden: false, filter: 'ZVisionProbeWindow' });
+    ok(Array.isArray(winRes.windows) && winRes.windows.length >= 1, `Native windows enumerated ${winRes.windows.length} probe window(s)`);
+
+    const candidate = winRes.windows[0];
+    ok(candidate.client_bounds && candidate.client_bounds.w > 0, 'Native windows returns DWM client_bounds');
     const obs = await engine.observe({ hwnd: candidate.hwnd, with_image: true, max_width: 800, max_nodes: 60 });
     ok(/^[0-9a-f]{16}$/.test(obs.dhash), `Native observe computed 64-bit dHash (${obs.dhash})`);
     ok(Array.isArray(obs.nodes), `Native observe walked UIA tree (${obs.nodes.length} nodes)`);
     ok(typeof obs.image_base64 === 'string' && obs.image_base64.length > 100, `Native observe captured screenshot (${obs.image_base64.length} b64 chars)`);
+
+    // Verify virtual mouse click triggers WinForms button without hijacking hardware cursor
+    const btnNode = obs.nodes.find((n) => n.name === 'ApplyProbe' || n.aid === 'btnApplyProbe');
+    ok(Boolean(btnNode), 'Probe UIA tree contains ApplyProbe button');
+    const cursorBefore = (await engine.status()).cursor_pos;
+    const vClick = await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obs.observation_id,
+      action: 'click',
+      mode: 'virtual',
+      show_arrows: false,
+      index: btnNode.i,
+      reason: 'Verify virtual mouse click without moving hardware cursor',
+      observe_after: true
+    });
+    ok(vClick.ok === true, 'Virtual click succeeded');
+    const cursorAfter = (await engine.status()).cursor_pos;
+    ok(cursorBefore[0] === cursorAfter[0] && cursorBefore[1] === cursorAfter[1], 'Virtual click left hardware cursor untouched');
+    const updatedLbl = (vClick.observation?.nodes || []).find((n) => n.name === 'CLICKED_VIRTUAL');
+    ok(Boolean(updatedLbl), 'Virtual click triggered WinForms button Click event (label -> CLICKED_VIRTUAL)');
+
+    // Verify parallel virtual lanes
+    const parNative = await engine.parallel({
+      hwnd: candidate.hwnd,
+      observation_id: vClick.observation.observation_id,
+      mode: 'virtual',
+      coord_space: 'client',
+      show_arrows: false,
+      lanes: [
+        { id: 'arrow1', steps: [{ action: 'drag', from: [200, 80], to: [320, 80], steps: 2, reason: 'virtual drag 1' }] },
+        { id: 'arrow2', steps: [{ action: 'drag', from: [200, 120], to: [320, 120], steps: 2, reason: 'virtual drag 2' }] }
+      ]
+    });
+    ok(parNative.ok === true && parNative.lanes.length === 2, 'Native parallel virtual lanes completed');
 
     const ocrRes = await engine.ocr({ hwnd: candidate.hwnd });
     ok(ocrRes && typeof ocrRes.available === 'boolean', `Native OCR returned structured result (available=${ocrRes.available})`);

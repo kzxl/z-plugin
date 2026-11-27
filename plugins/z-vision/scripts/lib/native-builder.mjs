@@ -12,6 +12,8 @@ const CS_FILES = [
   'JsonMini.cs',
   'VisionMath.cs',
   'UiaTree.cs',
+  'ArrowOverlay.cs',
+  'VirtualPointer.cs',
   'InputArm.cs',
   'ZVisionHost.cs'
 ];

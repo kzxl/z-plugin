@@ -42,6 +42,7 @@
         "zvision_observe",
         "zvision_act",
         "zvision_plan",
+        "zvision_parallel",
         "zvision_ocr",
         "zvision_stop"
       ]

@@ -24,12 +24,14 @@ const TOOLS = [
   },
   {
     name: 'zvision_windows',
-    description: 'List visible desktop windows (hwnd, pid, process, title, bounds) or filter by title/process.',
+    description: 'List visible windows (hwnd, pid, process, title, bounds, client_bounds), optionally launch an executable first.',
     inputSchema: {
       type: 'object',
       properties: {
         include_hidden: { type: 'boolean', description: 'Include minimized or untitled windows' },
-        filter: { type: 'string', description: 'Case-insensitive title or process substring filter' }
+        filter: { type: 'string', description: 'Case-insensitive title or process substring filter' },
+        launch_exe: { type: 'string', description: 'Optional executable path or name to launch first' },
+        launch_args: { type: 'string', description: 'Optional launch arguments' }
       }
     }
   },
@@ -65,8 +67,12 @@ const TOOLS = [
         role: { type: 'string', description: 'Exact UIA ControlType role' },
         automation_id: { type: 'string', description: 'Exact UIA AutomationId' },
         ocr_text: { type: 'string', description: 'Exact or substring OCR text match from observation' },
-        x: { type: 'integer', description: 'Screenshot X pixel coordinate' },
-        y: { type: 'integer', description: 'Screenshot Y pixel coordinate' },
+        x: { type: 'integer', description: 'X coordinate in coord_space' },
+        y: { type: 'integer', description: 'Y coordinate in coord_space' },
+        coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'], description: 'Coordinate space for x/y/from/to/points (default: image)' },
+        mode: { type: 'string', enum: ['physical', 'virtual', 'uia'], description: 'Input mode: physical hardware SendInput, virtual PostMessage without cursor hijack, or uia' },
+        restore_cursor: { type: 'boolean', description: 'Restore original cursor position after physical action' },
+        show_arrows: { type: 'boolean', description: 'Draw multi-arrow visual HUD overlay during virtual/touch input' },
         from: { type: 'array', items: { type: 'integer' }, description: 'Drag start [x,y]' },
         to: { type: 'array', items: { type: 'integer' }, description: 'Drag end [x,y]' },
         points: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'Multi-point drag stroke' },
@@ -86,18 +92,42 @@ const TOOLS = [
   },
   {
     name: 'zvision_plan',
-    description: 'Pre-validate and run a sequential batch of desktop steps (including wait_settle/wait_text/sleep) in one turn; stops on first failure or Esc.',
+    description: 'Pre-validate and run sequential steps (including wait_settle/wait_text/sleep) in one turn; stops on failure or Esc.',
     inputSchema: {
       type: 'object',
       properties: {
         hwnd: { type: 'integer' },
         observation_id: { type: 'string' },
         steps: { type: 'array', items: { type: 'object' }, description: '1..50 action steps' },
+        coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
+        mode: { type: 'string', enum: ['physical', 'virtual', 'uia'] },
+        restore_cursor: { type: 'boolean' },
+        show_arrows: { type: 'boolean' },
         confirm_sensitive: { type: 'boolean' },
         allow_restricted: { type: 'boolean' },
         reason: { type: 'string' }
       },
       required: ['observation_id', 'steps']
+    }
+  },
+  {
+    name: 'zvision_parallel',
+    description: 'Run up to 8 concurrent pointer/stroke lanes in virtual (PostMessage) or touch (multi-pointer) mode with numbered arrow overlay.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        hwnd: { type: 'integer' },
+        observation_id: { type: 'string' },
+        lanes: { type: 'array', items: { type: 'object' }, description: '1..8 lanes: [{id?, hwnd?, steps:[...]}]' },
+        mode: { type: 'string', enum: ['virtual', 'touch'], description: 'Default: virtual' },
+        coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
+        show_arrows: { type: 'boolean', description: 'Show numbered overlay arrows (default: true)' },
+        confirm_sensitive: { type: 'boolean' },
+        allow_restricted: { type: 'boolean' },
+        observe_after: { type: 'boolean' },
+        reason: { type: 'string' }
+      },
+      required: ['observation_id', 'lanes']
     }
   },
   {
@@ -128,9 +158,12 @@ const engine = createVisionEngine();
 let busy = false;
 
 function formatObserveResult(res) {
+  const clientInfo = res.client_bounds
+    ? ` client=(${res.client_bounds.x},${res.client_bounds.y} ${res.client_bounds.w}x${res.client_bounds.h})`
+    : '';
   const header = [
     `[Z-VISION OBSERVE] obs=${res.observation_id} hwnd=${res.hwnd} proc=${res.process} title="${res.title}"`,
-    `bounds=(${res.bounds?.x},${res.bounds?.y} ${res.bounds?.w}x${res.bounds?.h}) dhash=${res.dhash}${res.dhash_distance != null ? ` (dist=${res.dhash_distance})` : ''} img=${res.image_suppressed ? 'suppressed(unchanged)' : (res.image_base64 ? `${res.image_size?.w}x${res.image_size?.h}` : 'off')}`,
+    `bounds=(${res.bounds?.x},${res.bounds?.y} ${res.bounds?.w}x${res.bounds?.h})${clientInfo} dhash=${res.dhash}${res.dhash_distance != null ? ` (dist=${res.dhash_distance})` : ''} img=${res.image_suppressed ? 'suppressed(unchanged)' : (res.image_base64 ? `${res.image_size?.w}x${res.image_size?.h}` : 'off')}`,
     '',
     'UIA Controls:',
     res.compact_tree
@@ -155,9 +188,14 @@ async function handleTool(name, args = {}) {
     }
     case 'zvision_windows': {
       const res = await engine.windows(args);
-      const lines = (res.windows || []).map((w) =>
-        `hwnd=${w.hwnd} ${w.foreground ? '[FG] ' : ''}${w.minimized ? '[MIN] ' : ''}${w.process} "${w.title}" (${w.bounds?.x},${w.bounds?.y} ${w.bounds?.w}x${w.bounds?.h})`
-      );
+      const lines = [];
+      if (res.launched) {
+        lines.push(`launched pid=${res.launched.pid} hwnd=${res.launched.hwnd} ready=${res.launched.ready}`);
+      }
+      for (const w of res.windows || []) {
+        const cb = w.client_bounds ? ` client=(${w.client_bounds.x},${w.client_bounds.y} ${w.client_bounds.w}x${w.client_bounds.h})` : '';
+        lines.push(`hwnd=${w.hwnd} ${w.foreground ? '[FG] ' : ''}${w.minimized ? '[MIN] ' : ''}${w.process} "${w.title}" (${w.bounds?.x},${w.bounds?.y} ${w.bounds?.w}x${w.bounds?.h})${cb}`);
+      }
       return { content: [{ type: 'text', text: lines.join('\n') || '(no matching windows)' }] };
     }
     case 'zvision_observe': {
@@ -178,6 +216,17 @@ async function handleTool(name, args = {}) {
       const summary = res.ok
         ? `[Z-VISION PLAN OK] completed=${res.completed_steps}`
         : `[Z-VISION PLAN STOPPED] completed=${res.completed_steps} failed_step=${res.failed_step} error=${res.error?.code}: ${res.error?.message}`;
+      if (res.observation) {
+        const obsFmt = formatObserveResult(res.observation);
+        obsFmt.content[0].text = summary + '\n' + obsFmt.content[0].text;
+        return { isError: !res.ok, content: obsFmt.content };
+      }
+      return { isError: !res.ok, content: [{ type: 'text', text: summary }] };
+    }
+    case 'zvision_parallel': {
+      const res = await engine.parallel(args);
+      const laneSummary = (res.lanes || []).map((l) => `${l.id}:${l.ok ? 'ok' : `fail(${l.error || 'err'})`}`).join(', ');
+      const summary = `[Z-VISION PARALLEL ${res.ok ? 'OK' : 'PARTIAL'}] mode=${res.mode} lanes=[${laneSummary}]`;
       if (res.observation) {
         const obsFmt = formatObserveResult(res.observation);
         obsFmt.content[0].text = summary + '\n' + obsFmt.content[0].text;

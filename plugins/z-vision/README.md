@@ -4,14 +4,17 @@ Sovereign Windows desktop perception and guarded precision agent arm for `z-plug
 
 ## Capabilities
 
-- **Token-Diet Observation (`zvision_observe`)**:
-  - Compact UI Automation (UIA) tree (`index`, `role`, `name`, `aid`, `rect`, supported patterns).
-  - 64-bit Difference Hash (`dhash`) ported from `ZeroGraphics.Vision`: when `with_image: "auto"` (default) sees Hamming distance `<= 2` and UIA controls are available, redundant screenshots are suppressed.
-  - Per-Monitor DPI-aware window capture (`PrintWindow` with `BitBlt` fallback) and auto-scaled screenshot coordinates.
+- **Token-Diet Observation & Launch (`zvision_windows`, `zvision_observe`)**:
+  - Built-in `launch_exe` / `launch_args` on `zvision_windows` returns both `bounds` (`DWMWA_EXTENDED_FRAME_BOUNDS`) and `client_bounds` (`GetClientRect`).
+  - Compact UI Automation (UIA) tree (`index`, `role`, `name`, `aid`, `rect`, supported patterns) hardened against transient COM disposal.
+  - 64-bit Difference Hash (`dhash`) ported from `ZeroGraphics.Vision`: when `with_image: "auto"` suppresses redundant unchanged frames, `image_size` resets to unscaled `bounds` dimensions so coordinate mapping stays exact.
+  - Per-Monitor DPI-aware window capture (`PrintWindow` with DWM-aligned `BitBlt` fallback) and explicit `coord_space` (`image` | `window` | `client` | `screen`).
 - **Native Windows OCR (`zvision_ocr`)**:
   - Uses stock `Windows.Media.Ocr` (WinRT) when available on Windows 10/11, returning lines, words, and absolute screen coordinates; degrades gracefully when unavailable.
-- **Precision Agent Arm (`zvision_act`, `zvision_plan`)**:
-  - Physical `SendInput` mouse (`click`, `double_click`, `right_click`, `move`, `drag` multi-point strokes, `scroll`), full UTF-16/Vietnamese `KEYEVENTF_UNICODE` typing, STA clipboard-preserving `paste`, hotkey chords (`key`), and semantic UIA `Invoke` / `SetValue` (`physical: false`).
+- **Precision Physical, Virtual & Multi-Pointer Arm (`zvision_act`, `zvision_plan`, `zvision_parallel`)**:
+  - Physical pixel-center `SendInput` (`mode: "physical"`) with `restore_cursor` support, full UTF-16/Vietnamese `KEYEVENTF_UNICODE` typing, STA clipboard-preserving `paste`, hotkey chords (`key`), and semantic UIA `Invoke` / `SetValue` (`mode: "uia"` or `physical: false`).
+  - **Virtual Mouse (`mode: "virtual"`)**: Resolves leaf child windows (`ChildWindowFromPointEx` + `ScreenToClient`) and posts `WM_MOUSEMOVE` / `WM_LBUTTON*` / `WM_MOUSEWHEEL` / `WM_CHAR` directly to `HWND` without hijacking the hardware cursor or stealing focus.
+  - **Multi-Pointer & Multi-Arrow HUD (`zvision_parallel`, `ArrowOverlay.cs`)**: Executes up to 8 concurrent lanes (`virtual` per-lane `PostMessage` or Win8+ `touch` multi-contact `InjectTouchInput`) with numbered click-through topmost arrows (`#1`..`#N`).
   - Sequential batch `zvision_plan` (up to 50 steps) with `wait_settle` (`dhash` stability) and `wait_text`, stopping immediately on first failure.
 - **Safety & Emergency Stop (`zvision_stop`)**:
   - One-use `observation_id` with window-drift validation (`<= 4px`) and Stop-generation invalidation.

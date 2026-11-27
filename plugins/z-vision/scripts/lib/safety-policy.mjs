@@ -129,7 +129,7 @@ export class ObservationStore {
     this.records = new Map();
   }
 
-  create({ hwnd, process, title = '', bounds, imageSize, nodes = [], dhash = '0000000000000000', ocr = null }) {
+  create({ hwnd, process, title = '', bounds, clientBounds = null, imageSize, nodes = [], dhash = '0000000000000000', ocr = null }) {
     const observationId = 'obs_' + randomUUID().replace(/-/g, '').slice(0, 12);
     const record = {
       observationId,
@@ -137,6 +137,7 @@ export class ObservationStore {
       process: String(process || ''),
       title: String(title || ''),
       bounds: bounds ? { ...bounds } : null,
+      clientBounds: clientBounds ? { ...clientBounds } : null,
       imageSize: imageSize ? { ...imageSize } : null,
       nodes: Array.isArray(nodes) ? nodes : [],
       dhash: String(dhash || '0000000000000000'),
@@ -190,7 +191,19 @@ export class ObservationStore {
   }
 }
 
-export function mapPixelToScreen(obs, px, py) {
+export function mapCoordsToScreen(obs, px, py, coordSpace = 'image') {
+  const space = String(coordSpace || 'image').toLowerCase();
+  if (space === 'screen') {
+    return { x: Math.round(px), y: Math.round(py) };
+  }
+  if (space === 'client') {
+    const cb = obs?.clientBounds || obs?.bounds || { x: 0, y: 0 };
+    return { x: Math.round((cb.x || 0) + px), y: Math.round((cb.y || 0) + py) };
+  }
+  if (space === 'window') {
+    const b = obs?.bounds || { x: 0, y: 0 };
+    return { x: Math.round((b.x || 0) + px), y: Math.round((b.y || 0) + py) };
+  }
   const bounds = obs?.bounds || { x: 0, y: 0, w: 0, h: 0 };
   const img = obs?.imageSize;
   if (!img || !img.w || !img.h || !bounds.w || !bounds.h) {
@@ -200,6 +213,46 @@ export function mapPixelToScreen(obs, px, py) {
     x: Math.round(bounds.x + (px * bounds.w) / img.w),
     y: Math.round(bounds.y + (py * bounds.h) / img.h)
   };
+}
+
+export function mapPixelToScreen(obs, px, py) {
+  return mapCoordsToScreen(obs, px, py, 'image');
+}
+
+export function validateParallelLanes(lanes, policyContext = {}) {
+  if (!Array.isArray(lanes) || lanes.length < 1 || lanes.length > 8) {
+    return {
+      valid: false,
+      laneIndex: -1,
+      code: 'invalid_parallel_lanes',
+      message: 'Parallel lanes must be a non-empty array of 1..8 lanes.'
+    };
+  }
+  for (let i = 0; i < lanes.length; i++) {
+    const lane = lanes[i];
+    if (!lane || typeof lane !== 'object') {
+      return {
+        valid: false,
+        laneIndex: i,
+        code: 'invalid_parallel_lane',
+        message: `Lane ${i} must be an object.`
+      };
+    }
+    const res = validatePlanSteps(lane.steps, {
+      ...policyContext,
+      processName: lane.processName || policyContext.processName || ''
+    });
+    if (!res.valid) {
+      return {
+        valid: false,
+        laneIndex: i,
+        stepIndex: res.stepIndex,
+        code: res.code,
+        message: `Lane ${lane.id || i}: ${res.message}`
+      };
+    }
+  }
+  return { valid: true };
 }
 
 export function validatePlanSteps(steps, policyContext = {}) {
