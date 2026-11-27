@@ -1,0 +1,8 @@
+{
+  "name": "z-vision",
+  "version": "1.11.0",
+  "description": "Token-diet desktop vision (UIA tree, 64-bit dHash diffing, native WinRT OCR) and safe precision desktop arm (SendInput, UIA Invoke/SetValue, batch plan, Esc emergency stop).",
+  "author": {
+    "name": "kzxl"
+  }
+}

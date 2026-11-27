@@ -98,6 +98,25 @@
         "antigravity",
         "zcode"
       ]
+    },
+    {
+      "name": "z-vision",
+      "source": "./plugins/z-vision",
+      "version": "1.11.0",
+      "displayName": "Z-Vision",
+      "description": "Token-diet desktop vision (UIA tree, 64-bit dHash diffing, native WinRT OCR) and safe precision desktop arm (SendInput, batch plan, Esc emergency stop).",
+      "category": "developer-tools",
+      "keywords": [
+        "z-vision",
+        "computer-use",
+        "desktop-automation",
+        "uiautomation",
+        "ocr",
+        "dhash",
+        "mcp",
+        "antigravity",
+        "zcode"
+      ]
     }
   ]
 }

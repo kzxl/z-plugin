@@ -165,6 +165,10 @@ export function generateMcpServerConfigs(rootDir = ROOT_DIR) {
     "z-craft": {
       "command": nodeBin,
       "args": [resolvePluginScript("z-craft", rootDir)]
+    },
+    "z-vision": {
+      "command": nodeBin,
+      "args": [resolvePluginScript("z-vision", rootDir)]
     }
   };
 }

@@ -47,14 +47,14 @@ const scoutRaw = fs.readFileSync(path.join(root, "plugins", "z-token", "agents",
 assert.ok(scoutRaw.includes("read_file") && !scoutRaw.includes("using `Read` with `offset`"), "scout.md body uses Antigravity read_file instructions");
 
 // 2. Always-on rules/AGENTS.md SSOT & token budget checks
-const markerPlugins = ["z-mind", "z-gate", "z-token", "z-craft"];
+const markerPlugins = ["z-mind", "z-gate", "z-token", "z-craft", "z-vision"];
 for (const pName of markerPlugins) {
   const rulePath = path.join(root, "plugins", pName, "rules", "AGENTS.md");
   const txt = fs.readFileSync(rulePath, "utf8");
   assert.ok(txt.includes(`<!-- ${pName}:begin -->`) && txt.includes(`<!-- ${pName}:end -->`), `${pName}/rules/AGENTS.md preserves begin/end sync markers`);
 }
 
-const allPluginNames = ["z-brain", "z-craft", "z-gate", "z-mind", "z-token"];
+const allPluginNames = ["z-brain", "z-craft", "z-gate", "z-mind", "z-token", "z-vision"];
 const rulesByPlugin = Object.fromEntries(
   allPluginNames.map((p) => [p, fs.readFileSync(path.join(root, "plugins", p, "rules", "AGENTS.md"), "utf8")])
 );
@@ -71,7 +71,7 @@ assert.ok(rGitHeadingOwners.length === 1 && rGitHeadingOwners[0] === "z-gate", `
 assert.ok(rulesByPlugin["z-mind"].includes("flash_lite") && rulesByPlugin["z-mind"].includes("R_TEAM"), "z-mind/rules/AGENTS.md includes 4-tier R_TEAM routing");
 
 const totalRuleBytes = Object.values(rulesByPlugin).reduce((sum, t) => sum + Buffer.byteLength(t, "utf8"), 0);
-assert.ok(totalRuleBytes <= 10500, `Total plugins/*/rules/AGENTS.md size (${totalRuleBytes} B) stays within <= 10,500 B budget`);
+assert.ok(totalRuleBytes <= 12000, `Total plugins/*/rules/AGENTS.md size (${totalRuleBytes} B) stays within <= 12,000 B budget`);
 
 const installPs1 = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
 assert.ok(installPs1.includes("ZCode") && installPs1.includes("[Read, Bash]"), "install.ps1 adapts Antigravity subagent frontmatter for ZCode compatibility");

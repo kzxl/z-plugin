@@ -29,6 +29,7 @@ async function runTests() {
   testAssert(mcp['z-mind'] && mcp['z-mind'].command, 'z-mind MCP entry generated');
   testAssert(mcp['z-gate'] && mcp['z-gate'].command, 'z-gate MCP entry generated');
   testAssert(mcp['z-craft'] && mcp['z-craft'].command, 'z-craft MCP entry generated');
+  testAssert(mcp['z-vision'] && mcp['z-vision'].command, 'z-vision MCP entry generated');
 
   // 2. Universal Rules Generation (Compact Diet & Full Unabridged)
   const compactRules = generateUniversalRules('compact');

@@ -24,7 +24,7 @@ ok(fs.existsSync(schemaPath), "manifest-v2.schema.json exists");
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
 ok(schema.title === "ZPluginManifestV2", "schema title matches");
 
-const expectedPlugins = ["z-token", "z-brain", "z-mind", "z-gate", "z-craft"];
+const expectedPlugins = ["z-token", "z-brain", "z-mind", "z-gate", "z-craft", "z-vision"];
 
 for (const pName of expectedPlugins) {
   const manifestPath = path.join(root, "plugins", pName, "z-plugin.manifest.json");
