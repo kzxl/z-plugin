@@ -271,6 +271,7 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
       { action: 'refresh_uia' },
       { action: 'wait_control', name: 'OK' },
       { action: 'batch_strokes', strokes: [[[10, 10], [20, 20]]], reason: 'Draw batch' },
+      { action: 'draw_shape', shape: 'bezier', points: [[10, 10], [30, 50], [60, 10]], reason: 'Draw curve' },
       { action: 'wait_settle', timeout_ms: 1000 }
     ],
     { processName: 'notepad.exe' }
@@ -1198,6 +1199,23 @@ if (process.platform === 'win32') {
     const auditLines = auditRaw.trim().split(/\r?\n/).map((l) => JSON.parse(l));
     ok(auditLines.some((e) => e.event === 'act') && auditLines.some((e) => e.event === 'plan') && auditLines.some((e) => e.event === 'lock'), 'Audit log recorded act, plan, and lock events');
     ok(!auditRaw.includes('ZVISION_CLIP_2026') && !auditRaw.includes('image_base64'), 'Audit log strictly redacted sensitive text and image payloads');
+
+    // Group 3: Native geometric primitives (draw_shape: bezier, ellipse, filled rect)
+    const obsShape = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    const shapePlan = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: obsShape.observation_id,
+      mode: 'virtual',
+      coord_space: 'client',
+      show_arrows: false,
+      with_uia: 'off',
+      steps: [
+        { action: 'draw_shape', shape: 'bezier', points: [[260, 30], [280, 10], [300, 60], [320, 30]], segments: 12, reason: 'Draw cubic bezier' },
+        { action: 'draw_shape', shape: 'ellipse', rect: [260, 80, 60, 40], segments: 16, reason: 'Draw ellipse perimeter' },
+        { action: 'draw_shape', shape: 'rect', rect: [260, 130, 40, 24], fill: true, fill_spacing: 6, reason: 'Draw filled rect' }
+      ]
+    });
+    ok(shapePlan.ok === true && shapePlan.completed_steps === 3, `Native draw_shape (bezier/ellipse/rect fill) completed (${shapePlan.completed_steps}/3, err=${JSON.stringify(shapePlan.error || null)})`);
   } finally {
     if (engine && priorClipRestore) {
       try {

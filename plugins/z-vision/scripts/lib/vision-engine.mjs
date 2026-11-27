@@ -311,6 +311,15 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     if (opts.confirm !== undefined) payload.confirm = opts.confirm !== false;
     if (opts.modifiers) payload.modifiers = opts.modifiers;
     if (opts.duration_ms != null) payload.duration_ms = opts.duration_ms;
+    if (opts.shape) payload.shape = opts.shape;
+    if (opts.fill !== undefined) payload.fill = opts.fill === true;
+    if (opts.segments != null) payload.segments = opts.segments;
+    if (opts.fill_spacing != null) payload.fill_spacing = opts.fill_spacing;
+    if (Array.isArray(opts.rect) && opts.rect.length === 4) {
+      const tl = mapCoordsToScreen(obs, opts.rect[0], opts.rect[1], coordSpace);
+      const br = mapCoordsToScreen(obs, opts.rect[0] + opts.rect[2], opts.rect[1] + opts.rect[3], coordSpace);
+      payload.rect = [tl.x, tl.y, Math.max(1, br.x - tl.x), Math.max(1, br.y - tl.y)];
+    }
     if (opts.show_arrows != null) {
       payload.show_arrows = opts.show_arrows === true;
     }

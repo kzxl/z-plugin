@@ -11,6 +11,8 @@ const NATIVE_DIR = path.resolve(__dirname, '..', 'native');
 const CS_FILES = [
   'JsonMini.cs',
   'VisionMath.cs',
+  'TemplateMatcher.cs',
+  'GeometryPrimitives.cs',
   'UiaTree.cs',
   'ArrowOverlay.cs',
   'RegionLockOverlay.cs',

@@ -38,6 +38,7 @@ const ALLOWED_PLAN_ACTIONS = new Set([
   'move',
   'drag',
   'batch_strokes',
+  'draw_shape',
   'scroll',
   'type',
   'clear_and_type',

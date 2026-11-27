@@ -515,7 +515,7 @@ namespace ZVision.Native
                     }
                     if (runSom)
                     {
-                        somMarks = VisionMath.BuildSomMarks(targetBmp, ocrResult, capOriginX, capOriginY, 30);
+                        somMarks = TemplateMatcher.BuildSomMarks(targetBmp, ocrResult, capOriginX, capOriginY, 30);
                     }
 
                     bool suppressNow = autoGate && withImage && string.IsNullOrEmpty(savePath) && !visualChanged && (uiaSkipped || nodeCountForGate >= 5) && !runSom;
@@ -531,7 +531,7 @@ namespace ZVision.Native
                             imgH = scaled.Height;
                             if (runSom && somMarks != null && somMarks.Count > 0)
                             {
-                                VisionMath.RenderSomOverlay(scaled, somMarks, capW, capH, capOriginX, capOriginY);
+                                TemplateMatcher.RenderSomOverlay(scaled, somMarks, capW, capH, capOriginX, capOriginY);
                             }
                             if (!string.IsNullOrEmpty(savePath))
                             {
@@ -586,6 +586,11 @@ namespace ZVision.Native
         private static Bitmap CaptureTargetBitmap(IntPtr hwnd, RECT rawRect, RECT visRect, bool hasRoi, int roiX, int roiY, int roiW, int roiH)
         {
             if (!hasRoi) return CaptureVisibleWindowBitmap(hwnd, rawRect, visRect);
+
+            if (GetForegroundWindow() == hwnd && !IsIconic(hwnd))
+            {
+                return CaptureScreenRect(roiX, roiY, roiW, roiH);
+            }
 
             bool insideVis = roiX >= visRect.Left && roiY >= visRect.Top &&
                              (roiX + roiW) <= visRect.Right && (roiY + roiH) <= visRect.Bottom;
@@ -685,7 +690,7 @@ namespace ZVision.Native
             using (Bitmap screen = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, ox, oy, ow, oh))
             using (Bitmap tpl = new Bitmap(tplPath))
             {
-                return VisionMath.FindTemplateMulti(screen, tpl, minScore, ox, oy, scales, maxMatches);
+                return TemplateMatcher.FindTemplateMulti(screen, tpl, minScore, ox, oy, scales, maxMatches);
             }
         }
 
@@ -709,11 +714,48 @@ namespace ZVision.Native
             RECT rawRect;
             if (!GetWindowRect(hwnd, out rawRect)) rawRect = visRect;
 
-            using (Bitmap bmp = CaptureVisibleWindowBitmap(hwnd, rawRect, visRect))
+            int winW = Math.Max(1, visRect.Right - visRect.Left);
+            int winH = Math.Max(1, visRect.Bottom - visRect.Top);
+            bool allInsideVis = pts.Count > 0;
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                int px = pts[i][0], py = pts[i][1];
+                if (px < visRect.Left || py < visRect.Top || px >= visRect.Right || py >= visRect.Bottom)
+                {
+                    allInsideVis = false;
+                    break;
+                }
+                if (px < minX) minX = px;
+                if (py < minY) minY = py;
+                if (px > maxX) maxX = px;
+                if (py > maxY) maxY = py;
+            }
+
+            bool useTightRoi = false;
+            int bx = visRect.Left, by = visRect.Top, bw = winW, bh = winH;
+            if (allInsideVis)
+            {
+                int padX = Math.Max(visRect.Left, minX - 2);
+                int padY = Math.Max(visRect.Top, minY - 2);
+                int padR = Math.Min(visRect.Right, maxX + 3);
+                int padB = Math.Min(visRect.Bottom, maxY + 3);
+                int tw = Math.Max(1, padR - padX);
+                int th = Math.Max(1, padB - padY);
+                if ((long)tw * th < ((long)winW * winH) / 2)
+                {
+                    useTightRoi = true;
+                    bx = padX; by = padY; bw = tw; bh = th;
+                }
+            }
+
+            using (Bitmap bmp = useTightRoi
+                ? CaptureTargetBitmap(hwnd, rawRect, visRect, true, bx, by, bw, bh)
+                : CaptureVisibleWindowBitmap(hwnd, rawRect, visRect))
             {
                 Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
                 res["hwnd"] = hwnd.ToInt64();
-                res["pixels"] = VisionMath.SamplePixels(bmp, visRect.Left, visRect.Top, pts);
+                res["pixels"] = VisionMath.SamplePixels(bmp, bx, by, pts);
                 return res;
             }
         }
@@ -844,8 +886,31 @@ namespace ZVision.Native
         private static bool IsProbeableAutoAction(string action)
         {
             return action == "click" || action == "double_click" || action == "right_click" ||
-                   action == "drag" || action == "modifier_drag" || action == "batch_strokes" || action == "scroll" ||
-                   action == "type" || action == "clear_and_type" || action == "set_value";
+                   action == "drag" || action == "modifier_drag" || action == "batch_strokes" || action == "draw_shape" ||
+                   action == "scroll" || action == "type" || action == "clear_and_type" || action == "set_value";
+        }
+
+        private static void ExecuteStrokeList(List<List<int[]>> strokes, IntPtr hwnd, string execMode, string btn, int steps, int pressure, int delayMs, string speed, int pxPerStep, int arrowId, bool showArrows)
+        {
+            for (int si = 0; si < strokes.Count; si++)
+            {
+                if (InputArm.IsEmergencyStopped)
+                    throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+                List<int[]> sPts = strokes[si];
+                if (sPts == null || sPts.Count < 2) continue;
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                    VirtualPointer.VirtualDrag(hwnd, sPts, btn, steps, arrowId, showArrows, delayMs);
+                else if (execMode == "pen")
+                    VirtualPointer.PenDrag(sPts, steps, pressure, delayMs, showArrows);
+                else if (execMode == "touch")
+                {
+                    List<List<int[]>> tracks = new List<List<int[]>>();
+                    tracks.Add(sPts);
+                    VirtualPointer.MultiTouchDrag(tracks, steps, showArrows);
+                }
+                else
+                    InputArm.Drag(sPts, btn, steps, speed, pxPerStep);
+            }
         }
 
         private static bool ExecuteSingleAction(
@@ -866,7 +931,8 @@ namespace ZVision.Native
         {
             string modifiers = JsonMini.GetString(p, "modifiers", "");
             bool isPointerOp = (action == "click" || action == "double_click" || action == "right_click" ||
-                                action == "drag" || action == "modifier_drag" || action == "batch_strokes" || action == "scroll");
+                                action == "drag" || action == "modifier_drag" || action == "batch_strokes" ||
+                                action == "draw_shape" || action == "scroll");
             if (!string.IsNullOrEmpty(modifiers) && isPointerOp)
             {
                 bool modRes = false;
@@ -986,6 +1052,28 @@ namespace ZVision.Native
                 {
                     InputArm.Drag(pts, btn, steps, speed, pxPerStep);
                 }
+                return false;
+            }
+            if (action == "draw_shape")
+            {
+                string shape = JsonMini.GetString(p, "shape", "");
+                List<int[]> pts = ParseStrokeList(JsonMini.GetList(p, "points"));
+                List<object> rectObj = JsonMini.GetList(p, "rect");
+                int[] rectArr = (rectObj != null && rectObj.Count == 4)
+                    ? new int[] { Convert.ToInt32(rectObj[0]), Convert.ToInt32(rectObj[1]), Convert.ToInt32(rectObj[2]), Convert.ToInt32(rectObj[3]) }
+                    : null;
+                bool fill = JsonMini.GetBool(p, "fill", false);
+                int segs = JsonMini.GetInt(p, "segments", 0);
+                int spacing = JsonMini.GetInt(p, "fill_spacing", 4);
+
+                List<List<int[]>> strokes = GeometryPrimitives.BuildShapeStrokes(shape, pts, rectArr, fill, segs, spacing);
+                if (strokes.Count == 0)
+                    throw new ArgumentException("invalid_argument: draw_shape produced zero strokes");
+
+                string btn = JsonMini.GetString(p, "button", "left");
+                int steps = JsonMini.GetInt(p, "steps", 2);
+                int delayMs = InputArm.ResolveSpeedDelayMs(speed);
+                ExecuteStrokeList(strokes, hwnd, execMode, btn, steps, pressure, delayMs, speed, pxPerStep, arrowId, showArrows);
                 return false;
             }
             if (action == "batch_strokes")
