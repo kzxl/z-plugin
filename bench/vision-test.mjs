@@ -288,6 +288,62 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
     { processName: 'mspaint.exe' }
   );
   ok(overPlan.valid === false, 'Plan >200 steps rejected');
+
+  // Phase 3 recursive branch & assertion validation + macro renderer unit tests
+  const unsafeNestedThen = validatePlanSteps(
+    [
+      {
+        action: 'if_control',
+        name: 'OK',
+        then_steps: [{ action: 'type', text: 'rm -rf', reason: 'nested unsafe' }]
+      }
+    ],
+    { processName: 'pwsh.exe' }
+  );
+  ok(unsafeNestedThen.valid === false && unsafeNestedThen.code === 'restricted_process', 'Recursive validatePlanSteps blocks unsafe step inside if_control.then_steps');
+
+  const unsafeNestedElse = validatePlanSteps(
+    [
+      {
+        action: 'if_pixel',
+        x: 10,
+        y: 10,
+        target_rgb: [255, 255, 255],
+        then_steps: [{ action: 'sleep', ms: 10 }],
+        else_steps: [{ action: 'close_window', reason: 'close unconfirmed' }]
+      }
+    ],
+    { processName: 'notepad.exe' }
+  );
+  ok(unsafeNestedElse.valid === false && unsafeNestedElse.code === 'confirmation_required', 'Recursive validatePlanSteps enforces confirmation_required inside else_steps');
+
+  const validP3Plan = validatePlanSteps(
+    [
+      { action: 'assert_control', name: 'OpenDlg' },
+      { action: 'assert_ocr', text: 'Ready' },
+      { action: 'assert_pixel', x: 10, y: 10, target_rgb: [255, 255, 255] },
+      { action: 'if_ocr', text: 'Save', then_steps: [{ action: 'click', name: 'Save', reason: 'Save' }], else_steps: [{ action: 'sleep', ms: 10 }] }
+    ],
+    { processName: 'notepad.exe' }
+  );
+  ok(validP3Plan.valid === true, 'Valid Phase 3 conditional & assertion plan passes pre-validation');
+
+  const { sanitizeMacroName, renderMacroSteps } = await import('../plugins/z-vision/scripts/lib/macro-store.mjs');
+  const rendered = renderMacroSteps(
+    [
+      { action: 'click', x: '{{tx}}', y: 20, reason: 'Click {{label}}' },
+      { action: 'type', text: 'Order #{{order_id}} - {{note}}', reason: 'Fill' }
+    ],
+    { tx: 150, label: 'Submit', order_id: 42 },
+    { note: 'default_note' }
+  );
+  ok(rendered[0].x === 150 && typeof rendered[0].x === 'number' && rendered[0].reason === 'Click Submit' && rendered[1].text === 'Order #42 - default_note', 'renderMacroSteps substitutes typed placeholders and defaults cleanly');
+  let badVarCode = '';
+  try { renderMacroSteps([{ action: 'type', text: '{{missing_var}}' }], {}, {}); } catch (e) { badVarCode = e.code; }
+  ok(badVarCode === 'missing_macro_var', 'renderMacroSteps rejects missing variable cleanly');
+  let badMacroName = '';
+  try { sanitizeMacroName('../escape'); } catch (e) { badMacroName = e.code; }
+  ok(badMacroName === 'invalid_macro_name', 'sanitizeMacroName rejects path-traversal macro names');
 }
 
 // Parallel lanes pre-validation
@@ -569,7 +625,7 @@ if (process.platform === 'win32') {
     ok(fs.existsSync(buildInfo.exePath), `Stock csc.exe compiled native host: ${path.basename(buildInfo.exePath)} (winrtOcr=${buildInfo.winrtOcr})`);
 
     client = createHostClient({ dataDir: tmpNativeDir });
-    engine = createVisionEngine({ client });
+    engine = createVisionEngine({ client, dataDir: tmpNativeDir });
 
     const st = await engine.status();
     ok(Array.isArray(st.monitors) && st.monitors.length >= 1, `Native status detected ${st.monitors.length} monitor(s)`);
@@ -1007,6 +1063,76 @@ if (process.platform === 'win32') {
     const hudUpd = await engine.lockRegion({ action: 'status_text', status_text: 'Step 2/3: Done' });
     ok(hudUpd.status_text === 'Step 2/3: Done', 'RegionLockOverlay HUD updated status_text dynamically');
     await engine.lockRegion({ action: 'unlock' });
+
+    // Phase 3: Conditionals (if_control/if_pixel/if_ocr), Assertions (assert_*), and 0-Token Macros
+    const obsP3 = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'full' });
+    const p3PassSteps = [
+      { action: 'assert_control', name: 'OpenDlg' },
+      { action: 'assert_pixel', x: cb2.x + 300, y: cb2.y + 150, coord_space: 'screen', target_rgb: [255, 255, 255], tolerance: 15 },
+      {
+        action: 'if_control',
+        name: 'OpenDlg',
+        then_steps: [{ action: 'hover', x: 200, y: 100, duration_ms: 20, reason: 'Branch then hover' }],
+        else_steps: [{ action: 'assert_control', name: 'MUST_NOT_RUN' }]
+      },
+      {
+        action: 'if_control',
+        name: 'NonExistentButtonXYZ',
+        then_steps: [{ action: 'assert_control', name: 'MUST_NOT_RUN' }],
+        else_steps: [{ action: 'assert_pixel', x: cb2.x + 300, y: cb2.y + 150, coord_space: 'screen', target_rgb: [255, 255, 255], tolerance: 15 }]
+      }
+    ];
+    if (ocrRes.available) {
+      p3PassSteps.splice(2, 0, { action: 'assert_ocr', text: 'sample' });
+    }
+    const planP3Pass = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: obsP3.observation_id,
+      mode: 'virtual',
+      coord_space: 'client',
+      show_arrows: false,
+      with_uia: 'off',
+      steps: p3PassSteps
+    });
+    ok(planP3Pass.ok === true && planP3Pass.assertions_passed >= 3, `Phase 3 conditional & assertion plan passed (assertions=${planP3Pass.assertions_passed})`);
+
+    // Failing assertion test
+    const obsP3Fail = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    const planP3Fail = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: obsP3Fail.observation_id,
+      with_uia: 'off',
+      observe_after: false,
+      steps: [
+        { action: 'assert_pixel', x: cb2.x + 300, y: cb2.y + 150, coord_space: 'screen', target_rgb: [0, 0, 0], tolerance: 5, message: 'Expected black pixel' }
+      ]
+    });
+    ok(planP3Fail.ok === false && planP3Fail.error?.code === 'assertion_failed', `Phase 3 failing assert_pixel returned assertion_failed (${planP3Fail.error?.message})`);
+
+    // 0-Token Parameterized Macro save -> list -> run -> verify -> delete
+    const savedMac = await engine.saveMacro({
+      name: 'select_probe_option',
+      description: 'Select an option in cmbMode and assert it applied',
+      mode: 'uia',
+      steps: [
+        { action: 'select_item', automation_id: 'cmbMode', value: '{{option}}', reason: 'Select {{option}}' },
+        { action: 'assert_control', automation_id: 'cmbMode', text: '{{option}}' }
+      ]
+    });
+    const listMac = await engine.listMacros();
+    ok(savedMac.saved === true && listMac.macros.some((m) => m.name === 'select_probe_option'), 'saveMacro & listMacros persisted parameterized workflow');
+
+    const runMac = await engine.runMacro({
+      name: 'select_probe_option',
+      hwnd: candidate.hwnd,
+      vars: { option: 'Gamma' },
+      observe_after: true
+    });
+    const cmbGamma = (runMac.observation?.nodes || []).find((n) => n.aid === 'cmbMode');
+    ok(runMac.ok === true && runMac.macro === 'select_probe_option' && cmbGamma?.val === 'Gamma', `runMacro replayed 0-token workflow -> Gamma (val=${cmbGamma?.val})`);
+
+    const delMac = await engine.deleteMacro({ name: 'select_probe_option' });
+    ok(delMac.deleted === true, 'deleteMacro removed macro cleanly');
   } finally {
     if (engine && priorClipRestore) {
       try {

@@ -109,7 +109,7 @@ const TOOLS = [
   },
   {
     name: 'zvision_plan',
-    description: 'Run 1..200 sequential steps (including batch_strokes/wait_control/refresh_uia/wait_settle/sleep) natively in 1 RPC; stops on failure or Esc.',
+    description: 'Run 1..200 sequential/conditional/assert steps natively in 1 RPC, or manage parameterized macros (macro_action=save|run|list|delete).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -124,14 +124,18 @@ const TOOLS = [
         roi: { type: 'array', items: { type: 'integer' } },
         lock_region: { description: "Dim+lock input during plan: 'window'|'roi'|'none'|[x,y,w,h]" },
         lock_policy: { type: 'string', enum: ['soft', 'strict'] },
+        macro_action: { type: 'string', enum: ['save', 'run', 'list', 'delete'] },
+        macro_name: { type: 'string' },
+        macro_vars: { type: 'object' },
+        macro_defaults: { type: 'object' },
+        description: { type: 'string' },
         observe_after: { type: 'boolean' },
         restore_cursor: { type: 'boolean' },
         show_arrows: { type: 'boolean' },
         confirm_sensitive: { type: 'boolean' },
         allow_restricted: { type: 'boolean' },
         reason: { type: 'string' }
-      },
-      required: ['observation_id', 'steps']
+      }
     }
   },
   {
@@ -270,9 +274,42 @@ async function handleTool(name, args = {}) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }
     case 'zvision_plan': {
-      const res = await engine.plan(args);
+      if (args.macro_action === 'list') {
+        return { content: [{ type: 'text', text: JSON.stringify(await engine.listMacros(), null, 2) }] };
+      }
+      if (args.macro_action === 'save') {
+        const saved = await engine.saveMacro({
+          name: args.macro_name,
+          description: args.description,
+          steps: args.steps,
+          defaults: args.macro_defaults,
+          mode: args.mode,
+          coord_space: args.coord_space,
+          lock_region: args.lock_region,
+          lock_policy: args.lock_policy
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(saved, null, 2) }] };
+      }
+      if (args.macro_action === 'delete') {
+        const del = await engine.deleteMacro({ name: args.macro_name });
+        return { content: [{ type: 'text', text: JSON.stringify(del, null, 2) }] };
+      }
+      const res = args.macro_action === 'run'
+        ? await engine.runMacro({
+            name: args.macro_name,
+            vars: args.macro_vars,
+            hwnd: args.hwnd,
+            observation_id: args.observation_id,
+            confirm_sensitive: args.confirm_sensitive,
+            allow_restricted: args.allow_restricted,
+            observe_after: args.observe_after,
+            lock_region: args.lock_region,
+            lock_policy: args.lock_policy,
+            reason: args.reason
+          })
+        : await engine.plan(args);
       const summary = res.ok
-        ? `[Z-VISION PLAN OK] completed=${res.completed_steps}`
+        ? `[Z-VISION PLAN OK] completed=${res.completed_steps}${res.assertions_passed ? ` assertions=${res.assertions_passed}` : ''}${res.macro ? ` macro=${res.macro}` : ''}`
         : `[Z-VISION PLAN STOPPED] completed=${res.completed_steps} failed_step=${res.failed_step} error=${res.error?.code}: ${res.error?.message}`;
       if (res.observation) {
         const obsFmt = formatObserveResult(res.observation);

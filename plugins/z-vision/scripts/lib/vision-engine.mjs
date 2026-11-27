@@ -1,4 +1,5 @@
 import { createHostClient } from './host-client.mjs';
+import { createMacroStore, renderMacroSteps } from './macro-store.mjs';
 import {
   ObservationStore,
   checkActionSafety,
@@ -99,9 +100,10 @@ function resolveTarget(obs, opts) {
   return { node: null, screenX: undefined, screenY: undefined };
 }
 
-export function createVisionEngine({ client = null, store = null } = {}) {
+export function createVisionEngine({ client = null, store = null, dataDir = null } = {}) {
   const host = client || createHostClient();
   const observations = store || new ObservationStore();
+  const macros = createMacroStore(dataDir ? { dataDir } : {});
   const lastDhashByHwnd = new Map();
   const lastNodesByHwnd = new Map();
 
@@ -383,6 +385,53 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     };
   }
 
+  async function evalCondition(step, currentObs, opts) {
+    const a = String(step.action || '');
+    const negate = step.negate === true;
+
+    if (a === 'if_control' || a === 'assert_control') {
+      const snap = await observe({ hwnd: currentObs.hwnd, query: step.query || '', with_image: false, with_uia: 'full' });
+      const textNeedle = step.text ? String(step.text).trim().toLowerCase() : '';
+      const hit = (snap.nodes || []).find((n) => {
+        if (step.name && n.name !== step.name) return false;
+        if (step.automation_id && n.aid !== step.automation_id) return false;
+        if (step.role && n.role !== step.role) return false;
+        if (textNeedle) {
+          const hay = [n.name, n.val, n.aid].filter(Boolean).join(' ').toLowerCase();
+          if (!hay.includes(textNeedle)) return false;
+        }
+        return true;
+      });
+      const rawMatched = Boolean(hit);
+      const matched = negate ? !rawMatched : rawMatched;
+      const targetDesc = step.name || step.automation_id || step.role || step.text || 'control';
+      return { matched, detail: `${targetDesc} ${rawMatched ? 'present' : 'absent'}`, refreshedObs: snap };
+    }
+
+    if (a === 'if_ocr' || a === 'assert_ocr') {
+      const ocrRes = await ocr({ hwnd: currentObs.hwnd, roi: step.roi || opts.roi || null, language: step.language || '' });
+      const needle = String(step.text || '').trim().toLowerCase();
+      const rawMatched = Boolean(ocrRes && ocrRes.available && String(ocrRes.text || '').toLowerCase().includes(needle));
+      const matched = negate ? !rawMatched : rawMatched;
+      return { matched, detail: `ocr '${step.text || ''}' ${rawMatched ? 'matched' : 'missing'}`, refreshedObs: null };
+    }
+
+    const pt = mapCoordsToScreen(currentObs, step.x || 0, step.y || 0, step.coord_space || opts.coord_space || 'image');
+    const pxRes = await samplePixels({ hwnd: currentObs.hwnd, points: [[pt.x, pt.y]] });
+    const px = pxRes?.pixels?.[0];
+    const target = step.target_rgb || step.rgb || [0, 0, 0];
+    const tol = Number(step.tolerance ?? 18);
+    let rawMatched = false;
+    let actualDesc = 'out_of_bounds';
+    if (px && px.in_bounds) {
+      const dist = Math.hypot((px.r || 0) - (target[0] || 0), (px.g || 0) - (target[1] || 0), (px.b || 0) - (target[2] || 0));
+      rawMatched = dist <= tol;
+      actualDesc = `${px.hex || [px.r, px.g, px.b].join(',')} (dist=${dist.toFixed(1)})`;
+    }
+    const matched = negate ? !rawMatched : rawMatched;
+    return { matched, detail: `pixel (${pt.x},${pt.y})=${actualDesc}`, refreshedObs: null };
+  }
+
   async function plan(opts = {}) {
     const obs = observations.get(opts.observation_id);
     if (!obs) {
@@ -411,269 +460,310 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     } catch {}
     observations.consume(opts.observation_id, opts.hwnd ?? obs.hwnd, currentBounds);
 
-    let currentObs = obs;
-    let completed = 0;
-    const isDynamicStep = (a) => a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' || a === 'wait_window' || a === 'wait_ocr' || a === 'wait_pixel_color' || a === 'wait_template' || a === 'refresh_uia';
+    const state = {
+      currentObs: obs,
+      completed: 0,
+      assertions_passed: 0
+    };
+    const isDynamicStep = (a) => (
+      a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' ||
+      a === 'wait_window' || a === 'wait_ocr' || a === 'wait_pixel_color' ||
+      a === 'wait_template' || a === 'refresh_uia' ||
+      a === 'if_control' || a === 'if_ocr' || a === 'if_pixel' ||
+      a === 'assert_control' || a === 'assert_ocr' || a === 'assert_pixel'
+    );
 
-    let i = 0;
-    while (i < opts.steps.length) {
-      const step = opts.steps[i];
-      if (isDynamicStep(step.action)) {
-        try {
-          if (step.action === 'wait_window') {
-            const wRes = await windows({
-              wait_for: step.filter || step.title || step.process || '',
-              wait_state: step.wait_state || 'open',
-              include_hidden: step.include_hidden === true,
-              timeout_ms: step.timeout_ms || 5000
-            });
-            if (!wRes.matched) {
-              const err = new Error(`wait_window timed out waiting for '${step.filter || step.title || step.process || ''}'`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-            if (String(step.wait_state || 'open').toLowerCase() !== 'closed' && wRes.windows?.[0] && step.switch_to !== false) {
-              const snap = await observe({ hwnd: wRes.windows[0].hwnd, with_image: false, with_uia: 'full' });
-              currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
-            }
-          } else if (step.action === 'refresh_uia') {
-            const snap = await observe({ hwnd: currentObs.hwnd, with_image: false, with_uia: 'full', query: step.query || '' });
-            currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
-          } else if (step.action === 'wait_settle') {
-            const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
-            let prev = currentObs.dhash;
-            let stableCount = 0;
-            while (Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 150));
-              const snap = await observe({ hwnd: currentObs.hwnd, with_image: false, with_uia: 'off' });
-              currentObs = { ...currentObs, dhash: snap.dhash, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
-              if (hammingDistanceHex(prev, snap.dhash) <= 1 && snap.visual_changed === false) {
-                stableCount++;
-                if (stableCount >= 2) break;
-              } else {
-                stableCount = 0;
+    async function executeStepList(stepList, depth = 0) {
+      let i = 0;
+      while (i < stepList.length) {
+        const step = stepList[i];
+        if (isDynamicStep(step.action)) {
+          try {
+            if (step.action === 'assert_control' || step.action === 'assert_ocr' || step.action === 'assert_pixel') {
+              const ev = await evalCondition(step, state.currentObs, opts);
+              if (ev.refreshedObs) {
+                state.currentObs = {
+                  ...ev.refreshedObs,
+                  bounds: ev.refreshedObs.bounds,
+                  clientBounds: ev.refreshedObs.client_bounds || null,
+                  imageSize: ev.refreshedObs.image_size
+                };
               }
-              prev = snap.dhash;
-            }
-          } else if (step.action === 'wait_text') {
-            const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
-            let matched = false;
-            while (Date.now() < deadline) {
-              const snap = await observe({ hwnd: currentObs.hwnd, query: step.text, with_image: false });
-              currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
-              if (snap.nodes && snap.nodes.length > 0) {
-                matched = true;
-                break;
+              if (!ev.matched) {
+                const err = new Error(step.message || `Assertion failed (${step.action}): ${ev.detail}`);
+                err.code = 'assertion_failed';
+                err.failedIndex = i;
+                throw err;
               }
-              await new Promise((r) => setTimeout(r, 150));
-            }
-            if (!matched) {
-              const err = new Error(`wait_text timed out waiting for '${step.text}'`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-          } else if (step.action === 'wait_control') {
-            const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
-            let matched = false;
-            while (Date.now() < deadline) {
-              const snap = await observe({ hwnd: currentObs.hwnd, query: step.query || '', with_image: false, with_uia: 'full' });
-              const found = (snap.nodes || []).some((n) => {
-                if (step.name && n.name !== step.name) return false;
-                if (step.automation_id && n.aid !== step.automation_id) return false;
-                if (step.role && n.role !== step.role) return false;
-                return true;
+              state.assertions_passed++;
+            } else if (step.action === 'if_control' || step.action === 'if_ocr' || step.action === 'if_pixel') {
+              const ev = await evalCondition(step, state.currentObs, opts);
+              if (ev.refreshedObs) {
+                state.currentObs = {
+                  ...ev.refreshedObs,
+                  bounds: ev.refreshedObs.bounds,
+                  clientBounds: ev.refreshedObs.client_bounds || null,
+                  imageSize: ev.refreshedObs.image_size
+                };
+              }
+              const branch = ev.matched ? step.then_steps : step.else_steps;
+              if (Array.isArray(branch) && branch.length > 0) {
+                await executeStepList(branch, depth + 1);
+              }
+            } else if (step.action === 'wait_window') {
+              const wRes = await windows({
+                wait_for: step.filter || step.title || step.process || '',
+                wait_state: step.wait_state || 'open',
+                include_hidden: step.include_hidden === true,
+                timeout_ms: step.timeout_ms || 5000
               });
-              if (found) {
-                currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
-                matched = true;
-                break;
+              if (!wRes.matched) {
+                const err = new Error(`wait_window timed out waiting for '${step.filter || step.title || step.process || ''}'`);
+                err.code = 'wait_timeout';
+                throw err;
               }
-              await new Promise((r) => setTimeout(r, 120));
-            }
-            if (!matched) {
-              const err = new Error(`wait_control timed out waiting for ${step.name || step.automation_id || step.role || 'control'}`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-          } else if (step.action === 'wait_ocr') {
-            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
-            const needle = String(step.text || '').trim().toLowerCase();
-            const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
-            let matched = false;
-            while (Date.now() < deadline) {
-              const ocrRes = await ocr({ hwnd: currentObs.hwnd, roi: step.roi || opts.roi || null, language: step.language || '' });
-              const found = Boolean(ocrRes && ocrRes.available && String(ocrRes.text || '').toLowerCase().includes(needle));
-              if (wantGone ? !found : found) {
-                matched = true;
-                break;
+              if (String(step.wait_state || 'open').toLowerCase() !== 'closed' && wRes.windows?.[0] && step.switch_to !== false) {
+                const snap = await observe({ hwnd: wRes.windows[0].hwnd, with_image: false, with_uia: 'full' });
+                state.currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
               }
-              await new Promise((r) => setTimeout(r, 200));
-            }
-            if (!matched) {
-              const err = new Error(`wait_ocr timed out waiting for '${step.text || ''}'`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-          } else if (step.action === 'wait_pixel_color') {
-            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
-            const pt = mapCoordsToScreen(currentObs, step.x || 0, step.y || 0, step.coord_space || opts.coord_space || 'image');
-            const target = step.target_rgb || step.rgb || [0, 0, 0];
-            const tol = Number(step.tolerance ?? 18);
-            const invert = step.invert === true;
-            let matched = false;
-            while (Date.now() < deadline) {
-              const pxRes = await samplePixels({ hwnd: currentObs.hwnd, points: [[pt.x, pt.y]] });
-              const px = pxRes?.pixels?.[0];
-              if (px && px.in_bounds) {
-                const dist = Math.hypot((px.r || 0) - (target[0] || 0), (px.g || 0) - (target[1] || 0), (px.b || 0) - (target[2] || 0));
-                if (invert ? dist > tol : dist <= tol) {
+            } else if (step.action === 'refresh_uia') {
+              const snap = await observe({ hwnd: state.currentObs.hwnd, with_image: false, with_uia: 'full', query: step.query || '' });
+              state.currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
+            } else if (step.action === 'wait_settle') {
+              const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
+              let prev = state.currentObs.dhash;
+              let stableCount = 0;
+              while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 150));
+                const snap = await observe({ hwnd: state.currentObs.hwnd, with_image: false, with_uia: 'off' });
+                state.currentObs = { ...state.currentObs, dhash: snap.dhash, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
+                if (hammingDistanceHex(prev, snap.dhash) <= 1 && snap.visual_changed === false) {
+                  stableCount++;
+                  if (stableCount >= 2) break;
+                } else {
+                  stableCount = 0;
+                }
+                prev = snap.dhash;
+              }
+            } else if (step.action === 'wait_text') {
+              const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
+              let matched = false;
+              while (Date.now() < deadline) {
+                const snap = await observe({ hwnd: state.currentObs.hwnd, query: step.text, with_image: false });
+                state.currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
+                if (snap.nodes && snap.nodes.length > 0) {
                   matched = true;
                   break;
                 }
+                await new Promise((r) => setTimeout(r, 150));
               }
-              await new Promise((r) => setTimeout(r, 120));
-            }
-            if (!matched) {
-              const err = new Error(`wait_pixel_color timed out at (${pt.x},${pt.y})`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-          } else if (step.action === 'wait_template') {
-            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
-            const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
-            let matched = false;
-            while (Date.now() < deadline) {
-              const mt = await matchTemplate({
-                hwnd: currentObs.hwnd,
-                template_path: step.template_path,
-                min_score: step.min_score ?? 0.85,
-                roi: step.roi || opts.roi || null,
-                scales: step.scales || null,
-                max_matches: 1
-              });
-              const found = Boolean(mt && mt.found);
-              if (wantGone ? !found : found) {
-                matched = true;
-                break;
+              if (!matched) {
+                const err = new Error(`wait_text timed out waiting for '${step.text}'`);
+                err.code = 'wait_timeout';
+                throw err;
               }
-              await new Promise((r) => setTimeout(r, 200));
+            } else if (step.action === 'wait_control') {
+              const deadline = Date.now() + Math.min(step.timeout_ms || 3000, 10000);
+              let matched = false;
+              while (Date.now() < deadline) {
+                const snap = await observe({ hwnd: state.currentObs.hwnd, query: step.query || '', with_image: false, with_uia: 'full' });
+                const found = (snap.nodes || []).some((n) => {
+                  if (step.name && n.name !== step.name) return false;
+                  if (step.automation_id && n.aid !== step.automation_id) return false;
+                  if (step.role && n.role !== step.role) return false;
+                  return true;
+                });
+                if (found) {
+                  state.currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
+                  matched = true;
+                  break;
+                }
+                await new Promise((r) => setTimeout(r, 120));
+              }
+              if (!matched) {
+                const err = new Error(`wait_control timed out waiting for ${step.name || step.automation_id || step.role || 'control'}`);
+                err.code = 'wait_timeout';
+                throw err;
+              }
+            } else if (step.action === 'wait_ocr') {
+              const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+              const needle = String(step.text || '').trim().toLowerCase();
+              const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
+              let matched = false;
+              while (Date.now() < deadline) {
+                const ocrRes = await ocr({ hwnd: state.currentObs.hwnd, roi: step.roi || opts.roi || null, language: step.language || '' });
+                const found = Boolean(ocrRes && ocrRes.available && String(ocrRes.text || '').toLowerCase().includes(needle));
+                if (wantGone ? !found : found) {
+                  matched = true;
+                  break;
+                }
+                await new Promise((r) => setTimeout(r, 200));
+              }
+              if (!matched) {
+                const err = new Error(`wait_ocr timed out waiting for '${step.text || ''}'`);
+                err.code = 'wait_timeout';
+                throw err;
+              }
+            } else if (step.action === 'wait_pixel_color') {
+              const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+              const pt = mapCoordsToScreen(state.currentObs, step.x || 0, step.y || 0, step.coord_space || opts.coord_space || 'image');
+              const target = step.target_rgb || step.rgb || [0, 0, 0];
+              const tol = Number(step.tolerance ?? 18);
+              const invert = step.invert === true;
+              let matched = false;
+              while (Date.now() < deadline) {
+                const pxRes = await samplePixels({ hwnd: state.currentObs.hwnd, points: [[pt.x, pt.y]] });
+                const px = pxRes?.pixels?.[0];
+                if (px && px.in_bounds) {
+                  const dist = Math.hypot((px.r || 0) - (target[0] || 0), (px.g || 0) - (target[1] || 0), (px.b || 0) - (target[2] || 0));
+                  if (invert ? dist > tol : dist <= tol) {
+                    matched = true;
+                    break;
+                  }
+                }
+                await new Promise((r) => setTimeout(r, 120));
+              }
+              if (!matched) {
+                const err = new Error(`wait_pixel_color timed out at (${pt.x},${pt.y})`);
+                err.code = 'wait_timeout';
+                throw err;
+              }
+            } else if (step.action === 'wait_template') {
+              const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+              const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
+              let matched = false;
+              while (Date.now() < deadline) {
+                const mt = await matchTemplate({
+                  hwnd: state.currentObs.hwnd,
+                  template_path: step.template_path,
+                  min_score: step.min_score ?? 0.85,
+                  roi: step.roi || opts.roi || null,
+                  scales: step.scales || null,
+                  max_matches: 1
+                });
+                const found = Boolean(mt && mt.found);
+                if (wantGone ? !found : found) {
+                  matched = true;
+                  break;
+                }
+                await new Promise((r) => setTimeout(r, 200));
+              }
+              if (!matched) {
+                const err = new Error(`wait_template timed out waiting for '${step.template_path || ''}'`);
+                err.code = 'wait_timeout';
+                throw err;
+              }
             }
-            if (!matched) {
-              const err = new Error(`wait_template timed out waiting for '${step.template_path || ''}'`);
-              err.code = 'wait_timeout';
-              throw err;
-            }
-          }
-          completed++;
-          i++;
-        } catch (err) {
-          let postObs = null;
-          try {
-            postObs = await observe({ hwnd: currentObs.hwnd, with_image: 'auto', with_uia: opts.with_uia || 'full', roi: opts.roi || null });
-          } catch {}
-          return {
-            ok: false,
-            completed_steps: completed,
-            failed_step: i,
-            error: { code: err.code || 'step_failed', message: err.message },
-            observation: postObs
-          };
-        }
-        continue;
-      }
-
-      // Collect contiguous native steps into one 1-RPC plan_batch
-      const segStart = i;
-      const batchPayloads = [];
-      try {
-        while (i < opts.steps.length && !isDynamicStep(opts.steps[i].action)) {
-          const st = opts.steps[i];
-          if (st.action === 'sleep') {
-            batchPayloads.push({ action: 'sleep', ms: Math.min(st.ms || 200, 5000) });
-          } else {
-            const payload = await buildActPayload(currentObs, {
-              ...st,
-              coord_space: st.coord_space || opts.coord_space,
-              mode: st.mode || opts.mode,
-              speed: st.speed || opts.speed,
-              px_per_step: st.px_per_step ?? opts.px_per_step,
-              restore_cursor: st.restore_cursor ?? opts.restore_cursor,
-              show_arrows: st.show_arrows ?? opts.show_arrows,
-              confirm_sensitive: st.confirm_sensitive ?? opts.confirm_sensitive,
-              allow_restricted: st.allow_restricted ?? opts.allow_restricted,
-              reason: st.reason || opts.reason || 'plan step'
-            });
-            batchPayloads.push(payload);
-          }
-          i++;
-        }
-
-        let batchHandled = false;
-        try {
-          const batchReq = {
-            hwnd: opts.hwnd ?? currentObs.hwnd,
-            mode: opts.mode || 'physical',
-            speed: opts.speed || 'normal',
-            px_per_step: opts.px_per_step || 0,
-            restore_cursor: opts.restore_cursor === true,
-            steps: batchPayloads
-          };
-          if (opts.lock_region !== undefined && opts.lock_region !== null) {
-            batchReq.lock_region = opts.lock_region;
-            if (opts.lock_policy) batchReq.lock_policy = opts.lock_policy;
-            if (opts.lock_ttl_ms != null) batchReq.lock_ttl_ms = opts.lock_ttl_ms;
-            if (opts.roi || currentObs.roi) batchReq.roi = opts.roi || currentObs.roi;
-          }
-          const batchRes = await host.request('plan_batch', batchReq, { timeoutMs: Math.max(30000, batchPayloads.length * 1000) });
-          batchHandled = true;
-          if (batchRes && batchRes.ok === false) {
-            const doneInBatch = batchRes.completed_steps || 0;
-            const err = new Error(batchRes.error?.message || 'Batch step failed');
-            err.code = batchRes.error?.code || 'step_failed';
-            err.failedIndex = segStart + doneInBatch;
-            completed += doneInBatch;
+            state.completed++;
+            i++;
+          } catch (err) {
+            if (err.failedIndex == null) err.failedIndex = i;
             throw err;
           }
-          completed += batchRes?.completed_steps ?? batchPayloads.length;
-        } catch (batchErr) {
-          if (batchHandled || (batchErr.code !== 'unknown_command' && !/Unexpected mock cmd/i.test(batchErr.message || ''))) {
-            throw batchErr;
-          }
-          // Fallback only if legacy host/mock lacks plan_batch
-          for (let j = 0; j < batchPayloads.length; j++) {
-            const bp = batchPayloads[j];
-            if (bp.action === 'sleep') {
-              await new Promise((r) => setTimeout(r, bp.ms));
-            } else {
-              try {
-                await host.request('act', bp);
-              } catch (actErr) {
-                actErr.failedIndex = segStart + j;
-                throw actErr;
-              }
-            }
-            completed++;
-          }
+          continue;
         }
-      } catch (err) {
-        let postObs = null;
+
+        // Collect contiguous native steps into one 1-RPC plan_batch
+        const segStart = i;
+        const batchPayloads = [];
         try {
-          postObs = await observe({ hwnd: currentObs.hwnd, with_image: 'auto', with_uia: opts.with_uia || 'full', roi: opts.roi || null });
-        } catch {}
-        return {
-          ok: false,
-          completed_steps: completed,
-          failed_step: err.failedIndex != null ? err.failedIndex : segStart,
-          error: { code: err.code || 'step_failed', message: err.message },
-          observation: postObs
-        };
+          while (i < stepList.length && !isDynamicStep(stepList[i].action)) {
+            const st = stepList[i];
+            if (st.action === 'sleep') {
+              batchPayloads.push({ action: 'sleep', ms: Math.min(st.ms || 200, 5000) });
+            } else {
+              const payload = await buildActPayload(state.currentObs, {
+                ...st,
+                coord_space: st.coord_space || opts.coord_space,
+                mode: st.mode || opts.mode,
+                speed: st.speed || opts.speed,
+                px_per_step: st.px_per_step ?? opts.px_per_step,
+                restore_cursor: st.restore_cursor ?? opts.restore_cursor,
+                show_arrows: st.show_arrows ?? opts.show_arrows,
+                confirm_sensitive: st.confirm_sensitive ?? opts.confirm_sensitive,
+                allow_restricted: st.allow_restricted ?? opts.allow_restricted,
+                reason: st.reason || opts.reason || 'plan step'
+              });
+              batchPayloads.push(payload);
+            }
+            i++;
+          }
+
+          let batchHandled = false;
+          try {
+            const batchReq = {
+              hwnd: opts.hwnd ?? state.currentObs.hwnd,
+              mode: opts.mode || 'physical',
+              speed: opts.speed || 'normal',
+              px_per_step: opts.px_per_step || 0,
+              restore_cursor: opts.restore_cursor === true,
+              steps: batchPayloads
+            };
+            if (opts.lock_region !== undefined && opts.lock_region !== null) {
+              batchReq.lock_region = opts.lock_region;
+              if (opts.lock_policy) batchReq.lock_policy = opts.lock_policy;
+              if (opts.lock_ttl_ms != null) batchReq.lock_ttl_ms = opts.lock_ttl_ms;
+              if (opts.roi || state.currentObs.roi) batchReq.roi = opts.roi || state.currentObs.roi;
+            }
+            const batchRes = await host.request('plan_batch', batchReq, { timeoutMs: Math.max(30000, batchPayloads.length * 1000) });
+            batchHandled = true;
+            if (batchRes && batchRes.ok === false) {
+              const doneInBatch = batchRes.completed_steps || 0;
+              const err = new Error(batchRes.error?.message || 'Batch step failed');
+              err.code = batchRes.error?.code || 'step_failed';
+              err.failedIndex = segStart + doneInBatch;
+              state.completed += doneInBatch;
+              throw err;
+            }
+            state.completed += batchRes?.completed_steps ?? batchPayloads.length;
+          } catch (batchErr) {
+            if (batchHandled || (batchErr.code !== 'unknown_command' && !/Unexpected mock cmd/i.test(batchErr.message || ''))) {
+              throw batchErr;
+            }
+            // Fallback only if legacy host/mock lacks plan_batch
+            for (let j = 0; j < batchPayloads.length; j++) {
+              const bp = batchPayloads[j];
+              if (bp.action === 'sleep') {
+                await new Promise((r) => setTimeout(r, bp.ms));
+              } else {
+                try {
+                  await host.request('act', bp);
+                } catch (actErr) {
+                  actErr.failedIndex = segStart + j;
+                  throw actErr;
+                }
+              }
+              state.completed++;
+            }
+          }
+        } catch (err) {
+          if (err.failedIndex == null) err.failedIndex = segStart;
+          throw err;
+        }
       }
+    }
+
+    try {
+      await executeStepList(opts.steps, 0);
+    } catch (err) {
+      let postObs = null;
+      try {
+        postObs = await observe({ hwnd: state.currentObs.hwnd, with_image: 'auto', with_uia: opts.with_uia || 'full', roi: opts.roi || null });
+      } catch {}
+      return {
+        ok: false,
+        completed_steps: state.completed,
+        assertions_passed: state.assertions_passed,
+        failed_step: err.failedIndex ?? 0,
+        error: { code: err.code || 'step_failed', message: err.message },
+        observation: postObs
+      };
     }
 
     let finalObs = null;
     if (opts.observe_after !== false) {
       finalObs = await observe({
-        hwnd: currentObs.hwnd,
+        hwnd: state.currentObs.hwnd,
         with_image: 'auto',
         with_uia: opts.with_uia || 'full',
         roi: opts.roi || null
@@ -681,7 +771,8 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     }
     return {
       ok: true,
-      completed_steps: completed,
+      completed_steps: state.completed,
+      assertions_passed: state.assertions_passed,
       observation: finalObs
     };
   }
@@ -805,6 +896,56 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('clipboard_set', { kind: clipboard_kind || kind, text, image_path, files });
   }
 
+  async function saveMacro({ name, description = '', steps, defaults = {}, mode = null, coord_space = null, lock_region = null, lock_policy = null } = {}) {
+    const check = validatePlanSteps(steps, { processName: '', confirmSensitive: true, allowRestricted: true, reason: 'macro_save' });
+    if (!check.valid) {
+      const err = new Error(check.message);
+      err.code = check.code;
+      err.stepIndex = check.stepIndex;
+      throw err;
+    }
+    return macros.save({ name, description, steps, defaults, mode, coord_space, lock_region, lock_policy });
+  }
+
+  async function listMacros() {
+    return macros.list();
+  }
+
+  async function deleteMacro({ name } = {}) {
+    return macros.remove(name);
+  }
+
+  async function runMacro({ name, vars = {}, hwnd = 0, observation_id = '', confirm_sensitive = false, allow_restricted = false, observe_after = false, lock_region, lock_policy, reason = '' } = {}) {
+    const rec = macros.get(name);
+    if (!rec) {
+      const err = new Error(`Macro '${name}' not found.`);
+      err.code = 'macro_not_found';
+      throw err;
+    }
+    const renderedSteps = renderMacroSteps(rec.steps, vars, rec.defaults || {});
+    let useObsId = observation_id;
+    let useHwnd = hwnd;
+    if (!useObsId) {
+      const autoObs = await observe({ hwnd: useHwnd, with_image: false, with_uia: 'full' });
+      useObsId = autoObs.observation_id;
+      useHwnd = autoObs.hwnd;
+    }
+    const planRes = await plan({
+      hwnd: useHwnd,
+      observation_id: useObsId,
+      steps: renderedSteps,
+      mode: rec.mode || undefined,
+      coord_space: rec.coord_space || undefined,
+      lock_region: lock_region ?? rec.lock_region ?? undefined,
+      lock_policy: lock_policy ?? rec.lock_policy ?? undefined,
+      confirm_sensitive,
+      allow_restricted,
+      observe_after,
+      reason: reason || `macro:${rec.name}`
+    });
+    return { ...planRes, macro: rec.name };
+  }
+
   async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000, follow_window = false, status_text = '' } = {}) {
     return host.request('lock', { action, hwnd, region, policy, ttl_ms, follow_window, status_text });
   }
@@ -834,6 +975,10 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     extractTable,
     clipboardGet,
     clipboardSet,
+    saveMacro,
+    listMacros,
+    deleteMacro,
+    runMacro,
     lockRegion,
     stop,
     close: () => host.close()

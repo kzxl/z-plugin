@@ -65,6 +65,12 @@ const ALLOWED_PLAN_ACTIONS = new Set([
   'wait_ocr',
   'wait_pixel_color',
   'wait_template',
+  'if_control',
+  'if_ocr',
+  'if_pixel',
+  'assert_control',
+  'assert_ocr',
+  'assert_pixel',
   'wait_settle',
   'wait_text',
   'wait_control',
@@ -280,7 +286,32 @@ export function validateParallelLanes(lanes, policyContext = {}) {
   return { valid: true };
 }
 
-export function validatePlanSteps(steps, policyContext = {}) {
+const NON_MUTATING_PLAN_ACTIONS = new Set([
+  'wait_settle',
+  'wait_text',
+  'wait_control',
+  'wait_window',
+  'wait_ocr',
+  'wait_pixel_color',
+  'wait_template',
+  'assert_control',
+  'assert_ocr',
+  'assert_pixel',
+  'refresh_uia',
+  'sleep'
+]);
+
+const CONDITIONAL_PLAN_ACTIONS = new Set(['if_control', 'if_ocr', 'if_pixel']);
+
+export function validatePlanSteps(steps, policyContext = {}, depth = 0) {
+  if (depth > 4) {
+    return {
+      valid: false,
+      stepIndex: -1,
+      code: 'max_nesting_exceeded',
+      message: 'Conditional branch nesting exceeds max depth (4).'
+    };
+  }
   if (!Array.isArray(steps) || steps.length < 1 || steps.length > 200) {
     return {
       valid: false,
@@ -301,7 +332,33 @@ export function validatePlanSteps(steps, policyContext = {}) {
       };
     }
 
-    if (step.action === 'wait_settle' || step.action === 'wait_text' || step.action === 'wait_control' || step.action === 'refresh_uia' || step.action === 'sleep') {
+    if (NON_MUTATING_PLAN_ACTIONS.has(step.action)) {
+      continue;
+    }
+
+    if (CONDITIONAL_PLAN_ACTIONS.has(step.action)) {
+      const hasThen = Array.isArray(step.then_steps) && step.then_steps.length > 0;
+      const hasElse = Array.isArray(step.else_steps) && step.else_steps.length > 0;
+      if (!hasThen && !hasElse) {
+        return {
+          valid: false,
+          stepIndex: i,
+          code: 'invalid_plan_step',
+          message: `Conditional step ${i} (${step.action}) must define non-empty then_steps or else_steps.`
+        };
+      }
+      if (hasThen) {
+        const subThen = validatePlanSteps(step.then_steps, policyContext, depth + 1);
+        if (!subThen.valid) {
+          return { ...subThen, stepIndex: i };
+        }
+      }
+      if (hasElse) {
+        const subElse = validatePlanSteps(step.else_steps, policyContext, depth + 1);
+        if (!subElse.valid) {
+          return { ...subElse, stepIndex: i };
+        }
+      }
       continue;
     }
 
