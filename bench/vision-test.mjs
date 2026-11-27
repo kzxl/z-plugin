@@ -261,7 +261,12 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
       { action: 'select_item', index: 2, value: 'Beta', reason: 'Select option' },
       { action: 'set_range', index: 3, value: '50', reason: 'Set slider' },
       { action: 'snap_window', snap: 'left', reason: 'Snap window' },
+      { action: 'hover', x: 100, y: 100, duration_ms: 50, reason: 'Hover target' },
+      { action: 'modifier_drag', from: [10, 10], to: [40, 40], modifiers: 'shift', reason: 'Shift drag' },
       { action: 'wait_window', filter: 'Open', timeout_ms: 2000 },
+      { action: 'wait_ocr', text: 'Total', timeout_ms: 1000 },
+      { action: 'wait_pixel_color', x: 10, y: 10, target_rgb: [255, 255, 255], timeout_ms: 1000 },
+      { action: 'wait_template', template_path: 'C:\\temp\\tpl.png', timeout_ms: 1000 },
       { action: 'file_dialog', file_path: 'C:\\temp\\a.png', confirm: true, reason: 'Choose file' },
       { action: 'refresh_uia' },
       { action: 'wait_control', name: 'OK' },
@@ -573,7 +578,9 @@ if (process.platform === 'win32') {
     ok(typeof st.pen_injection_available === 'boolean', `Native status reports pen_injection_available=${st.pen_injection_available}`);
     ok(st.region_lock && st.region_lock.active === false, 'Native status reports region_lock.active=false initially');
 
-    // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel + Phase 1 tests
+    // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel + Phase 1/2 tests
+    const markerTplPath = path.join(tmpNativeDir, 'marker-tpl.png');
+    const escapedMarkerPath = markerTplPath.replace(/'/g, "''");
     const psScript = [
       'Add-Type -AssemblyName System.Windows.Forms',
       'Add-Type -AssemblyName System.Drawing',
@@ -609,7 +616,18 @@ if (process.platform === 'win32') {
       "$i1 = New-Object System.Windows.Forms.ListViewItem('SKU-01'); [void]$i1.SubItems.Add('10'); [void]$lv.Items.Add($i1)",
       "$i2 = New-Object System.Windows.Forms.ListViewItem('SKU-02'); [void]$i2.SubItems.Add('25'); [void]$lv.Items.Add($i2)",
       '$lv.SetBounds(20, 215, 220, 90)',
-      '$f.Controls.AddRange(@($lbl, $btn, $cmb, $btnDlg, $lv))',
+      '$mbmp = New-Object System.Drawing.Bitmap(48, 48)',
+      '$mg = [System.Drawing.Graphics]::FromImage($mbmp)',
+      '$mg.Clear([System.Drawing.Color]::FromArgb(10, 30, 60))',
+      '$wpen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 4)',
+      '$mg.DrawLine($wpen, 4, 4, 44, 44); $mg.DrawLine($wpen, 44, 4, 4, 44)',
+      '$mg.FillEllipse([System.Drawing.Brushes]::Gold, 14, 14, 20, 20)',
+      '$wpen.Dispose(); $mg.Dispose()',
+      `$mbmp.Save('${escapedMarkerPath}', [System.Drawing.Imaging.ImageFormat]::Png)`,
+      '$pic = New-Object System.Windows.Forms.PictureBox',
+      '$pic.SetBounds(340, 220, 48, 48)',
+      '$pic.Image = $mbmp',
+      '$f.Controls.AddRange(@($lbl, $btn, $cmb, $btnDlg, $lv, $pic))',
       "$f.Add_Shown({ [Console]::Out.WriteLine('READY:' + $f.Handle.ToInt64()); [Console]::Out.Flush() })",
       '[System.Windows.Forms.Application]::Run($f)'
     ].join('\n');
@@ -918,6 +936,77 @@ if (process.platform === 'win32') {
     await new Promise((r) => setTimeout(r, 80));
     const wRest = await engine.windows({ filter: 'ZVisionProbeWindow' });
     ok(wRest.windows[0].minimized === false, 'restore unminimized probe window');
+
+    // Phase 2: Multi-scale matchTemplate + template_path selector + hover + modifier_drag + visual waiters + HUD
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: (await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' })).observation_id,
+      action: 'move_window',
+      x: 40,
+      y: 40,
+      width: 520,
+      height: 360,
+      reason: 'Reset probe geometry for Phase 2 checks'
+    });
+    const mtRes = await engine.matchTemplate({
+      hwnd: candidate.hwnd,
+      template_path: markerTplPath,
+      min_score: 0.9,
+      scales: [0.85, 1.0, 1.15],
+      max_matches: 3
+    });
+    ok(mtRes.found === true && mtRes.score >= 0.9 && Array.isArray(mtRes.matches) && mtRes.matches.length >= 1, `Native multi-scale matchTemplate found marker (score=${mtRes.score}, scale=${mtRes.scale})`);
+
+    const obsHover = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    const hoverTplAct = await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsHover.observation_id,
+      action: 'hover',
+      mode: 'virtual',
+      show_arrows: false,
+      template_path: markerTplPath,
+      min_score: 0.85,
+      duration_ms: 40,
+      reason: 'Hover directly over matched marker template'
+    });
+    ok(hoverTplAct.ok === true, 'act(hover) resolved target via template_path');
+
+    const cb2 = (await engine.windows({ filter: 'ZVisionProbeWindow' })).windows[0].client_bounds;
+    const obsP2Plan = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    const p2Steps = [
+      { action: 'wait_pixel_color', x: cb2.x + 300, y: cb2.y + 150, coord_space: 'screen', target_rgb: [255, 255, 255], tolerance: 15, timeout_ms: 3000 },
+      { action: 'wait_template', template_path: markerTplPath, min_score: 0.85, timeout_ms: 3000 },
+      { action: 'hover', x: 200, y: 100, duration_ms: 30, reason: 'Plan hover step' },
+      { action: 'modifier_drag', from: [200, 100], to: [260, 120], modifiers: 'shift', steps: 2, reason: 'Shift+Drag in plan' }
+    ];
+    if (ocrRes.available) {
+      p2Steps.unshift({ action: 'wait_ocr', text: 'sample', timeout_ms: 4000 });
+    }
+    const planP2 = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: obsP2Plan.observation_id,
+      mode: 'virtual',
+      coord_space: 'client',
+      show_arrows: false,
+      lock_region: 'window',
+      lock_policy: 'soft',
+      with_uia: 'off',
+      steps: p2Steps
+    });
+    ok(planP2.ok === true && planP2.completed_steps === p2Steps.length, `Phase 2 plan (visual waiters + hover + modifier_drag + HUD) completed (${planP2.completed_steps}/${p2Steps.length}, err=${JSON.stringify(planP2.error || null)})`);
+
+    const hudOn = await engine.lockRegion({
+      action: 'lock',
+      hwnd: candidate.hwnd,
+      region: 'window',
+      follow_window: true,
+      status_text: 'Step 1/3: Syncing',
+      ttl_ms: 8000
+    });
+    ok(hudOn.active === true && hudOn.follow_window === true && hudOn.status_text === 'Step 1/3: Syncing', 'RegionLockOverlay HUD initialized status_text & follow_window');
+    const hudUpd = await engine.lockRegion({ action: 'status_text', status_text: 'Step 2/3: Done' });
+    ok(hudUpd.status_text === 'Step 2/3: Done', 'RegionLockOverlay HUD updated status_text dynamically');
+    await engine.lockRegion({ action: 'unlock' });
   } finally {
     if (engine && priorClipRestore) {
       try {

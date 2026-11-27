@@ -900,6 +900,228 @@ namespace ZVision.Native
             return denom < 1e-6 ? 0.0 : (num / denom);
         }
 
+        private sealed class TplHit
+        {
+            public double Score;
+            public double Scale;
+            public int X;
+            public int Y;
+            public int W;
+            public int H;
+        }
+
+        public static Dictionary<string, object> FindTemplateMulti(Bitmap screen, Bitmap tpl, double minScore, int originX, int originY, double[] scales, int maxMatches)
+        {
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            List<object> emptyList = new List<object>();
+            res["found"] = false;
+            res["score"] = 0.0;
+            res["matches"] = emptyList;
+            if (screen == null || tpl == null || tpl.Width < 4 || tpl.Height < 4) return res;
+
+            if (scales == null || scales.Length == 0) scales = new double[] { 1.0 };
+            int scaleCount = Math.Min(5, scales.Length);
+            int limit = Math.Max(1, Math.Min(16, maxMatches));
+            int sw = screen.Width, sh = screen.Height;
+            byte[] sg = ExtractGray(screen);
+
+            List<TplHit> allHits = new List<TplHit>();
+            for (int si = 0; si < scaleCount; si++)
+            {
+                double sc = Math.Max(0.5, Math.Min(2.0, scales[si]));
+                bool needResize = Math.Abs(sc - 1.0) >= 0.01;
+                Bitmap workTpl = tpl;
+                bool disposeWork = false;
+                if (needResize)
+                {
+                    int nw = Math.Max(4, (int)Math.Round(tpl.Width * sc));
+                    int nh = Math.Max(4, (int)Math.Round(tpl.Height * sc));
+                    if (nw > sw || nh > sh) continue;
+                    Bitmap scaled = new Bitmap(nw, nh, PixelFormat.Format32bppArgb);
+                    using (Graphics g = Graphics.FromImage(scaled))
+                    {
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(tpl, 0, 0, nw, nh);
+                    }
+                    workTpl = scaled;
+                    disposeWork = true;
+                }
+
+                try
+                {
+                    int tw = workTpl.Width, th = workTpl.Height;
+                    if (tw > sw || th > sh || tw < 4 || th < 4) continue;
+
+                    byte[] tg = ExtractGray(workTpl);
+                    double tMean = 0;
+                    for (int i = 0; i < tg.Length; i++) tMean += tg[i];
+                    tMean /= tg.Length;
+                    double tVar = 0;
+                    double[] tNorm = new double[tg.Length];
+                    for (int i = 0; i < tg.Length; i++)
+                    {
+                        double d = tg[i] - tMean;
+                        tNorm[i] = d;
+                        tVar += d * d;
+                    }
+                    if (tVar < 1e-6) continue;
+
+                    int maxX = sw - tw;
+                    int maxY = sh - th;
+                    if (limit == 1)
+                    {
+                        int bestX = 0, bestY = 0;
+                        double bestCoarse = -1.0;
+                        for (int y = 0; y <= maxY; y += 2)
+                        {
+                            for (int x = 0; x <= maxX; x += 2)
+                            {
+                                double score = ComputePatchNcc(sg, sw, x, y, tNorm, tw, th, tVar, 2);
+                                if (score > bestCoarse)
+                                {
+                                    bestCoarse = score;
+                                    bestX = x;
+                                    bestY = y;
+                                }
+                            }
+                        }
+
+                        int fx0 = Math.Max(0, bestX - 3), fx1 = Math.Min(maxX, bestX + 3);
+                        int fy0 = Math.Max(0, bestY - 3), fy1 = Math.Min(maxY, bestY + 3);
+                        double bestFine = -1.0;
+                        for (int y = fy0; y <= fy1; y++)
+                        {
+                            for (int x = fx0; x <= fx1; x++)
+                            {
+                                double score = ComputePatchNcc(sg, sw, x, y, tNorm, tw, th, tVar, 1);
+                                if (score > bestFine)
+                                {
+                                    bestFine = score;
+                                    bestX = x;
+                                    bestY = y;
+                                }
+                            }
+                        }
+                        if (bestFine >= minScore)
+                        {
+                            TplHit hit = new TplHit();
+                            hit.Score = bestFine; hit.Scale = sc;
+                            hit.X = bestX; hit.Y = bestY; hit.W = tw; hit.H = th;
+                            allHits.Add(hit);
+                        }
+                    }
+                    else
+                    {
+                        double coarseFloor = Math.Max(0.45, minScore - 0.12);
+                        List<TplHit> coarse = new List<TplHit>();
+                        for (int y = 0; y <= maxY; y += 2)
+                        {
+                            for (int x = 0; x <= maxX; x += 2)
+                            {
+                                double score = ComputePatchNcc(sg, sw, x, y, tNorm, tw, th, tVar, 2);
+                                if (score >= coarseFloor)
+                                {
+                                    TplHit cHit = new TplHit();
+                                    cHit.Score = score; cHit.X = x; cHit.Y = y;
+                                    coarse.Add(cHit);
+                                }
+                            }
+                        }
+                        coarse.Sort(delegate(TplHit a, TplHit b) { return b.Score.CompareTo(a.Score); });
+                        int refineCap = Math.Min(64, coarse.Count);
+                        for (int ci = 0; ci < refineCap; ci++)
+                        {
+                            int cx0 = coarse[ci].X, cy0 = coarse[ci].Y;
+                            int fx0 = Math.Max(0, cx0 - 2), fx1 = Math.Min(maxX, cx0 + 2);
+                            int fy0 = Math.Max(0, cy0 - 2), fy1 = Math.Min(maxY, cy0 + 2);
+                            int bx = cx0, by = cy0;
+                            double bs = -1.0;
+                            for (int y = fy0; y <= fy1; y++)
+                            {
+                                for (int x = fx0; x <= fx1; x++)
+                                {
+                                    double score = ComputePatchNcc(sg, sw, x, y, tNorm, tw, th, tVar, 1);
+                                    if (score > bs) { bs = score; bx = x; by = y; }
+                                }
+                            }
+                            if (bs >= minScore)
+                            {
+                                TplHit hit = new TplHit();
+                                hit.Score = bs; hit.Scale = sc;
+                                hit.X = bx; hit.Y = by; hit.W = tw; hit.H = th;
+                                allHits.Add(hit);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    if (disposeWork && workTpl != null) workTpl.Dispose();
+                }
+            }
+
+            if (allHits.Count == 0) return res;
+            allHits.Sort(delegate(TplHit a, TplHit b) { return b.Score.CompareTo(a.Score); });
+
+            List<TplHit> kept = new List<TplHit>();
+            for (int i = 0; i < allHits.Count && kept.Count < limit; i++)
+            {
+                TplHit cand = allHits[i];
+                int ccx = cand.X + cand.W / 2;
+                int ccy = cand.Y + cand.H / 2;
+                bool suppressed = false;
+                for (int k = 0; k < kept.Count; k++)
+                {
+                    TplHit ex = kept[k];
+                    int ecx = ex.X + ex.W / 2;
+                    int ecy = ex.Y + ex.H / 2;
+                    if (Math.Abs(ccx - ecx) <= Math.Max(6, ex.W * 0.5) &&
+                        Math.Abs(ccy - ecy) <= Math.Max(6, ex.H * 0.5))
+                    {
+                        suppressed = true;
+                        break;
+                    }
+                }
+                if (!suppressed) kept.Add(cand);
+            }
+
+            if (kept.Count == 0) return res;
+            List<object> matchList = new List<object>();
+            for (int i = 0; i < kept.Count; i++)
+            {
+                TplHit h = kept[i];
+                int hcx = h.X + h.W / 2;
+                int hcy = h.Y + h.H / 2;
+                Dictionary<string, object> md = new Dictionary<string, object>(StringComparer.Ordinal);
+                md["score"] = Math.Round(h.Score, 4);
+                md["scale"] = Math.Round(h.Scale, 3);
+                md["x"] = h.X;
+                md["y"] = h.Y;
+                md["width"] = h.W;
+                md["height"] = h.H;
+                md["cx"] = hcx;
+                md["cy"] = hcy;
+                md["screen_cx"] = originX + hcx;
+                md["screen_cy"] = originY + hcy;
+                matchList.Add(md);
+            }
+
+            TplHit best = kept[0];
+            res["found"] = true;
+            res["score"] = Math.Round(best.Score, 4);
+            res["scale"] = Math.Round(best.Scale, 3);
+            res["x"] = best.X;
+            res["y"] = best.Y;
+            res["width"] = best.W;
+            res["height"] = best.H;
+            res["cx"] = best.X + best.W / 2;
+            res["cy"] = best.Y + best.H / 2;
+            res["screen_cx"] = originX + best.X + best.W / 2;
+            res["screen_cy"] = originY + best.Y + best.H / 2;
+            res["matches"] = matchList;
+            return res;
+        }
+
         public static bool IsWinRtOcrAvailable()
         {
 #if HAS_WINRT_OCR

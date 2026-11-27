@@ -66,7 +66,7 @@ const TOOLS = [
       properties: {
         hwnd: { type: 'integer' },
         observation_id: { type: 'string' },
-        action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'clear_and_type', 'paste', 'set_value', 'key', 'focus', 'resize', 'expand', 'collapse', 'toggle', 'select_item', 'set_range', 'scroll_into_view', 'minimize', 'maximize', 'restore', 'move_window', 'snap_window', 'close_window', 'file_dialog'] },
+        action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'move', 'hover', 'drag', 'modifier_drag', 'scroll', 'type', 'clear_and_type', 'paste', 'set_value', 'key', 'focus', 'resize', 'expand', 'collapse', 'toggle', 'select_item', 'set_range', 'scroll_into_view', 'minimize', 'maximize', 'restore', 'move_window', 'snap_window', 'close_window', 'file_dialog'] },
         index: { type: 'integer' },
         name: { type: 'string' },
         role: { type: 'string' },
@@ -78,6 +78,10 @@ const TOOLS = [
         snap: { type: 'string', enum: ['left', 'right', 'top', 'bottom', 'center'] },
         file_path: { type: 'string' },
         confirm: { type: 'boolean' },
+        modifiers: { type: 'string' },
+        duration_ms: { type: 'integer' },
+        template_path: { type: 'string' },
+        min_score: { type: 'number' },
         coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
         mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia', 'auto'] },
         speed: { type: 'string', enum: ['instant', 'fast', 'normal', 'human'] },
@@ -168,7 +172,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['sample_pixels', 'find_color_bounds', 'vectorize_image', 'compare_reference', 'extract_table', 'clipboard_get', 'clipboard_set'] },
+        action: { type: 'string', enum: ['sample_pixels', 'find_color_bounds', 'vectorize_image', 'compare_reference', 'extract_table', 'clipboard_get', 'clipboard_set', 'match_template'] },
         hwnd: { type: 'integer' },
         index: { type: 'integer' },
         max_rows: { type: 'integer' },
@@ -179,6 +183,10 @@ const TOOLS = [
         tolerance: { type: 'integer' },
         invert: { type: 'boolean' },
         image_path: { type: 'string' },
+        template_path: { type: 'string' },
+        min_score: { type: 'number' },
+        scales: { type: 'array', items: { type: 'number' } },
+        max_matches: { type: 'integer' },
         save_image_path: { type: 'string' },
         clipboard_kind: { type: 'string', enum: ['text', 'image', 'files', 'clear'] },
         text: { type: 'string' },
@@ -302,6 +310,7 @@ async function handleTool(name, args = {}) {
       else if (args.action === 'extract_table') res = await engine.extractTable(args);
       else if (args.action === 'clipboard_get') res = await engine.clipboardGet(args);
       else if (args.action === 'clipboard_set') res = await engine.clipboardSet(args);
+      else if (args.action === 'match_template') res = await engine.matchTemplate(args);
       else throw new Error(`Unsupported analyze action: ${args.action}`);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }

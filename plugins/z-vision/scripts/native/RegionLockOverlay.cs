@@ -17,13 +17,35 @@ namespace ZVision.Native
         private const int WS_EX_TOPMOST = 0x00000008;
         private const int SW_SHOWNA = 8;
         private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+        private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         private const int MAX_TTL_MS = 30000;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         [DllImport("user32.dll")]
         private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
 
         private static readonly object _sync = new object();
         private static Thread _uiThread;
@@ -32,6 +54,9 @@ namespace ZVision.Native
 
         private static volatile bool _locked;
         private static volatile bool _excludeFromCapture;
+        private static volatile bool _followWindow;
+        private static volatile string _statusText;
+        private static int _statusVersion;
         private static long _targetHwndVal;
         private static int _x;
         private static int _y;
@@ -65,6 +90,11 @@ namespace ZVision.Native
 
         public static void Lock(Rectangle rect, IntPtr targetHwnd, string policy, int ttlMs)
         {
+            Lock(rect, targetHwnd, policy, ttlMs, false, null);
+        }
+
+        public static void Lock(Rectangle rect, IntPtr targetHwnd, string policy, int ttlMs, bool followWindow, string statusText)
+        {
             if (rect.Width <= 0 || rect.Height <= 0)
             {
                 Unlock();
@@ -84,6 +114,9 @@ namespace ZVision.Native
                 _w = rect.Width;
                 _h = rect.Height;
                 _policy = normPolicy;
+                _followWindow = followWindow && targetHwnd != IntPtr.Zero;
+                _statusText = ClipStatus(statusText);
+                Interlocked.Increment(ref _statusVersion);
                 Interlocked.Exchange(ref _targetHwndVal, targetHwnd.ToInt64());
                 Interlocked.Exchange(ref _unlockAtTick, unchecked(now + clampedTtl));
                 Interlocked.Exchange(ref _flashUntilTick, 0);
@@ -105,9 +138,25 @@ namespace ZVision.Native
             }
         }
 
+        public static void SetStatusText(string text)
+        {
+            _statusText = ClipStatus(text);
+            Interlocked.Increment(ref _statusVersion);
+        }
+
+        private static string ClipStatus(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string s = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return s.Length <= 64 ? s : s.Substring(0, 61) + "...";
+        }
+
         public static void Unlock()
         {
             _locked = false;
+            _followWindow = false;
+            _statusText = null;
+            Interlocked.Increment(ref _statusVersion);
             InputArm.ClearInputLock();
             if (_form != null && !_form.IsDisposed && _form.IsHandleCreated)
             {
@@ -158,6 +207,8 @@ namespace ZVision.Native
             d["ttl_remaining_ms"] = ttlRem;
             d["blocked_events"] = InputArm.GetBlockedEventCount();
             d["exclude_from_capture"] = _excludeFromCapture;
+            d["status_text"] = _statusText ?? "";
+            d["follow_window"] = _followWindow;
             if (active && w > 0 && h > 0)
             {
                 d["bounds"] = new List<object> { x, y, w, h };
@@ -173,6 +224,7 @@ namespace ZVision.Native
         {
             private readonly System.Windows.Forms.Timer _timer;
             private bool _lastFlash;
+            private int _lastStatusVersion;
 
             public LockForm()
             {
@@ -261,6 +313,35 @@ namespace ZVision.Native
                     return;
                 }
 
+                if (_followWindow)
+                {
+                    IntPtr th = new IntPtr(Interlocked.Read(ref _targetHwndVal));
+                    if (th != IntPtr.Zero && IsWindow(th))
+                    {
+                        if (IsIconic(th))
+                        {
+                            HideLock();
+                            return;
+                        }
+                        RECT vr;
+                        int hr = DwmGetWindowAttribute(th, DWMWA_EXTENDED_FRAME_BOUNDS, out vr, Marshal.SizeOf(typeof(RECT)));
+                        if (hr != 0)
+                        {
+                            if (!GetWindowRect(th, out vr)) vr = new RECT();
+                        }
+                        int nw = vr.Right - vr.Left;
+                        int nh = vr.Bottom - vr.Top;
+                        if (nw > 10 && nh > 10 && (vr.Left != _x || vr.Top != _y || nw != _w || nh != _h))
+                        {
+                            _x = vr.Left;
+                            _y = vr.Top;
+                            _w = nw;
+                            _h = nh;
+                            InputArm.SetInputLock(new Rectangle(_x, _y, _w, _h), th, _policy);
+                        }
+                    }
+                }
+
                 Rectangle desired = new Rectangle(_x, _y, _w, _h);
                 if (Bounds != desired)
                 {
@@ -272,11 +353,13 @@ namespace ZVision.Native
                     Visible = true;
                 }
 
+                int sv = Interlocked.CompareExchange(ref _statusVersion, 0, 0);
                 int flashUntil = Interlocked.CompareExchange(ref _flashUntilTick, 0, 0);
                 bool flashing = flashUntil != 0 && unchecked(flashUntil - now) > 0;
-                if (flashing != _lastFlash)
+                if (flashing != _lastFlash || sv != _lastStatusVersion)
                 {
                     _lastFlash = flashing;
+                    _lastStatusVersion = sv;
                     Invalidate();
                 }
             }
@@ -299,9 +382,10 @@ namespace ZVision.Native
                     g.DrawRectangle(borderPen, 1.5f, 1.5f, ClientSize.Width - 3f, ClientSize.Height - 3f);
                 }
 
+                string stText = _statusText;
                 string label = flashing
                     ? "Region Locked • Esc to Stop"
-                    : "Z-Vision Active • Esc to Stop";
+                    : (string.IsNullOrEmpty(stText) ? "Z-Vision Active • Esc to Stop" : ("Z-Vision • " + stText + " • Esc to Stop"));
 
                 using (Font font = new Font("Segoe UI", 8.5f, FontStyle.Bold))
                 {

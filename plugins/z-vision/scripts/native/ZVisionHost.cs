@@ -207,10 +207,18 @@ namespace ZVision.Native
                 RegionLockOverlay.Unlock();
                 return RegionLockOverlay.GetState();
             }
+            string statusText = JsonMini.GetString(p, "status_text", "");
+            if (act == "status_text")
+            {
+                RegionLockOverlay.SetStatusText(statusText);
+                return RegionLockOverlay.GetState();
+            }
 
             IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
             string policy = JsonMini.GetString(p, "policy", JsonMini.GetString(p, "lock_policy", "soft"));
             int ttlMs = JsonMini.GetInt(p, "ttl_ms", 30000);
+            bool defaultFollow = p.ContainsKey("region") && string.Equals(Convert.ToString(p["region"]), "window", StringComparison.OrdinalIgnoreCase);
+            bool followWin = JsonMini.GetBool(p, "follow_window", defaultFollow);
 
             Rectangle rect = ResolveLockRect(p, "region", hwnd);
             if (rect.IsEmpty && hwnd != IntPtr.Zero && IsWindow(hwnd))
@@ -224,7 +232,7 @@ namespace ZVision.Native
             if (rect.Width <= 0 || rect.Height <= 0)
                 throw new ArgumentException("invalid_argument: lock requires valid hwnd window or [x, y, w, h] region");
 
-            RegionLockOverlay.Lock(rect, hwnd, policy, ttlMs);
+            RegionLockOverlay.Lock(rect, hwnd, policy, ttlMs, followWin, statusText);
             return RegionLockOverlay.GetState();
         }
 
@@ -634,24 +642,35 @@ namespace ZVision.Native
             if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
             string tplPath = JsonMini.GetString(p, "template_path", "");
             double minScore = JsonMini.GetDouble(p, "min_score", 0.85);
+            int maxMatches = JsonMini.GetInt(p, "max_matches", 1);
+            List<object> roi = JsonMini.GetList(p, "roi");
+            List<object> scalesRaw = JsonMini.GetList(p, "scales");
             if (string.IsNullOrEmpty(tplPath) || !File.Exists(tplPath))
                 throw new ArgumentException("invalid_argument: template_path does not exist");
 
-            RECT r;
-            if (!GetWindowRect(hwnd, out r)) throw new InvalidOperationException("window_not_found: Cannot read window rect");
-            int winW = Math.Max(1, r.Right - r.Left);
-            int winH = Math.Max(1, r.Bottom - r.Top);
+            double[] scales = null;
+            if (scalesRaw != null && scalesRaw.Count > 0)
+            {
+                scales = new double[scalesRaw.Count];
+                for (int i = 0; i < scalesRaw.Count; i++)
+                    scales[i] = Convert.ToDouble(scalesRaw[i], System.Globalization.CultureInfo.InvariantCulture);
+            }
 
-            using (Bitmap screen = CaptureWindowBitmap(hwnd, r.Left, r.Top, winW, winH))
+            RECT visRect;
+            if (!GetVisibleWindowRect(hwnd, out visRect)) throw new InvalidOperationException("window_not_found: Cannot read window rect");
+            RECT rawRect;
+            if (!GetWindowRect(hwnd, out rawRect)) rawRect = visRect;
+
+            bool hasRoi = (roi != null && roi.Count == 4);
+            int ox = hasRoi ? Convert.ToInt32(roi[0]) : visRect.Left;
+            int oy = hasRoi ? Convert.ToInt32(roi[1]) : visRect.Top;
+            int ow = hasRoi ? Math.Max(1, Convert.ToInt32(roi[2])) : Math.Max(1, visRect.Right - visRect.Left);
+            int oh = hasRoi ? Math.Max(1, Convert.ToInt32(roi[3])) : Math.Max(1, visRect.Bottom - visRect.Top);
+
+            using (Bitmap screen = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, ox, oy, ow, oh))
             using (Bitmap tpl = new Bitmap(tplPath))
             {
-                Dictionary<string, object> match = VisionMath.FindTemplateNcc(screen, tpl, minScore);
-                if (JsonMini.GetBool(match, "found", false))
-                {
-                    match["screen_cx"] = r.Left + JsonMini.GetInt(match, "cx", 0);
-                    match["screen_cy"] = r.Top + JsonMini.GetInt(match, "cy", 0);
-                }
-                return match;
+                return VisionMath.FindTemplateMulti(screen, tpl, minScore, ox, oy, scales, maxMatches);
             }
         }
 
@@ -808,11 +827,42 @@ namespace ZVision.Native
         private static bool IsProbeableAutoAction(string action)
         {
             return action == "click" || action == "double_click" || action == "right_click" ||
-                   action == "drag" || action == "batch_strokes" || action == "scroll" ||
+                   action == "drag" || action == "modifier_drag" || action == "batch_strokes" || action == "scroll" ||
                    action == "type" || action == "clear_and_type" || action == "set_value";
         }
 
         private static bool ExecuteSingleAction(
+            Dictionary<string, object> p,
+            IntPtr hwnd,
+            string action,
+            string execMode,
+            int arrowId,
+            bool showArrows,
+            string speed,
+            int pxPerStep,
+            int pressure,
+            int x,
+            int y,
+            int index,
+            bool physical,
+            bool manageFocus)
+        {
+            string modifiers = JsonMini.GetString(p, "modifiers", "");
+            bool isPointerOp = (action == "click" || action == "double_click" || action == "right_click" ||
+                                action == "drag" || action == "modifier_drag" || action == "batch_strokes" || action == "scroll");
+            if (!string.IsNullOrEmpty(modifiers) && isPointerOp)
+            {
+                bool modRes = false;
+                InputArm.WithModifiers(modifiers, delegate()
+                {
+                    modRes = ExecuteSingleActionCore(p, hwnd, action, execMode, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocus);
+                });
+                return modRes;
+            }
+            return ExecuteSingleActionCore(p, hwnd, action, execMode, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocus);
+        }
+
+        private static bool ExecuteSingleActionCore(
             Dictionary<string, object> p,
             IntPtr hwnd,
             string action,
@@ -881,7 +931,21 @@ namespace ZVision.Native
                     InputArm.MoveSmooth(x, y, JsonMini.GetInt(p, "steps", 6), InputArm.ResolveSpeedDelayMs(speed));
                 return false;
             }
-            if (action == "drag")
+            if (action == "hover")
+            {
+                int durMs = JsonMini.GetInt(p, "duration_ms", 400);
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                {
+                    VirtualPointer.VirtualMove(hwnd, x, y, arrowId, showArrows);
+                    if (durMs > 0) Thread.Sleep(Math.Min(5000, durMs));
+                }
+                else
+                {
+                    InputArm.Hover(x, y, durMs, JsonMini.GetInt(p, "steps", 6), InputArm.ResolveSpeedDelayMs(speed));
+                }
+                return false;
+            }
+            if (action == "drag" || action == "modifier_drag")
             {
                 List<int[]> pts = ParseDragPoints(p);
                 string btn = JsonMini.GetString(p, "button", "left");
@@ -1311,7 +1375,8 @@ namespace ZVision.Native
             {
                 string lockPolicy = JsonMini.GetString(p, "lock_policy", "soft");
                 int lockTtl = JsonMini.GetInt(p, "lock_ttl_ms", 30000);
-                RegionLockOverlay.Lock(lockRect, defaultHwnd, lockPolicy, lockTtl);
+                bool followWin = p.ContainsKey("lock_region") && string.Equals(Convert.ToString(p["lock_region"]), "window", StringComparison.OrdinalIgnoreCase);
+                RegionLockOverlay.Lock(lockRect, defaultHwnd, lockPolicy, lockTtl, followWin, string.Format("Plan 0/{0}", steps.Count));
                 didLockRegion = true;
             }
 
@@ -1332,6 +1397,12 @@ namespace ZVision.Native
                     Dictionary<string, object> st = steps[i] as Dictionary<string, object>;
                     if (st == null) { completed++; continue; }
                     string sa = JsonMini.GetString(st, "action", "");
+                    if (didLockRegion)
+                    {
+                        string lbl = JsonMini.GetString(st, "reason", sa);
+                        if (lbl.Length > 28) lbl = lbl.Substring(0, 25) + "...";
+                        RegionLockOverlay.SetStatusText(string.Format("Step {0}/{1}: {2}", i + 1, steps.Count, lbl));
+                    }
                     if (sa == "sleep")
                     {
                         Thread.Sleep(Math.Min(JsonMini.GetInt(st, "ms", 100), 5000));

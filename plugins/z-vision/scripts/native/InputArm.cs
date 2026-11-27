@@ -376,6 +376,21 @@ namespace ZVision.Native
             }
         }
 
+        public static void Hover(int targetX, int targetY, int durationMs, int steps, int stepDelayMs)
+        {
+            EnsureNotStopped();
+            MoveSmooth(targetX, targetY, Math.Max(1, steps), Math.Max(0, stepDelayMs));
+            int clamped = Math.Max(0, Math.Min(5000, durationMs));
+            int elapsed = 0;
+            while (elapsed < clamped)
+            {
+                EnsureNotStopped();
+                int slice = Math.Min(50, clamped - elapsed);
+                Thread.Sleep(slice);
+                elapsed += slice;
+            }
+        }
+
         public static void Click(int x, int y, string button, int clicks)
         {
             EnsureNotStopped();
@@ -503,6 +518,48 @@ namespace ZVision.Native
                     SendInputs(new INPUT[] { MakeKeyInput(vk, false) });
                     Thread.Sleep(8);
                 }
+            }
+            finally
+            {
+                for (int i = pressed.Count - 1; i >= 0; i--)
+                {
+                    ushort vk = pressed[i];
+                    SendInputs(new INPUT[] { MakeKeyInput(vk, true) });
+                    lock (LedgerLock) { HeldKeys.Remove(vk); }
+                }
+            }
+        }
+
+        public static void WithModifiers(string modifiers, Action work)
+        {
+            if (string.IsNullOrEmpty(modifiers))
+            {
+                work();
+                return;
+            }
+            EnsureNotStopped();
+            string[] parts = modifiers.Split(new char[] { '+', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            List<ushort> vks = new List<ushort>();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                ushort vk = ResolveVirtualKey(parts[i].Trim());
+                if (vk == 0) throw new ArgumentException("Unknown modifier token: " + parts[i]);
+                vks.Add(vk);
+            }
+            List<ushort> pressed = new List<ushort>();
+            try
+            {
+                for (int i = 0; i < vks.Count; i++)
+                {
+                    EnsureNotStopped();
+                    ushort vk = vks[i];
+                    lock (LedgerLock) { HeldKeys.Add(vk); }
+                    pressed.Add(vk);
+                    SendInputs(new INPUT[] { MakeKeyInput(vk, false) });
+                    Thread.Sleep(8);
+                }
+                Thread.Sleep(10);
+                work();
             }
             finally
             {

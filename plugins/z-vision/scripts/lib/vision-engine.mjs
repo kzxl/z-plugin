@@ -290,6 +290,8 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     if (opts.snap) payload.snap = opts.snap;
     if (opts.file_path) payload.file_path = opts.file_path;
     if (opts.confirm !== undefined) payload.confirm = opts.confirm !== false;
+    if (opts.modifiers) payload.modifiers = opts.modifiers;
+    if (opts.duration_ms != null) payload.duration_ms = opts.duration_ms;
     if (opts.show_arrows != null) {
       payload.show_arrows = opts.show_arrows === true;
     }
@@ -311,6 +313,22 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       if (opts.x == null && opts.y == null && (opts.action === 'type' || opts.action === 'clear_and_type' || opts.action === 'paste' || opts.action === 'set_value')) {
         payload.click_first = true;
       }
+    } else if (opts.template_path) {
+      const m = await matchTemplate({
+        hwnd: opts.hwnd ?? obs.hwnd,
+        template_path: opts.template_path,
+        min_score: opts.min_score ?? 0.85,
+        roi: opts.roi || null,
+        scales: opts.scales || null,
+        max_matches: 1
+      });
+      if (!m || !m.found) {
+        const err = new Error(`Template '${opts.template_path}' not found (best score=${m?.score ?? 0}).`);
+        err.code = 'target_not_found';
+        throw err;
+      }
+      payload.x = m.screen_cx;
+      payload.y = m.screen_cy;
     }
     if (Array.isArray(opts.from) && opts.from.length === 2 && Array.isArray(opts.to) && opts.to.length === 2) {
       const fPt = mapCoordsToScreen(obs, opts.from[0], opts.from[1], coordSpace);
@@ -395,7 +413,7 @@ export function createVisionEngine({ client = null, store = null } = {}) {
 
     let currentObs = obs;
     let completed = 0;
-    const isDynamicStep = (a) => a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' || a === 'wait_window' || a === 'refresh_uia';
+    const isDynamicStep = (a) => a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' || a === 'wait_window' || a === 'wait_ocr' || a === 'wait_pixel_color' || a === 'wait_template' || a === 'refresh_uia';
 
     let i = 0;
     while (i < opts.steps.length) {
@@ -474,6 +492,74 @@ export function createVisionEngine({ client = null, store = null } = {}) {
             }
             if (!matched) {
               const err = new Error(`wait_control timed out waiting for ${step.name || step.automation_id || step.role || 'control'}`);
+              err.code = 'wait_timeout';
+              throw err;
+            }
+          } else if (step.action === 'wait_ocr') {
+            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+            const needle = String(step.text || '').trim().toLowerCase();
+            const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
+            let matched = false;
+            while (Date.now() < deadline) {
+              const ocrRes = await ocr({ hwnd: currentObs.hwnd, roi: step.roi || opts.roi || null, language: step.language || '' });
+              const found = Boolean(ocrRes && ocrRes.available && String(ocrRes.text || '').toLowerCase().includes(needle));
+              if (wantGone ? !found : found) {
+                matched = true;
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 200));
+            }
+            if (!matched) {
+              const err = new Error(`wait_ocr timed out waiting for '${step.text || ''}'`);
+              err.code = 'wait_timeout';
+              throw err;
+            }
+          } else if (step.action === 'wait_pixel_color') {
+            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+            const pt = mapCoordsToScreen(currentObs, step.x || 0, step.y || 0, step.coord_space || opts.coord_space || 'image');
+            const target = step.target_rgb || step.rgb || [0, 0, 0];
+            const tol = Number(step.tolerance ?? 18);
+            const invert = step.invert === true;
+            let matched = false;
+            while (Date.now() < deadline) {
+              const pxRes = await samplePixels({ hwnd: currentObs.hwnd, points: [[pt.x, pt.y]] });
+              const px = pxRes?.pixels?.[0];
+              if (px && px.in_bounds) {
+                const dist = Math.hypot((px.r || 0) - (target[0] || 0), (px.g || 0) - (target[1] || 0), (px.b || 0) - (target[2] || 0));
+                if (invert ? dist > tol : dist <= tol) {
+                  matched = true;
+                  break;
+                }
+              }
+              await new Promise((r) => setTimeout(r, 120));
+            }
+            if (!matched) {
+              const err = new Error(`wait_pixel_color timed out at (${pt.x},${pt.y})`);
+              err.code = 'wait_timeout';
+              throw err;
+            }
+          } else if (step.action === 'wait_template') {
+            const deadline = Date.now() + Math.min(15000, Math.max(200, step.timeout_ms || 5000));
+            const wantGone = String(step.state || 'present').toLowerCase() === 'gone';
+            let matched = false;
+            while (Date.now() < deadline) {
+              const mt = await matchTemplate({
+                hwnd: currentObs.hwnd,
+                template_path: step.template_path,
+                min_score: step.min_score ?? 0.85,
+                roi: step.roi || opts.roi || null,
+                scales: step.scales || null,
+                max_matches: 1
+              });
+              const found = Boolean(mt && mt.found);
+              if (wantGone ? !found : found) {
+                matched = true;
+                break;
+              }
+              await new Promise((r) => setTimeout(r, 200));
+            }
+            if (!matched) {
+              const err = new Error(`wait_template timed out waiting for '${step.template_path || ''}'`);
               err.code = 'wait_timeout';
               throw err;
             }
@@ -687,8 +773,8 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('ocr', { hwnd, roi, language });
   }
 
-  async function matchTemplate({ hwnd = 0, template_path, min_score = 0.85 } = {}) {
-    return host.request('match_template', { hwnd, template_path, min_score });
+  async function matchTemplate({ hwnd = 0, template_path, min_score = 0.85, roi = null, scales = null, max_matches = 1 } = {}) {
+    return host.request('match_template', { hwnd, template_path, min_score, roi, scales, max_matches });
   }
 
   async function samplePixels({ hwnd = 0, points = [] } = {}) {
@@ -719,8 +805,8 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('clipboard_set', { kind: clipboard_kind || kind, text, image_path, files });
   }
 
-  async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000 } = {}) {
-    return host.request('lock', { action, hwnd, region, policy, ttl_ms });
+  async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000, follow_window = false, status_text = '' } = {}) {
+    return host.request('lock', { action, hwnd, region, policy, ttl_ms, follow_window, status_text });
   }
 
   async function stop({ action = 'stop' } = {}) {
