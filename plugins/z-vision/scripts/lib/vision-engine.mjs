@@ -273,6 +273,14 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     if (opts.show_arrows != null) {
       payload.show_arrows = opts.show_arrows === true;
     }
+    if (opts.lock_region !== undefined && opts.lock_region !== null) {
+      payload.lock_region = opts.lock_region;
+      if (opts.lock_region === 'roi' && (opts.roi || obs.roi)) {
+        payload.roi = opts.roi || obs.roi;
+      }
+      if (opts.lock_policy) payload.lock_policy = opts.lock_policy;
+      if (opts.lock_ttl_ms != null) payload.lock_ttl_ms = opts.lock_ttl_ms;
+    }
 
     if (resolved.node && typeof resolved.node.i === 'number') {
       payload.index = resolved.node.i;
@@ -480,14 +488,21 @@ export function createVisionEngine({ client = null, store = null } = {}) {
 
         let batchHandled = false;
         try {
-          const batchRes = await host.request('plan_batch', {
+          const batchReq = {
             hwnd: opts.hwnd ?? currentObs.hwnd,
             mode: opts.mode || 'physical',
             speed: opts.speed || 'normal',
             px_per_step: opts.px_per_step || 0,
             restore_cursor: opts.restore_cursor === true,
             steps: batchPayloads
-          }, { timeoutMs: Math.max(30000, batchPayloads.length * 1000) });
+          };
+          if (opts.lock_region !== undefined && opts.lock_region !== null) {
+            batchReq.lock_region = opts.lock_region;
+            if (opts.lock_policy) batchReq.lock_policy = opts.lock_policy;
+            if (opts.lock_ttl_ms != null) batchReq.lock_ttl_ms = opts.lock_ttl_ms;
+            if (opts.roi || currentObs.roi) batchReq.roi = opts.roi || currentObs.roi;
+          }
+          const batchRes = await host.request('plan_batch', batchReq, { timeoutMs: Math.max(30000, batchPayloads.length * 1000) });
           batchHandled = true;
           if (batchRes && batchRes.ok === false) {
             const doneInBatch = batchRes.completed_steps || 0;
@@ -656,6 +671,10 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('compare_reference', { hwnd, image_path, roi, grid_cols, grid_rows, top_n });
   }
 
+  async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000 } = {}) {
+    return host.request('lock', { action, hwnd, region, policy, ttl_ms });
+  }
+
   async function stop({ action = 'stop' } = {}) {
     const res = await host.request('stop', { action });
     if (action === 'stop') {
@@ -678,6 +697,7 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     findColorBounds,
     vectorizeImage,
     compareReference,
+    lockRegion,
     stop,
     close: () => host.close()
   };

@@ -13,6 +13,7 @@ const CS_FILES = [
   'VisionMath.cs',
   'UiaTree.cs',
   'ArrowOverlay.cs',
+  'RegionLockOverlay.cs',
   'VirtualPointer.cs',
   'InputArm.cs',
   'ZVisionHost.cs'

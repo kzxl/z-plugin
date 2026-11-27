@@ -72,9 +72,11 @@ const TOOLS = [
         x: { type: 'integer' },
         y: { type: 'integer' },
         coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
-        mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia'] },
+        mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia', 'auto'] },
         speed: { type: 'string', enum: ['instant', 'fast', 'normal', 'human'] },
         expect_change: { type: 'boolean', description: 'Fail if canvas/window pixels did not change' },
+        lock_region: { description: "Dim+lock input: 'window'|'roi'|'none'|[x,y,w,h]" },
+        lock_policy: { type: 'string', enum: ['soft', 'strict'] },
         restore_cursor: { type: 'boolean' },
         show_arrows: { type: 'boolean' },
         from: { type: 'array', items: { type: 'integer' } },
@@ -104,11 +106,13 @@ const TOOLS = [
         observation_id: { type: 'string' },
         steps: { type: 'array', items: { type: 'object' }, description: '1..200 action steps' },
         coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
-        mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia'] },
+        mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia', 'auto'] },
         speed: { type: 'string', enum: ['instant', 'fast', 'normal', 'human'] },
         px_per_step: { type: 'integer' },
         with_uia: { type: 'string', enum: ['full', 'diff', 'off'] },
         roi: { type: 'array', items: { type: 'integer' } },
+        lock_region: { description: "Dim+lock input during plan: 'window'|'roi'|'none'|[x,y,w,h]" },
+        lock_policy: { type: 'string', enum: ['soft', 'strict'] },
         observe_after: { type: 'boolean' },
         restore_cursor: { type: 'boolean' },
         show_arrows: { type: 'boolean' },
@@ -238,7 +242,7 @@ async function handleTool(name, args = {}) {
       const res = await engine.act(args);
       if (res.observation) {
         const obsFmt = formatObserveResult(res.observation);
-        obsFmt.content[0].text = `[Z-VISION ACT OK] action=${res.action}\n` + obsFmt.content[0].text;
+        obsFmt.content[0].text = `[Z-VISION ACT OK] action=${res.action} resolved_mode=${res.resolved_mode || res.mode || 'physical'}\n` + obsFmt.content[0].text;
         return obsFmt;
       }
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };

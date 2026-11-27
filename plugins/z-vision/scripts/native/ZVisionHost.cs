@@ -22,6 +22,8 @@ namespace ZVision.Native
             InputArm.StartEmergencyHook();
             AppDomain.CurrentDomain.ProcessExit += delegate(object s, EventArgs e)
             {
+                RegionLockOverlay.Unlock();
+                InputArm.ClearInputLock();
                 InputArm.ReleaseAll();
                 InputArm.StopEmergencyHook();
             };
@@ -69,6 +71,8 @@ namespace ZVision.Native
                 Console.Out.Flush();
             }
 
+            RegionLockOverlay.Unlock();
+            InputArm.ClearInputLock();
             InputArm.ReleaseAll();
             InputArm.StopEmergencyHook();
             return 0;
@@ -76,6 +80,27 @@ namespace ZVision.Native
 
         private static readonly object UiaHashLock = new object();
         private static readonly Dictionary<long, string> LastUiaHashByHwnd = new Dictionary<long, string>();
+        private static readonly object CapLock = new object();
+        private static readonly Dictionary<long, string> CapabilityByHwnd = new Dictionary<long, string>();
+
+        private static string GetCachedCapability(long hwndVal)
+        {
+            if (hwndVal == 0) return null;
+            lock (CapLock)
+            {
+                string val;
+                return CapabilityByHwnd.TryGetValue(hwndVal, out val) ? val : null;
+            }
+        }
+
+        private static void SetCachedCapability(long hwndVal, string resolved)
+        {
+            if (hwndVal == 0 || string.IsNullOrEmpty(resolved)) return;
+            lock (CapLock)
+            {
+                CapabilityByHwnd[hwndVal] = resolved;
+            }
+        }
 
         private static object Dispatch(string cmd, Dictionary<string, object> p)
         {
@@ -93,6 +118,7 @@ namespace ZVision.Native
             if (cmd == "act") return HandleAct(p);
             if (cmd == "plan_batch") return HandlePlanBatch(p);
             if (cmd == "parallel") return HandleParallel(p);
+            if (cmd == "lock") return HandleLock(p);
             if (cmd == "stop") return HandleStop(p);
             throw new InvalidOperationException("unknown_command: " + cmd);
         }
@@ -112,8 +138,91 @@ namespace ZVision.Native
             res["cursor_pos"] = new List<object> { cx, cy };
             res["winrt_ocr_available"] = VisionMath.IsWinRtOcrAvailable();
             res["ocr_languages"] = VisionMath.GetOcrLanguages();
+            res["region_lock"] = RegionLockOverlay.GetState();
             res["monitors"] = GetMonitors();
             return res;
+        }
+
+        private static Rectangle ResolveLockRect(Dictionary<string, object> p, string key, IntPtr hwnd)
+        {
+            object rawObj = null;
+            if (p != null)
+            {
+                if (p.ContainsKey(key)) rawObj = p[key];
+                else if (key != "lock_region" && p.ContainsKey("lock_region")) rawObj = p["lock_region"];
+            }
+            if (rawObj == null) return Rectangle.Empty;
+
+            string spec = rawObj as string;
+            if (spec != null)
+            {
+                string s = spec.ToLowerInvariant().Trim();
+                if (s == "none" || s == "off" || s == "") return Rectangle.Empty;
+                if (s == "roi" && p.ContainsKey("roi"))
+                {
+                    List<object> roiList = p["roi"] as List<object>;
+                    if (roiList != null && roiList.Count == 4)
+                    {
+                        int rx = Convert.ToInt32(roiList[0]);
+                        int ry = Convert.ToInt32(roiList[1]);
+                        int rw = Convert.ToInt32(roiList[2]);
+                        int rh = Convert.ToInt32(roiList[3]);
+                        if (rw > 0 && rh > 0) return new Rectangle(rx, ry, rw, rh);
+                    }
+                }
+                if ((s == "window" || s == "roi") && hwnd != IntPtr.Zero && IsWindow(hwnd))
+                {
+                    RECT vr;
+                    if (GetVisibleWindowRect(hwnd, out vr))
+                    {
+                        int w = Math.Max(0, vr.Right - vr.Left);
+                        int h = Math.Max(0, vr.Bottom - vr.Top);
+                        if (w > 0 && h > 0) return new Rectangle(vr.Left, vr.Top, w, h);
+                    }
+                }
+                return Rectangle.Empty;
+            }
+
+            List<object> arr = rawObj as List<object>;
+            if (arr != null && arr.Count == 4)
+            {
+                int ax = Convert.ToInt32(arr[0]);
+                int ay = Convert.ToInt32(arr[1]);
+                int aw = Convert.ToInt32(arr[2]);
+                int ah = Convert.ToInt32(arr[3]);
+                if (aw > 0 && ah > 0) return new Rectangle(ax, ay, aw, ah);
+            }
+            return Rectangle.Empty;
+        }
+
+        private static Dictionary<string, object> HandleLock(Dictionary<string, object> p)
+        {
+            string act = JsonMini.GetString(p, "action", "lock").ToLowerInvariant();
+            bool activeFlag = JsonMini.GetBool(p, "active", true);
+            if (act == "unlock" || !activeFlag)
+            {
+                RegionLockOverlay.Unlock();
+                return RegionLockOverlay.GetState();
+            }
+
+            IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            string policy = JsonMini.GetString(p, "policy", JsonMini.GetString(p, "lock_policy", "soft"));
+            int ttlMs = JsonMini.GetInt(p, "ttl_ms", 30000);
+
+            Rectangle rect = ResolveLockRect(p, "region", hwnd);
+            if (rect.IsEmpty && hwnd != IntPtr.Zero && IsWindow(hwnd))
+            {
+                RECT vr;
+                if (GetVisibleWindowRect(hwnd, out vr))
+                {
+                    rect = new Rectangle(vr.Left, vr.Top, Math.Max(0, vr.Right - vr.Left), Math.Max(0, vr.Bottom - vr.Top));
+                }
+            }
+            if (rect.Width <= 0 || rect.Height <= 0)
+                throw new ArgumentException("invalid_argument: lock requires valid hwnd window or [x, y, w, h] region");
+
+            RegionLockOverlay.Lock(rect, hwnd, policy, ttlMs);
+            return RegionLockOverlay.GetState();
         }
 
         private static Dictionary<string, object> HandleWindows(Dictionary<string, object> p)
@@ -657,6 +766,207 @@ namespace ZVision.Native
             return ExecuteActInternal(p, arrowId, true);
         }
 
+        private static bool IsProbeableAutoAction(string action)
+        {
+            return action == "click" || action == "double_click" || action == "right_click" ||
+                   action == "drag" || action == "batch_strokes" || action == "scroll" ||
+                   action == "type" || action == "clear_and_type" || action == "set_value";
+        }
+
+        private static bool ExecuteSingleAction(
+            Dictionary<string, object> p,
+            IntPtr hwnd,
+            string action,
+            string execMode,
+            int arrowId,
+            bool showArrows,
+            string speed,
+            int pxPerStep,
+            int pressure,
+            int x,
+            int y,
+            int index,
+            bool physical,
+            bool manageFocus)
+        {
+            if (manageFocus && (execMode == "physical" || execMode == "pen") && hwnd != IntPtr.Zero && IsWindow(hwnd) && action != "move")
+            {
+                InputArm.EnsureForeground(hwnd, 120);
+            }
+
+            if (action == "focus")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                InputArm.EnsureForeground(hwnd, 150);
+                return false;
+            }
+            if (action == "click" || action == "double_click" || action == "right_click")
+            {
+                if (!physical && index >= 0 && hwnd != IntPtr.Zero)
+                {
+                    string uiaErr;
+                    if (!UiaTree.TrySemanticAction(hwnd, index, "click", null, out uiaErr))
+                        throw new InvalidOperationException("semantic_failed: " + uiaErr);
+                    return true;
+                }
+                string btn = action == "right_click" ? "right" : JsonMini.GetString(p, "button", "left");
+                int clicks = action == "double_click" ? 2 : JsonMini.GetInt(p, "clicks", 1);
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                {
+                    VirtualPointer.VirtualClick(hwnd, x, y, btn, clicks, arrowId, showArrows);
+                }
+                else if (execMode == "pen" && action != "right_click")
+                {
+                    VirtualPointer.PenClick(x, y, pressure, showArrows);
+                }
+                else if (execMode == "touch")
+                {
+                    List<List<int[]>> tracks = new List<List<int[]>>();
+                    List<int[]> pt = new List<int[]>();
+                    pt.Add(new int[] { x, y });
+                    pt.Add(new int[] { x, y });
+                    tracks.Add(pt);
+                    VirtualPointer.MultiTouchDrag(tracks, 1, showArrows);
+                }
+                else
+                {
+                    InputArm.Click(x, y, btn, clicks);
+                }
+                return false;
+            }
+            if (action == "move")
+            {
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                    VirtualPointer.VirtualMove(hwnd, x, y, arrowId, showArrows);
+                else
+                    InputArm.MoveSmooth(x, y, JsonMini.GetInt(p, "steps", 6), InputArm.ResolveSpeedDelayMs(speed));
+                return false;
+            }
+            if (action == "drag")
+            {
+                List<int[]> pts = ParseDragPoints(p);
+                string btn = JsonMini.GetString(p, "button", "left");
+                int steps = JsonMini.GetInt(p, "steps", 8);
+                int delayMs = InputArm.ResolveSpeedDelayMs(speed);
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                {
+                    VirtualPointer.VirtualDrag(hwnd, pts, btn, steps, arrowId, showArrows, delayMs);
+                }
+                else if (execMode == "pen")
+                {
+                    VirtualPointer.PenDrag(pts, steps, pressure, delayMs, showArrows);
+                }
+                else if (execMode == "touch")
+                {
+                    List<List<int[]>> tracks = new List<List<int[]>>();
+                    tracks.Add(pts);
+                    VirtualPointer.MultiTouchDrag(tracks, steps, showArrows);
+                }
+                else
+                {
+                    InputArm.Drag(pts, btn, steps, speed, pxPerStep);
+                }
+                return false;
+            }
+            if (action == "batch_strokes")
+            {
+                List<object> strokesObj = JsonMini.GetList(p, "strokes");
+                if (strokesObj == null || strokesObj.Count == 0)
+                    throw new ArgumentException("invalid_argument: batch_strokes requires non-empty strokes array");
+                string btn = JsonMini.GetString(p, "button", "left");
+                int steps = JsonMini.GetInt(p, "steps", 6);
+                int delayMs = InputArm.ResolveSpeedDelayMs(speed);
+                for (int si = 0; si < strokesObj.Count; si++)
+                {
+                    if (InputArm.IsEmergencyStopped)
+                        throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+                    List<int[]> sPts = ParseStrokeList(strokesObj[si] as List<object>);
+                    if (sPts.Count < 2) continue;
+                    if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                        VirtualPointer.VirtualDrag(hwnd, sPts, btn, steps, arrowId, showArrows, delayMs);
+                    else if (execMode == "pen")
+                        VirtualPointer.PenDrag(sPts, steps, pressure, delayMs, showArrows);
+                    else
+                        InputArm.Drag(sPts, btn, steps, speed, pxPerStep);
+                }
+                return false;
+            }
+            if (action == "scroll")
+            {
+                int amount = JsonMini.GetInt(p, "amount", -3);
+                bool horiz = JsonMini.GetBool(p, "horizontal", false);
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                    VirtualPointer.VirtualScroll(hwnd, x, y, amount, horiz);
+                else
+                    InputArm.Scroll(x, y, amount, horiz);
+                return false;
+            }
+            if (action == "type")
+            {
+                string text = JsonMini.GetString(p, "text", "");
+                if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                {
+                    if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
+                        VirtualPointer.VirtualClick(hwnd, x, y, "left", 1, arrowId, showArrows);
+                    VirtualPointer.VirtualType(hwnd, text);
+                }
+                else
+                {
+                    if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
+                    {
+                        InputArm.Click(x, y, "left", 1);
+                        Thread.Sleep(25);
+                    }
+                    InputArm.TypeUnicode(text);
+                }
+                return false;
+            }
+            if (action == "clear_and_type" || action == "set_value")
+            {
+                string valText = JsonMini.GetString(p, "text", "");
+                if (index >= 0 && hwnd != IntPtr.Zero)
+                {
+                    string uiaErr;
+                    if (UiaTree.TrySemanticAction(hwnd, index, "set_value", valText, out uiaErr))
+                        return true;
+                }
+                if (p.ContainsKey("x") && p.ContainsKey("y"))
+                {
+                    if (execMode == "virtual" && hwnd != IntPtr.Zero)
+                        VirtualPointer.VirtualClick(hwnd, x, y, "left", 1, arrowId, showArrows);
+                    else
+                        InputArm.Click(x, y, "left", 1);
+                    Thread.Sleep(25);
+                }
+                InputArm.ClearAndType(valText);
+                return false;
+            }
+            if (action == "paste")
+            {
+                if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
+                {
+                    InputArm.Click(x, y, "left", 1);
+                    Thread.Sleep(25);
+                }
+                InputArm.PasteText(JsonMini.GetString(p, "text", ""));
+                return false;
+            }
+            if (action == "key")
+            {
+                InputArm.PressChord(JsonMini.GetString(p, "keys", ""));
+                return false;
+            }
+            if (action == "resize")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                int cw = JsonMini.GetInt(p, "width", 800);
+                int ch = JsonMini.GetInt(p, "height", 600);
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, cw, ch, SWP_NOMOVE | SWP_NOZORDER);
+                return false;
+            }
+            throw new ArgumentException("unsupported_action: " + action);
+        }
+
         private static Dictionary<string, object> ExecuteActInternal(Dictionary<string, object> p, int arrowId, bool manageFocusAndCursor)
         {
             if (InputArm.IsEmergencyStopped)
@@ -664,7 +974,7 @@ namespace ZVision.Native
 
             IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
             string action = JsonMini.GetString(p, "action", "");
-            string mode = JsonMini.GetString(p, "mode", "physical").ToLowerInvariant();
+            string requestedMode = JsonMini.GetString(p, "mode", "physical").ToLowerInvariant();
             string speed = JsonMini.GetString(p, "speed", "normal");
             int pxPerStep = JsonMini.GetInt(p, "px_per_step", 0);
             int pressure = JsonMini.GetInt(p, "pressure", 720);
@@ -673,12 +983,26 @@ namespace ZVision.Native
             int index = JsonMini.GetInt(p, "index", -1);
             bool physical = JsonMini.GetBool(p, "physical", true);
             bool restoreCursor = JsonMini.GetBool(p, "restore_cursor", false);
-            bool showArrows = JsonMini.GetBool(p, "show_arrows", mode != "physical");
+            bool showArrows = JsonMini.GetBool(p, "show_arrows", requestedMode != "physical");
             bool expectChange = JsonMini.GetBool(p, "expect_change", false);
 
             int savedCx = 0, savedCy = 0;
-            bool shouldRestore = manageFocusAndCursor && restoreCursor && mode == "physical" && action != "move";
-            if (shouldRestore) InputArm.GetCursorPosition(out savedCx, out savedCy);
+            bool recordSavedCursor = manageFocusAndCursor && restoreCursor && action != "move";
+            if (recordSavedCursor) InputArm.GetCursorPosition(out savedCx, out savedCy);
+            bool physicalExecuted = false;
+
+            bool didLockRegion = false;
+            if (manageFocusAndCursor)
+            {
+                Rectangle lockRect = ResolveLockRect(p, "lock_region", hwnd);
+                if (lockRect.Width > 0 && lockRect.Height > 0)
+                {
+                    string lockPolicy = JsonMini.GetString(p, "lock_policy", "soft");
+                    int lockTtl = JsonMini.GetInt(p, "lock_ttl_ms", 30000);
+                    RegionLockOverlay.Lock(lockRect, hwnd, lockPolicy, lockTtl);
+                    didLockRegion = true;
+                }
+            }
 
             if (expectChange && hwnd != IntPtr.Zero && IsWindow(hwnd))
             {
@@ -693,207 +1017,118 @@ namespace ZVision.Native
                 }
             }
 
+            string resolvedMode = requestedMode;
+            bool semanticUsed = false;
+
             try
             {
-                if (manageFocusAndCursor && (mode == "physical" || mode == "pen") && hwnd != IntPtr.Zero && IsWindow(hwnd) && action != "move")
+                if (requestedMode == "auto")
                 {
-                    InputArm.EnsureForeground(hwnd, 120);
-                }
+                    if (index >= 0 && hwnd != IntPtr.Zero && IsWindow(hwnd) &&
+                        (action == "click" || action == "double_click" || action == "right_click" || action == "clear_and_type" || action == "set_value"))
+                    {
+                        string uiaOp = (action == "clear_and_type" || action == "set_value") ? "set_value" : "click";
+                        string uiaVal = (uiaOp == "set_value") ? JsonMini.GetString(p, "text", "") : null;
+                        string uiaErr;
+                        if (UiaTree.TrySemanticAction(hwnd, index, uiaOp, uiaVal, out uiaErr))
+                        {
+                            resolvedMode = "uia";
+                            semanticUsed = true;
+                        }
+                    }
 
-                if (action == "focus")
-                {
-                    if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
-                    InputArm.EnsureForeground(hwnd, 150);
-                }
-                else if (action == "click" || action == "double_click" || action == "right_click")
-                {
-                    if (!physical && index >= 0 && hwnd != IntPtr.Zero)
+                    if (!semanticUsed)
                     {
-                        string uiaErr;
-                        if (!UiaTree.TrySemanticAction(hwnd, index, "click", null, out uiaErr))
-                            throw new InvalidOperationException("semantic_failed: " + uiaErr);
-                    }
-                    else
-                    {
-                        string btn = action == "right_click" ? "right" : JsonMini.GetString(p, "button", "left");
-                        int clicks = action == "double_click" ? 2 : JsonMini.GetInt(p, "clicks", 1);
-                        if (mode == "virtual" && hwnd != IntPtr.Zero)
+                        if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || !IsProbeableAutoAction(action))
                         {
-                            VirtualPointer.VirtualClick(hwnd, x, y, btn, clicks, arrowId, showArrows);
-                        }
-                        else if (mode == "pen")
-                        {
-                            VirtualPointer.PenClick(x, y, pressure, showArrows);
-                        }
-                        else if (mode == "touch")
-                        {
-                            List<List<int[]>> tracks = new List<List<int[]>>();
-                            List<int[]> pt = new List<int[]>();
-                            pt.Add(new int[] { x, y });
-                            pt.Add(new int[] { x, y });
-                            tracks.Add(pt);
-                            VirtualPointer.MultiTouchDrag(tracks, 1, showArrows);
+                            resolvedMode = (action == "move" && hwnd != IntPtr.Zero) ? "virtual" : "physical";
+                            if (resolvedMode == "physical") physicalExecuted = true;
+                            semanticUsed = ExecuteSingleAction(p, hwnd, action, resolvedMode, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocusAndCursor);
                         }
                         else
                         {
-                            InputArm.Click(x, y, btn, clicks);
+                            string cachedCap = GetCachedCapability(hwnd.ToInt64());
+                            if (cachedCap != null)
+                            {
+                                resolvedMode = (cachedCap == "pen" && !(action == "drag" || action == "batch_strokes")) ? "virtual" : cachedCap;
+                                if (resolvedMode == "physical") physicalExecuted = true;
+                                semanticUsed = ExecuteSingleAction(p, hwnd, action, resolvedMode, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocusAndCursor);
+                            }
+                            else
+                            {
+                                string candidate = ((action == "drag" || action == "batch_strokes") && VirtualPointer.IsPenAvailable()) ? "pen" : "virtual";
+                                bool capturedPre = false;
+                                RECT vrA, rrA;
+                                if (GetVisibleWindowRect(hwnd, out vrA))
+                                {
+                                    if (!GetWindowRect(hwnd, out rrA)) rrA = vrA;
+                                    using (Bitmap preAuto = CaptureVisibleWindowBitmap(hwnd, rrA, vrA))
+                                    {
+                                        if (preAuto != null)
+                                        {
+                                            VisionMath.ComputeFrameDiff(hwnd.ToInt64(), "__auto__", preAuto, vrA.Left, vrA.Top);
+                                            capturedPre = true;
+                                        }
+                                    }
+                                }
+
+                                bool candidateFailed = false;
+                                try
+                                {
+                                    semanticUsed = ExecuteSingleAction(p, hwnd, action, candidate, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocusAndCursor);
+                                }
+                                catch (Exception)
+                                {
+                                    if (InputArm.IsEmergencyStopped) throw;
+                                    candidateFailed = true;
+                                }
+
+                                bool probeChanged = !candidateFailed;
+                                if (!candidateFailed && capturedPre && !semanticUsed)
+                                {
+                                    Thread.Sleep(35);
+                                    RECT vrB, rrB;
+                                    if (GetVisibleWindowRect(hwnd, out vrB))
+                                    {
+                                        if (!GetWindowRect(hwnd, out rrB)) rrB = vrB;
+                                        using (Bitmap postAuto = CaptureVisibleWindowBitmap(hwnd, rrB, vrB))
+                                        {
+                                            if (postAuto != null)
+                                            {
+                                                Dictionary<string, object> diffAuto = VisionMath.ComputeFrameDiff(hwnd.ToInt64(), "__auto__", postAuto, vrB.Left, vrB.Top);
+                                                probeChanged = JsonMini.GetBool(diffAuto, "visual_changed", true);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (probeChanged)
+                                {
+                                    resolvedMode = semanticUsed ? "uia" : candidate;
+                                    SetCachedCapability(hwnd.ToInt64(), resolvedMode == "uia" ? "virtual" : resolvedMode);
+                                }
+                                else
+                                {
+                                    resolvedMode = "physical";
+                                    physicalExecuted = true;
+                                    semanticUsed = ExecuteSingleAction(p, hwnd, action, "physical", arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, true, true);
+                                    SetCachedCapability(hwnd.ToInt64(), "physical");
+                                }
+                            }
                         }
                     }
-                }
-                else if (action == "move")
-                {
-                    if (mode == "virtual" && hwnd != IntPtr.Zero)
-                        VirtualPointer.VirtualMove(hwnd, x, y, arrowId, showArrows);
-                    else
-                        InputArm.MoveSmooth(x, y, JsonMini.GetInt(p, "steps", 6), InputArm.ResolveSpeedDelayMs(speed));
-                }
-                else if (action == "drag")
-                {
-                    List<int[]> pts = ParseDragPoints(p);
-                    string btn = JsonMini.GetString(p, "button", "left");
-                    int steps = JsonMini.GetInt(p, "steps", 8);
-                    int delayMs = InputArm.ResolveSpeedDelayMs(speed);
-                    if (mode == "virtual" && hwnd != IntPtr.Zero)
-                    {
-                        VirtualPointer.VirtualDrag(hwnd, pts, btn, steps, arrowId, showArrows, delayMs);
-                    }
-                    else if (mode == "pen")
-                    {
-                        VirtualPointer.PenDrag(pts, steps, pressure, delayMs, showArrows);
-                    }
-                    else if (mode == "touch")
-                    {
-                        List<List<int[]>> tracks = new List<List<int[]>>();
-                        tracks.Add(pts);
-                        VirtualPointer.MultiTouchDrag(tracks, steps, showArrows);
-                    }
-                    else
-                    {
-                        InputArm.Drag(pts, btn, steps, speed, pxPerStep);
-                    }
-                }
-                else if (action == "batch_strokes")
-                {
-                    List<object> strokesObj = JsonMini.GetList(p, "strokes");
-                    if (strokesObj == null || strokesObj.Count == 0)
-                        throw new ArgumentException("invalid_argument: batch_strokes requires non-empty strokes array");
-                    string btn = JsonMini.GetString(p, "button", "left");
-                    int steps = JsonMini.GetInt(p, "steps", 6);
-                    int delayMs = InputArm.ResolveSpeedDelayMs(speed);
-                    for (int si = 0; si < strokesObj.Count; si++)
-                    {
-                        if (InputArm.IsEmergencyStopped)
-                            throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
-                        List<int[]> sPts = ParseStrokeList(strokesObj[si] as List<object>);
-                        if (sPts.Count < 2) continue;
-                        if (mode == "virtual" && hwnd != IntPtr.Zero)
-                            VirtualPointer.VirtualDrag(hwnd, sPts, btn, steps, arrowId, showArrows, delayMs);
-                        else if (mode == "pen")
-                            VirtualPointer.PenDrag(sPts, steps, pressure, delayMs, showArrows);
-                        else
-                            InputArm.Drag(sPts, btn, steps, speed, pxPerStep);
-                    }
-                }
-                else if (action == "scroll")
-                {
-                    int amount = JsonMini.GetInt(p, "amount", -3);
-                    bool horiz = JsonMini.GetBool(p, "horizontal", false);
-                    if (mode == "virtual" && hwnd != IntPtr.Zero)
-                        VirtualPointer.VirtualScroll(hwnd, x, y, amount, horiz);
-                    else
-                        InputArm.Scroll(x, y, amount, horiz);
-                }
-                else if (action == "type")
-                {
-                    string text = JsonMini.GetString(p, "text", "");
-                    if (mode == "virtual" && hwnd != IntPtr.Zero)
-                    {
-                        if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
-                            VirtualPointer.VirtualClick(hwnd, x, y, "left", 1, arrowId, showArrows);
-                        VirtualPointer.VirtualType(hwnd, text);
-                    }
-                    else
-                    {
-                        if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
-                        {
-                            InputArm.Click(x, y, "left", 1);
-                            Thread.Sleep(25);
-                        }
-                        InputArm.TypeUnicode(text);
-                    }
-                }
-                else if (action == "clear_and_type")
-                {
-                    string valText = JsonMini.GetString(p, "text", "");
-                    if (index >= 0 && hwnd != IntPtr.Zero)
-                    {
-                        string uiaErr;
-                        if (UiaTree.TrySemanticAction(hwnd, index, "set_value", valText, out uiaErr))
-                        {
-                            Dictionary<string, object> okRes = new Dictionary<string, object>(StringComparer.Ordinal);
-                            okRes["executed"] = true;
-                            okRes["action"] = action;
-                            okRes["semantic"] = true;
-                            return okRes;
-                        }
-                    }
-                    if (p.ContainsKey("x") && p.ContainsKey("y"))
-                    {
-                        InputArm.Click(x, y, "left", 1);
-                        Thread.Sleep(25);
-                    }
-                    InputArm.ClearAndType(valText);
-                }
-                else if (action == "paste")
-                {
-                    if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
-                    {
-                        InputArm.Click(x, y, "left", 1);
-                        Thread.Sleep(25);
-                    }
-                    InputArm.PasteText(JsonMini.GetString(p, "text", ""));
-                }
-                else if (action == "set_value")
-                {
-                    string valText = JsonMini.GetString(p, "text", "");
-                    if (index >= 0 && hwnd != IntPtr.Zero)
-                    {
-                        string uiaErr;
-                        if (UiaTree.TrySemanticAction(hwnd, index, "set_value", valText, out uiaErr))
-                        {
-                            Dictionary<string, object> okRes = new Dictionary<string, object>(StringComparer.Ordinal);
-                            okRes["executed"] = true;
-                            okRes["action"] = action;
-                            okRes["semantic"] = true;
-                            return okRes;
-                        }
-                    }
-                    if (p.ContainsKey("x") && p.ContainsKey("y"))
-                    {
-                        InputArm.Click(x, y, "left", 1);
-                        Thread.Sleep(25);
-                    }
-                    InputArm.ClearAndType(valText);
-                }
-                else if (action == "key")
-                {
-                    InputArm.PressChord(JsonMini.GetString(p, "keys", ""));
-                }
-                else if (action == "resize")
-                {
-                    if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
-                    int cw = JsonMini.GetInt(p, "width", 800);
-                    int ch = JsonMini.GetInt(p, "height", 600);
-                    SetWindowPos(hwnd, IntPtr.Zero, 0, 0, cw, ch, SWP_NOMOVE | SWP_NOZORDER);
                 }
                 else
                 {
-                    throw new ArgumentException("unsupported_action: " + action);
+                    if (requestedMode == "physical") physicalExecuted = true;
+                    semanticUsed = ExecuteSingleAction(p, hwnd, action, requestedMode, arrowId, showArrows, speed, pxPerStep, pressure, x, y, index, physical, manageFocusAndCursor);
+                    if (semanticUsed) resolvedMode = "uia";
                 }
             }
             finally
             {
-                if (shouldRestore) InputArm.RestoreCursor(savedCx, savedCy);
+                if (didLockRegion) RegionLockOverlay.Unlock();
+                if (recordSavedCursor && physicalExecuted && action != "move") InputArm.RestoreCursor(savedCx, savedCy);
             }
 
             if (expectChange && hwnd != IntPtr.Zero && IsWindow(hwnd))
@@ -918,7 +1153,9 @@ namespace ZVision.Native
             Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
             res["executed"] = true;
             res["action"] = action;
-            res["mode"] = mode;
+            res["mode"] = requestedMode;
+            res["resolved_mode"] = resolvedMode;
+            if (semanticUsed) res["semantic"] = true;
             return res;
         }
 
@@ -947,8 +1184,19 @@ namespace ZVision.Native
             }
 
             int savedCx = 0, savedCy = 0;
-            bool shouldRestore = restoreCursor && hasPhysical;
+            bool shouldRestore = restoreCursor;
             if (shouldRestore) InputArm.GetCursorPosition(out savedCx, out savedCy);
+            bool anyPhysicalUsed = hasPhysical;
+
+            bool didLockRegion = false;
+            Rectangle lockRect = ResolveLockRect(p, "lock_region", defaultHwnd);
+            if (lockRect.Width > 0 && lockRect.Height > 0)
+            {
+                string lockPolicy = JsonMini.GetString(p, "lock_policy", "soft");
+                int lockTtl = JsonMini.GetInt(p, "lock_ttl_ms", 30000);
+                RegionLockOverlay.Lock(lockRect, defaultHwnd, lockPolicy, lockTtl);
+                didLockRegion = true;
+            }
 
             if (hasPhysical && defaultHwnd != IntPtr.Zero && IsWindow(defaultHwnd))
             {
@@ -956,6 +1204,7 @@ namespace ZVision.Native
             }
 
             int completed = 0;
+            List<object> resolvedModes = new List<object>();
             try
             {
                 for (int i = 0; i < steps.Count; i++)
@@ -984,7 +1233,10 @@ namespace ZVision.Native
                         {
                             InputArm.EnsureForeground(stepHwnd, 120);
                         }
-                        ExecuteActInternal(execP, 1, false);
+                        Dictionary<string, object> stepRes = ExecuteActInternal(execP, 1, false);
+                        string rm = JsonMini.GetString(stepRes, "resolved_mode", stepMode);
+                        if (rm == "physical") anyPhysicalUsed = true;
+                        if (!resolvedModes.Contains(rm)) resolvedModes.Add(rm);
                     }
                     completed++;
                 }
@@ -992,6 +1244,8 @@ namespace ZVision.Native
                 Dictionary<string, object> okRes = new Dictionary<string, object>(StringComparer.Ordinal);
                 okRes["ok"] = true;
                 okRes["completed_steps"] = completed;
+                okRes["resolved_modes"] = resolvedModes;
+                okRes["region_locked"] = didLockRegion;
                 return okRes;
             }
             catch (Exception ex)
@@ -1017,7 +1271,8 @@ namespace ZVision.Native
             }
             finally
             {
-                if (shouldRestore) InputArm.RestoreCursor(savedCx, savedCy);
+                if (didLockRegion) RegionLockOverlay.Unlock();
+                if (shouldRestore && anyPhysicalUsed) InputArm.RestoreCursor(savedCx, savedCy);
             }
         }
 

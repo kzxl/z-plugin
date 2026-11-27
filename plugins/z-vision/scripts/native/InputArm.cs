@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -8,6 +9,26 @@ namespace ZVision.Native
 {
     public static class InputArm
     {
+        private sealed class LockRegionState
+        {
+            public readonly int Left;
+            public readonly int Top;
+            public readonly int Right;
+            public readonly int Bottom;
+            public readonly IntPtr TargetHwnd;
+            public readonly bool Strict;
+
+            public LockRegionState(Rectangle r, IntPtr hwnd, bool strict)
+            {
+                Left = r.Left;
+                Top = r.Top;
+                Right = r.Right;
+                Bottom = r.Bottom;
+                TargetHwnd = hwnd;
+                Strict = strict;
+            }
+        }
+
         private static int _emergencyStopped = 0;
         private static readonly object LedgerLock = new object();
         private static readonly HashSet<ushort> HeldKeys = new HashSet<ushort>();
@@ -17,6 +38,10 @@ namespace ZVision.Native
         private static uint _hookThreadId = 0;
         private static IntPtr _hookHandle = IntPtr.Zero;
         private static HookProc _hookDelegate;
+        private static IntPtr _mouseHookHandle = IntPtr.Zero;
+        private static HookProc _mouseHookDelegate;
+        private static volatile LockRegionState _lockState;
+        private static long _blockedEventCount = 0;
 
         private static readonly object MetricsLock = new object();
         private static int _vx = 0;
@@ -118,12 +143,30 @@ namespace ZVision.Native
             get { return Interlocked.CompareExchange(ref _emergencyStopped, 0, 0) != 0; }
         }
 
+        public static void SetInputLock(Rectangle rect, IntPtr targetHwnd, string policy)
+        {
+            bool strict = string.Equals(policy, "strict", StringComparison.OrdinalIgnoreCase);
+            _lockState = new LockRegionState(rect, targetHwnd, strict);
+        }
+
+        public static void ClearInputLock()
+        {
+            _lockState = null;
+        }
+
+        public static long GetBlockedEventCount()
+        {
+            return Interlocked.Read(ref _blockedEventCount);
+        }
+
         public static void SetEmergencyStopped(bool value)
         {
             Interlocked.Exchange(ref _emergencyStopped, value ? 1 : 0);
             if (value)
             {
                 ArrowOverlay.ClearAll();
+                RegionLockOverlay.Unlock();
+                ClearInputLock();
                 ReleaseAll();
             }
         }
@@ -180,8 +223,10 @@ namespace ZVision.Native
             {
                 _hookThreadId = GetCurrentThreadId();
                 _hookDelegate = new HookProc(HookCallback);
+                _mouseHookDelegate = new HookProc(MouseHookCallback);
                 IntPtr hMod = GetModuleHandle(null);
                 _hookHandle = SetWindowsHookEx(WH_KEYBOARD_LL, _hookDelegate, hMod, 0);
+                _mouseHookHandle = SetWindowsHookEx(WH_MOUSE_LL, _mouseHookDelegate, hMod, 0);
                 ready.Set();
                 MSG msg;
                 while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
@@ -193,6 +238,11 @@ namespace ZVision.Native
                 {
                     UnhookWindowsHookEx(_hookHandle);
                     _hookHandle = IntPtr.Zero;
+                }
+                if (_mouseHookHandle != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(_mouseHookHandle);
+                    _mouseHookHandle = IntPtr.Zero;
                 }
             });
             _hookThread.IsBackground = true;
@@ -227,12 +277,68 @@ namespace ZVision.Native
                         if (isEsc || isCtrlAltF12)
                         {
                             Interlocked.Exchange(ref _emergencyStopped, 1);
-                            ThreadPool.QueueUserWorkItem(delegate(object _) { ReleaseAll(); });
+                            ClearInputLock();
+                            ThreadPool.QueueUserWorkItem(delegate(object _)
+                            {
+                                RegionLockOverlay.Unlock();
+                                ReleaseAll();
+                            });
+                            return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+                        }
+
+                        LockRegionState lockState = _lockState;
+                        if (lockState != null && lockState.TargetHwnd != IntPtr.Zero && GetForegroundWindow() == lockState.TargetHwnd)
+                        {
+                            bool isWin = info.vkCode == 0x5B || info.vkCode == 0x5C;
+                            bool isAltTab = info.vkCode == 0x09 &&
+                                ((info.flags & 0x20) != 0 || (GetAsyncKeyState(0x12) & 0x8000) != 0);
+                            if (!isWin && !isAltTab)
+                            {
+                                Interlocked.Increment(ref _blockedEventCount);
+                                RegionLockOverlay.NotifyBlockedInput();
+                                return new IntPtr(1);
+                            }
                         }
                     }
                 }
             }
             return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+        }
+
+        private static IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                LockRegionState lockState = _lockState;
+                if (lockState != null)
+                {
+                    MSLLHOOKSTRUCT info = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                    bool injected = (info.flags & LLMHF_INJECTED_MASK) != 0;
+                    if (!injected &&
+                        info.pt.X >= lockState.Left && info.pt.X < lockState.Right &&
+                        info.pt.Y >= lockState.Top && info.pt.Y < lockState.Bottom)
+                    {
+                        int msg = wParam.ToInt32();
+                        if (msg == WM_MOUSEMOVE)
+                        {
+                            if (lockState.Strict)
+                            {
+                                Interlocked.Increment(ref _blockedEventCount);
+                                RegionLockOverlay.NotifyBlockedInput();
+                                return new IntPtr(1);
+                            }
+                        }
+                        else if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN ||
+                                 msg == WM_XBUTTONDOWN || msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL)
+                        {
+                            Interlocked.Increment(ref _blockedEventCount);
+                            RegionLockOverlay.NotifyBlockedInput();
+                            return new IntPtr(1);
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
         }
 
         private static void EnsureNotStopped()
@@ -592,10 +698,30 @@ namespace ZVision.Native
         private const int SM_CYVIRTUALSCREEN = 79;
 
         private const int WH_KEYBOARD_LL = 13;
+        private const int WH_MOUSE_LL = 14;
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
         private const int WM_QUIT = 0x0012;
         private const uint LLKHF_INJECTED = 0x10;
+        private const uint LLMHF_INJECTED_MASK = 0x03;
+
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_RBUTTONDOWN = 0x0204;
+        private const int WM_MBUTTONDOWN = 0x0207;
+        private const int WM_MOUSEWHEEL = 0x020A;
+        private const int WM_XBUTTONDOWN = 0x020B;
+        private const int WM_MOUSEHWHEEL = 0x020E;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MSLLHOOKSTRUCT
+        {
+            public POINT pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
 
         private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
 

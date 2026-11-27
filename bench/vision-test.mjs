@@ -534,6 +534,7 @@ if (process.platform === 'win32') {
     ok(st.emergency_stopped === false, 'Native status reports emergency_stopped=false initially');
     ok(st.virtual_mouse === true, 'Native status reports virtual_mouse=true');
     ok(typeof st.pen_injection_available === 'boolean', `Native status reports pen_injection_available=${st.pen_injection_available}`);
+    ok(st.region_lock && st.region_lock.active === false, 'Native status reports region_lock.active=false initially');
 
     // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel test
     const psScript = [
@@ -699,8 +700,64 @@ if (process.platform === 'win32') {
     const ocrRes = await engine.ocr({ hwnd: candidate.hwnd });
     ok(ocrRes && typeof ocrRes.available === 'boolean', `Native OCR returned structured result (available=${ocrRes.available})`);
 
+    // Verify dimmed RegionLockOverlay + capture immunity + emergency unlock
+    const lockOn = await engine.lockRegion({
+      action: 'lock',
+      hwnd: candidate.hwnd,
+      region: [cb.x, cb.y, cb.w, cb.h],
+      policy: 'soft',
+      ttl_ms: 10000
+    });
+    ok(lockOn.active === true && Array.isArray(lockOn.bounds) && lockOn.bounds.length === 4, 'Native region lock activates overlay and bounds');
+    await new Promise((r) => setTimeout(r, 80));
+    const pxUnderLock = await engine.samplePixels({ hwnd: candidate.hwnd, points: [[cb.x + 300, cb.y + 150]] });
+    const lpt0 = pxUnderLock.pixels?.[0];
+    ok(lpt0 && lpt0.r > 240 && lpt0.g > 240 && lpt0.b > 240, `Capture remains immune to RegionLockOverlay (${lpt0?.hex}, exclude=${lockOn.exclude_from_capture})`);
+    const lockOff = await engine.lockRegion({ action: 'unlock' });
+    ok(lockOff.active === false, 'Native region lock unlocks cleanly');
+
+    // Verify mode=auto (UIA semantic + lock_region auto-unlock)
+    const obsAuto = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'full' });
+    const btnAuto = obsAuto.nodes.find((n) => n.name === 'ApplyProbe' || n.aid === 'btnApplyProbe');
+    const actAuto = await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsAuto.observation_id,
+      action: 'click',
+      mode: 'auto',
+      lock_region: 'window',
+      lock_policy: 'soft',
+      index: btnAuto.i,
+      reason: 'Verify mode=auto resolves UIA and unlocks region'
+    });
+    ok(actAuto.ok === true && actAuto.resolved_mode === 'uia', `mode=auto click with index resolved to ${actAuto.resolved_mode}`);
+    const stAfterAuto = await engine.status();
+    ok(stAfterAuto.region_lock && stAfterAuto.region_lock.active === false, 'mode=auto act auto-unlocked region overlay afterwards');
+
+    // Verify plan with mode=auto + lock_region=window
+    const obsPlanAuto = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    const planAuto = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: obsPlanAuto.observation_id,
+      mode: 'auto',
+      lock_region: 'window',
+      lock_policy: 'soft',
+      coord_space: 'client',
+      show_arrows: false,
+      with_uia: 'off',
+      steps: [
+        { action: 'batch_strokes', strokes: [[[200, 150], [320, 150]]], steps: 2, reason: 'auto mode plan batch stroke' }
+      ]
+    });
+    ok(planAuto.ok === true && planAuto.completed_steps === 1, `Plan with mode=auto + lock_region=window completed (err=${JSON.stringify(planAuto.error || null)})`);
+    const stAfterPlanAuto = await engine.status();
+    ok(stAfterPlanAuto.region_lock && stAfterPlanAuto.region_lock.active === false, 'Plan with lock_region auto-unlocked cleanly');
+
+    // Verify emergency stop clears any active region lock
+    await engine.lockRegion({ action: 'lock', hwnd: candidate.hwnd, region: 'window', policy: 'soft', ttl_ms: 10000 });
     const stopRes = await engine.stop({ action: 'stop' });
     ok(stopRes.emergency_stopped === true, 'Native emergency stop latched');
+    const stAfterStop = await engine.status();
+    ok(stAfterStop.region_lock && stAfterStop.region_lock.active === false, 'Emergency stop cleared active region lock');
     const resetRes = await engine.stop({ action: 'reset' });
     ok(resetRes.emergency_stopped === false, 'Native emergency stop reset cleanly');
   } finally {
