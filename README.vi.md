@@ -4,7 +4,7 @@
 [![Môi trường](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Nền tảng](https://img.shields.io/badge/N%E1%BB%81n%20t%E1%BA%A3ng-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Giao thức](https://img.shields.io/badge/Giao%20th%E1%BB%A9c-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Kiểm thử](https://img.shields.io/badge/Tests-30%20b%E1%BB%99%20test%20%7C%20660%2B%20assertions-brightgreen)](package.json)
+[![Kiểm thử](https://img.shields.io/badge/Tests-32%20b%E1%BB%99%20test%20%7C%20790%2B%20assertions-brightgreen)](package.json)
 [![Giấy phép](https://img.shields.io/badge/Gi%E1%BA%A5y%20ph%C3%A9p-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [Tiếng Việt](README.vi.md) · [Lộ trình phát triển](ROADMAP.md) · [Lịch sử cập nhật](CHANGELOG.md)
@@ -67,10 +67,11 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 | **Lỗ hổng bảo mật tiềm ẩn:** Agent truyền trực tiếp biến từ người dùng vào câu SQL hoặc lệnh thực thi hệ thống (`exec`). | **Taint Analysis (`z-gate`):** Phân tích luồng dữ liệu vào các điểm nhạy cảm, nhận biết sớm các mệnh đề guard (`if return`). | **Chống Taint Flow** |
 | **AI "mất trí nhớ" (Amnesia):** Cứ mở phiên chat mới là agent lại quên hết kinh nghiệm xử lý lỗi, lặp lại cùng một sai lầm cũ. | **Bộ nhớ dài hạn (`z-brain`):** Lưu trữ SQLite WAL cục bộ với tìm kiếm lai BM25 + Trigram để gọi lại bài học cũ tức thì. | **Học liên tục** |
 | **Code rác & AI Slop:** Agent tự ý chèn màu gradient tím neon, shadow quá khổ, tạo nút bấm chết (`onClick={() => {}}`). | **Anti-Slop AST Linter (`z-craft`):** Bắt buộc tuân thủ token màu của dự án và ma trận 4 trạng thái giao diện (4-State UX). | **Điểm chuẩn $\ge$ 90/100** |
+| **Tự động hóa Desktop bị mù giao diện:** Agent click lệch DPI, chiếm dụng chuột người dùng hoặc bó tay trước control không có nhãn UIA. | **Cánh tay Desktop Độc lập (`z-vision`):** Host C# 5 tự biên dịch kèm `dhash`, định vị UIA/OCR/SoM, `mode: "auto"` (`virtual`/`pen`/`physical`) và HUD khóa vùng nhập. | **Batch 200 bước 1-RPC** |
 
 ---
 
-## 🧩 5 Siêu năng lực cốt lõi
+## 🧩 6 Siêu năng lực cốt lõi
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -86,11 +87,10 @@ powershell -ExecutionPolicy Bypass -File install.ps1
              │ Tiết kiệm    │   │ Bộ nhớ dài hạn│ │   │ Diệt AI Slop │
              │ token & AST  │   │ SQLite FTS5  │ │    │ 4-State UX   │
              └──────────────┘   └──────────────┘ │    └──────────────┘
-                                ┌────────────────▼───┐
-                                │ z-mind  &  z-gate  │
-                                │ Chuẩn mực kỹ thuật │
-                                │ & Kiểm tra an toàn │
-                                └────────────────────┘
+                    ┌────────────────────────────▼───────┬────────────────┐
+                    │        z-mind  &  z-gate           │    z-vision    │
+                    │ Chuẩn mực kỹ thuật & Kiểm soát     │ Thị giác Win32 │
+                    └────────────────────────────────────┴────────────────┘
 ```
 
 ### 1. 🛡️ `z-token` — Tường lửa Token & Phân tích Call-Graph
@@ -128,6 +128,12 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - **Preview tương thích Host & Topology Canvas thật (`zcraft_preview`, `z-plugin canvas`):** Sinh preview chuẩn CSP Antigravity (`gstatic` Tailwind + CSS vars của host + `<agent-embed>`) và đồ thị SVG tương tác từ dữ liệu symbol thực tế của workspace.
 - **Cỗ máy thời gian (`zcraft_checkpoint`):** Chụp checkpoint 1 cú click để thử nghiệm thiết kế giao diện mà không làm bẩn lịch sử Git.
 
+### 6. 👁️ `z-vision` — Thị giác Desktop Windows & Cánh tay Tác vụ Chính xác
+- **Host Native 0 Dependency & Quan sát Tiết kiệm Token:** Tự biên dịch `ZVisionHost.exe` từ C# 5 bằng `.NET Framework 4.x` `csc.exe` có sẵn, kết hợp lọc frame trùng bằng 64-bit `dhash`, chụp trực tiếp ROI vùng foreground, UIA cache/diff (hỗ trợ `SelectionPattern`), gắn nhãn Set-of-Marks (`with_som`), hệ tọa độ tường minh và OCR `Windows.Media.Ocr` (WinRT).
+- **Điều khiển Đa chế độ & HUD Khóa Vùng (`zvision_act`, `zvision_parallel`, `zvision_stop`):** Tự chọn `mode: "auto"` (UIA -> probe/cache `pen` hoặc `virtual` qua diff khung hình -> `physical`), quản lý cửa sổ (`move_window`, `snap_window`, hộp thoại `#32770` `file_dialog`), vẽ vector nguyên bản (`draw_shape`), chạy song song tối đa 8 luồng `zvision_parallel`, và bảo vệ vùng thao tác bằng lớp phủ làm mờ `RegionLockOverlay` kèm dừng khẩn cấp `Esc` / `Ctrl+Alt+F12`.
+- **Batch 200 bước 1-RPC, Rẽ nhánh & Macro (`zvision_plan`):** Thực thi `plan_batch` kèm `retry` từng bước, bộ chờ UIA/OCR/pixel/template, rẽ nhánh điều kiện `if_*`, kiểm chứng E2E `assert_*`, và phát lại macro tham số hóa tốn 0 token (`macro_action`).
+- **Phân tích Trực quan & Audit Log Đã che Bí mật (`zvision_analyze`):** Đọc bảng phân trang (`extract_table` + `auto_scroll`), đọc/ghi `clipboard` (`text`/`image`/`files`), so khớp mẫu đa tỉ lệ (`match_template`), vector hóa ảnh raster, và ghi nhật ký JSONL đã che thông tin nhạy cảm.
+
 ---
 
 ## 📦 Các module & Extension trong Monorepo
@@ -140,6 +146,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 | [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.11.0` | **Hệ điều hành nhận thức:** 58 nguyên tắc kỹ thuật chuẩn hóa, Quy trình sửa lỗi 4 pha, Cổng đánh giá Net Engineering Value. |
 | [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.11.0` | **Cổng an toàn & Review:** Phân tích luồng Taint, Tận dụng helper có sẵn (`R_REUSE`), Audit diff trước khi commit, Git PreToolUse hook. |
 | [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.11.0` | **Tay nghề phần mềm (Craftsmanship):** Linter diệt AI slop, Sinh đặc tả UX 4 trạng thái, Canvas topology đồ thị lực SVG, Snapshot giao diện. |
+| [**`z-vision`**](plugins/z-vision) | **Plugin** | `1.11.0` | **Thị giác Desktop & Cánh tay Tác vụ:** Host C# 0 dependency, dHash/UIA/WinRT OCR/SoM, điều khiển auto/virtual/pen/physical, HUD khóa vùng nhập, batch 200 bước kèm macro/assertion và audit log đã che bí mật. |
 | [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.11.0` | **Phần mở rộng ERP:** Kiểm toán số học tài chính (`decimal` vs `double`), Quy trình bàn giao kho WMS 2 bước, Khóa chống xung đột SQL `UPDLOCK`. |
 
 ---
@@ -227,13 +234,13 @@ z-plugin dashboard --serve --open
 
 ## 🧪 Kiểm thử & Bằng chứng thực nghiệm (`R_PROOF`)
 
-Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 30 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
+Toàn bộ các gói và module đều được kiểm chứng độc lập bởi 32 bộ kiểm thử tự động đạt tiêu chuẩn Level 3+:
 
 ```bash
 # Kiểm tra cú pháp toàn bộ monorepo
 npm run check
 
-# Chạy toàn bộ 30 bộ test (hơn 660 assertions thành công)
+# Chạy toàn bộ 32 bộ test (hơn 790 assertions thành công)
 npm test
 
 # Đóng gói và kiểm tra ZIP plugin cho Qoder

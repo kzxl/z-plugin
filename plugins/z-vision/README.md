@@ -10,29 +10,44 @@ Sovereign Windows desktop perception and guarded precision agent arm for `z-plug
 
 ## Capabilities
 
-- **Token-Diet Observation & Launch (`zvision_windows`, `zvision_observe`)**:
-  - Built-in `launch_exe` / `launch_args` on `zvision_windows` returns both `bounds` (`DWMWA_EXTENDED_FRAME_BOUNDS`) and `client_bounds` (`GetClientRect`).
-  - Compact UI Automation (UIA) tree (`index`, `role`, `name`, `aid`, `rect`, supported patterns) hardened against transient COM disposal.
-  - 64-bit Difference Hash (`dhash`) ported from `ZeroGraphics.Vision`: when `with_image: "auto"` suppresses redundant unchanged frames, `image_size` resets to unscaled `bounds` dimensions so coordinate mapping stays exact.
-  - Per-Monitor DPI-aware window capture (`PrintWindow` with DWM-aligned `BitBlt` fallback) and explicit `coord_space` (`image` | `window` | `client` | `screen`).
-- **Native Windows OCR (`zvision_ocr`)**:
-  - Uses stock `Windows.Media.Ocr` (WinRT) when available on Windows 10/11, returning lines, words, and absolute screen coordinates; degrades gracefully when unavailable.
-- **Precision Physical, Virtual & Multi-Pointer Arm (`zvision_act`, `zvision_plan`, `zvision_parallel`)**:
-  - Physical pixel-center `SendInput` (`mode: "physical"`) with `restore_cursor` support, full UTF-16/Vietnamese `KEYEVENTF_UNICODE` typing, STA clipboard-preserving `paste`, hotkey chords (`key`), and semantic UIA `Invoke` / `SetValue` (`mode: "uia"` or `physical: false`).
+- **Token-Diet Observation, OCR & Set-of-Marks (`zvision_windows`, `zvision_observe`, `zvision_ocr`)**:
+  - Built-in `launch_exe` / `launch_args` and polling `wait_for` (`wait_state: "open"|"closed"`) on `zvision_windows`, returning both `bounds` (`DWMWA_EXTENDED_FRAME_BOUNDS`) and `client_bounds` (`GetClientRect`).
+  - Cached UI Automation (UIA) tree (`with_uia: "full"|"diff"|"off"`, `only_interactive`, supported patterns, plus `SelectionPattern` readback for read-only ComboBoxes) hardened against transient COM disposal.
+  - 64-bit Difference Hash (`dhash`) + `dirty_rect` + direct foreground `roi` capture: when `with_image: "auto"` suppresses redundant unchanged frames, `image_size` resets to unscaled `bounds` dimensions so coordinate mapping stays exact.
+  - Automatic Set-of-Marks (`with_som: "off"|"auto"|"on"`) tagging non-UIA controls with `som_id` anchors, plus Per-Monitor DPI-aware capture and explicit `coord_space` (`image` | `window` | `client` | `screen`).
+  - Stock `Windows.Media.Ocr` (WinRT) on Windows 10/11 returning lines, words, and absolute screen coordinates; degrades gracefully when unavailable.
+- **Multi-Mode Actuation, Window Manager & Shapes (`zvision_act`, `zvision_parallel`)**:
+  - **`mode: "auto"`**: Resolves the least-intrusive working path automatically — semantic UIA -> cached/probed `pen` (`PT_PEN`) or `virtual` verified via frame diff -> `physical` fallback.
+  - **Semantic UIA (`mode: "uia"`)**: `click`, `set_value`, `expand`, `collapse`, `toggle`, `select_item`, `set_range`, and `scroll_into_view`.
   - **Virtual Mouse (`mode: "virtual"`)**: Resolves leaf child windows (`ChildWindowFromPointEx` + `ScreenToClient`) and posts `WM_MOUSEMOVE` / `WM_LBUTTON*` / `WM_MOUSEWHEEL` / `WM_CHAR` directly to `HWND` without hijacking the hardware cursor or stealing focus.
-  - **Multi-Pointer & Multi-Arrow HUD (`zvision_parallel`, `ArrowOverlay.cs`)**: Executes up to 8 concurrent lanes (`virtual` per-lane `PostMessage` or Win8+ `touch` multi-contact `InjectTouchInput`) with numbered click-through topmost arrows (`#1`..`#N`).
-  - Sequential batch `zvision_plan` (up to 50 steps) with `wait_settle` (`dhash` stability) and `wait_text`, stopping immediately on first failure.
-- **Safety & Emergency Stop (`zvision_stop`)**:
+  - **Physical & Pen (`mode: "physical"` / `"pen"` / `"touch"`)**: Pixel-center `SendInput` / `PT_PEN` with `restore_cursor`, `hover`, `modifiers`, `modifier_drag`, UTF-16/Vietnamese `KEYEVENTF_UNICODE` typing, STA clipboard-preserving `paste`, and hotkey chords (`key`).
+  - **Window Manager & `#32770` File Dialogs**: `move_window`, `snap_window`, `minimize`, `maximize`, `restore`, `close_window`, and native `file_dialog` automation (address bar, filename box, Confirm/Open button).
+  - **Visual Targeting & Vector Shapes**: Target controls by `som_id` or `template_path`, draw native geometry primitives (`draw_shape`: `bezier` / `ellipse` / `rect` / `polygon`), and execute up to 8 concurrent `zvision_parallel` lanes (`virtual` or `touch`) with numbered click-through topmost arrows (`ArrowOverlay.cs`).
+- **1-RPC Batching, Branching, Assertions & Macros (`zvision_plan`)**:
+  - Executes up to **200** steps in a single 1-RPC `plan_batch` with per-step `retry`/`backoff_ms` and UIA/visual waiters (`wait_control`, `wait_window`, `wait_ocr`, `wait_pixel_color`, `wait_template`, `wait_settle`, `wait_text`).
+  - Supports conditional branching (`if_control`, `if_ocr`, `if_pixel`), end-to-end assertions (`assert_control`, `assert_ocr`, `assert_pixel`), and 0-token parameterized macro replay (`macro_action: save|run|list|delete`).
+- **Visual & Structured Analysis (`zvision_analyze`)**:
+  - `extract_table` (with `auto_scroll` / `max_pages` pagination for virtualized grids), `clipboard_get` / `clipboard_set` (`text` / `image` / `files` / `clear`), multi-scale `match_template` (`TemplateMatcher.cs`), tight-bbox `sample_pixels`, `find_color_bounds`, `vectorize_image`, and `compare_reference`.
+- **Safety, Region Input-Lock HUD & Audit Log (`zvision_stop`)**:
   - One-use `observation_id` with window-drift validation (`<= 4px`) and Stop-generation invalidation.
-  - Process tiers: UAC/credential helpers `blocked`; terminals/IDEs `click-only` by default; EN/VI sensitive labels & dangerous hotkeys require `confirm_sensitive: true`.
-  - Dedicated `WH_KEYBOARD_LL` hook: physical `Esc` or `Ctrl+Alt+F12` immediately halts input and releases held keys/buttons via `InputLedger`.
+  - Process tiers: UAC/credential helpers `blocked`; terminals/IDEs `click-only` by default (including `file_dialog`); EN/VI sensitive labels & destructive hotkeys (`Alt+F4`, `Win+R`, `close_window`) require `confirm_sensitive: true`.
+  - Dimmed click-through `RegionLockOverlay` (`lock_region`, `lock_policy: "soft"|"strict"`, `status_text`, `follow_window`, `WDA_EXCLUDEFROMCAPTURE`, `<= 30s` TTL) managed via `act`/`plan` or `zvision_stop(action="lock"|"unlock"|"status_text")`.
+  - Dedicated `WH_KEYBOARD_LL` emergency stop (`Esc` or `Ctrl+Alt+F12`), `InputLedger` key/button release, and secret-redacted JSONL audit logging (`~/.z-plugin/z-vision/audit.jsonl`).
 
 ## CLI Quick Usage
 
 ```bash
 node plugins/z-vision/scripts/cli.mjs build
 node plugins/z-vision/scripts/cli.mjs status
-node plugins/z-vision/scripts/cli.mjs windows
-node plugins/z-vision/scripts/cli.mjs observe 0 --image
-node plugins/z-vision/scripts/cli.mjs stop
+node plugins/z-vision/scripts/cli.mjs windows [filter]
+node plugins/z-vision/scripts/cli.mjs observe [hwnd] [--image] [--no-uia|--diff-uia]
+node plugins/z-vision/scripts/cli.mjs ocr [hwnd]
+node plugins/z-vision/scripts/cli.mjs table [hwnd] [index]
+node plugins/z-vision/scripts/cli.mjs clipboard [get|set-text <txt>|set-image <path>|clear]
+node plugins/z-vision/scripts/cli.mjs match <hwnd> <template_path> [min_score]
+node plugins/z-vision/scripts/cli.mjs macro [list|run <name> [hwnd]|delete <name>]
+node plugins/z-vision/scripts/cli.mjs lock [unlock|<hwnd> [status_text]]
+node plugins/z-vision/scripts/cli.mjs sample <hwnd> <x> <y>
+node plugins/z-vision/scripts/cli.mjs vectorize <image_path> [w] [h]
+node plugins/z-vision/scripts/cli.mjs stop [reset]
 ```

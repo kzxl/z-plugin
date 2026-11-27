@@ -4,7 +4,7 @@
 [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2022+-339933?logo=node.js)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Cursor%20%7C%20Claude%20Code%20%7C%20Antigravity%20%7C%20ZCode%20%7C%20Qoder%20%7C%20Windsurf-FF6F00)](https://github.com/kzxl/z-plugin)
 [![Protocol](https://img.shields.io/badge/Protocol-MCP%20JSON--RPC%202.0-8A2BE2)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/Tests-30%20passing%20%7C%20660%2B%20assertions-brightgreen)](package.json)
+[![Tests](https://img.shields.io/badge/Tests-32%20passing%20%7C%20790%2B%20assertions-brightgreen)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/kzxl/z-plugin?style=social)](https://github.com/kzxl/z-plugin/stargazers)
 
@@ -68,10 +68,11 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 | **Silent Security Sinks:** Agent passes unsanitized user inputs straight into SQL queries or shell execs. | **Inter-Procedural Taint Engine (`z-gate`):** Traces data flow down to sensitive sinks with branch-guard detection. | **Taint Defense** |
 | **AI Amnesia:** Repeating the exact same bug fix or gotcha explanation across different chat sessions. | **Episodic Memory Engine (`z-brain`):** Embedded SQLite WAL with hybrid BM25 + Trigram semantic recall. | **Continuous Learning** |
 | **AI Slop & Gradients:** Agent generates random neon gradients, floaty shadows, and dead click handlers. | **Anti-Slop AST Linter (`z-craft`):** Enforces design tokens, clean enterprise surfaces, and a mandatory 4-state UX matrix. | **Craftsmanship $\ge$ 90/100** |
+| **Blind Desktop GUI Automation:** Agent clicks wrong DPI coordinates, hijacks the user cursor, or fails on unlabelled custom canvases. | **Sovereign Desktop Arm (`z-vision`):** On-the-fly C# 5 host with `dhash`, UIA/OCR/SoM targeting, `mode: "auto"` (`virtual`/`pen`/`physical`), and region input-lock HUD. | **200-Step 1-RPC Arm** |
 
 ---
 
-## 🧩 The 5 Core Superpowers
+## 🧩 The 6 Core Superpowers
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -86,10 +87,10 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
              │   z-token    │   │   z-brain    │ │    │   z-craft    │
              │ Context Diet │   │ Episodic Mem │ │    │   Anti-Slop  │
              └──────────────┘   └──────────────┘ │    └──────────────┘
-                                ┌────────────────▼───┐
-                                │ z-mind  &  z-gate  │
-                                │ Engineering Quality│
-                                └────────────────────┘
+                    ┌────────────────────────────▼───────┬────────────────┐
+                    │       z-mind  &  z-gate            │    z-vision    │
+                    │     Engineering Quality            │  Desktop Arm   │
+                    └────────────────────────────────────┴────────────────┘
 ```
 
 ### 1. 🛡️ `z-token` — Context Firewall & Call-Graph Engine
@@ -128,6 +129,12 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 - **Host-Aligned Interactive Previews & Real Topology Canvas (`zcraft_preview`, `z-plugin canvas`):** Renders Antigravity CSP-compliant (`gstatic` Tailwind + host CSS tokens + `<agent-embed>`) previews and force-directed SVG topology graphs from real indexed workspace symbols.
 - **Vibe Time-Machine (`zcraft_checkpoint`):** 1-click snapshot checkpoints to safely experiment with UI redesigns without polluting Git history.
 
+### 6. 👁️ `z-vision` — Sovereign Windows Desktop Vision & Precision Agent Arm
+- **Zero-Dependency Native Host & Token-Diet Perception:** Compiles `ZVisionHost.exe` on-the-fly from C# 5 sources via stock `.NET Framework 4.x` `csc.exe`, combining 64-bit `dhash` frame suppression, direct foreground `roi` capture, cached/diff UIA (`SelectionPattern` included), Set-of-Marks (`with_som`), explicit coordinate spaces, and stock WinRT `Windows.Media.Ocr`.
+- **Auto/Multi-Mode Actuation & Region Lock HUD (`zvision_act`, `zvision_parallel`, `zvision_stop`):** Chooses `mode: "auto"` (UIA -> cached/probed `pen` or background `virtual` -> `physical` fallback), manages windows (`move_window`, `snap_window`, `#32770` `file_dialog`), draws native vector primitives (`draw_shape`), fans out up to 8 `zvision_parallel` lanes, and guards the target region with a dimmed click-through `RegionLockOverlay` + `Esc` / `Ctrl+Alt+F12` emergency stop.
+- **200-Step 1-RPC Batching, Branching & Macros (`zvision_plan`):** Runs `plan_batch` with per-step `retry`, UIA/OCR/pixel/template waiters, conditional `if_*` branches, `assert_*` E2E checks, and 0-token parameterized macros (`macro_action`).
+- **Visual Analysis & Redacted Audit Log (`zvision_analyze`):** Auto-scrolls virtualized grids (`extract_table`), reads/writes `clipboard` (`text`/`image`/`files`), matches multi-scale UI templates (`match_template`), vectorizes raster art, and writes secret-redacted JSONL audit logs.
+
 ---
 
 ## 📦 Monorepo Modules & Extensions
@@ -140,6 +147,7 @@ For **Qoder Desktop**, download `z-plugin-qoder-<version>.zip` from the [latest 
 | [**`z-mind`**](plugins/z-mind) | **Plugin** | `1.11.0` | **Cognitive OS & Invariants:** 58 canonical rules across 6 engineering pillars, 4-phase bug diagnosis, and Net Engineering Value refactor gate. |
 | [**`z-gate`**](plugins/z-gate) | **Plugin** | `1.11.0` | **Safety & Review Gate:** Taint data-flow analysis, helper reuse discovery (`R_REUSE`), pre-commit diff audit, and Git PreToolUse hook. |
 | [**`z-craft`**](plugins/z-craft) | **Plugin** | `1.11.0` | **UI Craftsmanship:** Anti-slop AST linter, 4-state UX micro-spec generator, interactive SVG topology canvas, and vibe time-machine. |
+| [**`z-vision`**](plugins/z-vision) | **Plugin** | `1.11.0` | **Desktop Vision & Agent Arm:** Zero-dependency C# native host, dHash/UIA/WinRT OCR/SoM, auto/virtual/pen/physical actuation, region input-lock HUD, 200-step 1-RPC batching with macros/assertions, and redacted audit log. |
 | [**`dlc-erp`**](extensions/dlc-erp) | **DLC** | `1.11.0` | **ERP Domain Extension:** Financial precision audits (`decimal` vs `double`), WMS handover validation, and SQL `UPDLOCK` enforcement. |
 
 ---
@@ -229,7 +237,7 @@ All modules are backed by rigorous automated test suites adhering to Level 3+ em
 # Check syntax across all packages & plugins
 npm run check
 
-# Run all 30 test suites (660+ passing assertions)
+# Run all 32 test suites (790+ passing assertions)
 npm test
 
 # Build and verify the Qoder plugin ZIP
