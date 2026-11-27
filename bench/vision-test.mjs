@@ -546,6 +546,42 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
   const rpcNames = batchCalls.map((c) => c.cmd);
   const batchRpcCount = rpcNames.filter((n) => n === 'plan_batch').length;
   ok(batchRes.ok === true && batchRes.completed_steps === 5 && batchRpcCount === 2, `plan_batch batches contiguous native steps around refresh_uia (${rpcNames.join(' -> ')})`);
+
+  // Step-level retry & non-retryable stop guard unit test
+  let retryAttempt = 0;
+  const retryEngine = createVisionEngine({
+    audit: false,
+    client: {
+      async request(cmd) {
+        if (cmd === 'observe') return { hwnd: 5050, process: 'app.exe', title: 'RetryApp', bounds: { x: 0, y: 0, w: 600, h: 400 }, image_size: { w: 600, h: 400 }, dhash: '0000000000000001', nodes: [{ i: 0, role: 'Button', name: 'Go', cx: 50, cy: 50 }] };
+        if (cmd === 'window_info') return { hwnd: 5050, bounds: { x: 0, y: 0, w: 600, h: 400 } };
+        if (cmd === 'plan_batch') {
+          retryAttempt++;
+          if (retryAttempt === 1) return { ok: false, completed_steps: 0, error: { code: 'step_failed', message: 'Transient UI lag' } };
+          if (retryAttempt === 2) return { ok: true, completed_steps: 1 };
+          return { ok: false, completed_steps: 0, error: { code: 'emergency_stopped', message: 'Esc halted' } };
+        }
+        throw new Error(`Unexpected cmd: ${cmd}`);
+      }
+    }
+  });
+  const obsRetry1 = await retryEngine.observe({ hwnd: 5050, with_image: false });
+  const retryPass = await retryEngine.plan({
+    hwnd: 5050,
+    observation_id: obsRetry1.observation_id,
+    observe_after: false,
+    steps: [{ action: 'click', index: 0, retry: 2, backoff_ms: 50, reason: 'Retry transient fail' }]
+  });
+  ok(retryPass.ok === true && retryPass.retries_used === 1, `Step-level retry recovered after transient failure (retries_used=${retryPass.retries_used})`);
+
+  const obsRetry2 = await retryEngine.observe({ hwnd: 5050, with_image: false });
+  const retryStop = await retryEngine.plan({
+    hwnd: 5050,
+    observation_id: obsRetry2.observation_id,
+    observe_after: false,
+    steps: [{ action: 'click', index: 0, retry: 3, backoff_ms: 50, reason: 'Must not retry on emergency_stopped' }]
+  });
+  ok(retryStop.ok === false && retryStop.error?.code === 'emergency_stopped' && retryStop.retries_used === 0, 'Non-retryable emergency_stopped bypasses step retry loop');
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +710,7 @@ if (process.platform === 'win32') {
       "[void]$lv.Columns.Add('Code', 90); [void]$lv.Columns.Add('Qty', 80)",
       "$i1 = New-Object System.Windows.Forms.ListViewItem('SKU-01'); [void]$i1.SubItems.Add('10'); [void]$lv.Items.Add($i1)",
       "$i2 = New-Object System.Windows.Forms.ListViewItem('SKU-02'); [void]$i2.SubItems.Add('25'); [void]$lv.Items.Add($i2)",
+      "foreach ($k in 3..12) { $it = New-Object System.Windows.Forms.ListViewItem(('SKU-' + $k.ToString('D2'))); [void]$it.SubItems.Add([string]($k * 5)); [void]$lv.Items.Add($it) }",
       '$lv.SetBounds(20, 215, 220, 90)',
       '$mbmp = New-Object System.Drawing.Bitmap(48, 48)',
       '$mg = [System.Drawing.Graphics]::FromImage($mbmp)',
@@ -1136,6 +1173,31 @@ if (process.platform === 'win32') {
 
     const delMac = await engine.deleteMacro({ name: 'select_probe_option' });
     ok(delMac.deleted === true, 'deleteMacro removed macro cleanly');
+
+    // Group 2: Auto-scroll ExtractTable, Set-of-Marks (with_som), and Redacted JSONL Audit Log
+    const tblScroll = await engine.extractTable({ hwnd: candidate.hwnd, auto_scroll: true, max_pages: 5 });
+    const rowsJson = JSON.stringify(tblScroll.rows);
+    ok(tblScroll.found === true && tblScroll.row_count >= 12 && rowsJson.includes('SKU-01') && rowsJson.includes('SKU-12'), `extractTable(auto_scroll=true) collected ${tblScroll.row_count} rows across scrolled view (pages=${tblScroll.pages_scrolled})`);
+
+    const obsSom = await engine.observe({ hwnd: candidate.hwnd, with_image: true, with_uia: 'off', with_som: 'on' });
+    ok(Array.isArray(obsSom.som_marks) && obsSom.som_marks.length >= 1 && typeof obsSom.image_base64 === 'string', `observe(with_som=on) generated ${obsSom.som_marks?.length} SoM marks & annotated screenshot`);
+    const somAct = await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsSom.observation_id,
+      action: 'hover',
+      mode: 'virtual',
+      som_id: obsSom.som_marks[0].id,
+      duration_ms: 20,
+      reason: 'Hover SoM mark #1'
+    });
+    ok(somAct.ok === true, `act(hover) resolved target via som_id=${obsSom.som_marks[0].id}`);
+
+    const auditPath = engine.getAuditLogPath();
+    ok(fs.existsSync(auditPath), `Redacted JSONL audit log exists (${path.basename(auditPath)})`);
+    const auditRaw = fs.readFileSync(auditPath, 'utf8');
+    const auditLines = auditRaw.trim().split(/\r?\n/).map((l) => JSON.parse(l));
+    ok(auditLines.some((e) => e.event === 'act') && auditLines.some((e) => e.event === 'plan') && auditLines.some((e) => e.event === 'lock'), 'Audit log recorded act, plan, and lock events');
+    ok(!auditRaw.includes('ZVISION_CLIP_2026') && !auditRaw.includes('image_base64'), 'Audit log strictly redacted sensitive text and image payloads');
   } finally {
     if (engine && priorClipRestore) {
       try {

@@ -160,7 +160,7 @@ export class ObservationStore {
     this.records = new Map();
   }
 
-  create({ hwnd, process, title = '', bounds, clientBounds = null, imageSize, nodes = [], dhash = '0000000000000000', ocr = null }) {
+  create({ hwnd, process, title = '', bounds, clientBounds = null, imageSize, nodes = [], dhash = '0000000000000000', ocr = null, somMarks = [] }) {
     const observationId = 'obs_' + randomUUID().replace(/-/g, '').slice(0, 12);
     const record = {
       observationId,
@@ -173,6 +173,7 @@ export class ObservationStore {
       nodes: Array.isArray(nodes) ? nodes : [],
       dhash: String(dhash || '0000000000000000'),
       ocr,
+      somMarks: Array.isArray(somMarks) ? somMarks : [],
       generation: this.generation,
       consumed: false,
       createdAt: Date.now()

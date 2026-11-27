@@ -1286,5 +1286,203 @@ namespace ZVision.Native
             return AwaitOp<bool>(op);
         }
 #endif
+
+        public static List<object> BuildSomMarks(Bitmap bmp, Dictionary<string, object> ocrResult, int originX, int originY, int maxMarks)
+        {
+            List<object> marks = new List<object>();
+            if (bmp == null || bmp.Width < 4 || bmp.Height < 4) return marks;
+            int cap = Math.Max(1, Math.Min(40, maxMarks <= 0 ? 30 : maxMarks));
+
+            if (ocrResult != null && ocrResult.ContainsKey("lines"))
+            {
+                List<object> lines = ocrResult["lines"] as List<object>;
+                if (lines != null)
+                {
+                    for (int i = 0; i < lines.Count && marks.Count < cap; i++)
+                    {
+                        Dictionary<string, object> lDict = lines[i] as Dictionary<string, object>;
+                        if (lDict == null) continue;
+                        List<object> b = lDict.ContainsKey("bounds") ? (lDict["bounds"] as List<object>) : null;
+                        if (b == null || b.Count != 4) continue;
+                        int x = Convert.ToInt32(b[0]);
+                        int y = Convert.ToInt32(b[1]);
+                        int w = Convert.ToInt32(b[2]);
+                        int h = Convert.ToInt32(b[3]);
+                        if (w < 8 || h < 8) continue;
+
+                        Dictionary<string, object> mk = new Dictionary<string, object>(StringComparer.Ordinal);
+                        mk["id"] = marks.Count + 1;
+                        mk["label"] = Convert.ToString(lDict.ContainsKey("text") ? lDict["text"] : "");
+                        mk["rect"] = new List<object> { x, y, w, h };
+                        mk["cx"] = x + w / 2;
+                        mk["cy"] = y + h / 2;
+                        mk["source"] = "ocr";
+                        marks.Add(mk);
+                    }
+                }
+            }
+
+            if (marks.Count < cap)
+            {
+                int gw = Math.Min(48, bmp.Width);
+                int gh = Math.Min(36, bmp.Height);
+                byte[] cellR = new byte[gw * gh];
+                byte[] cellG = new byte[gw * gh];
+                byte[] cellB = new byte[gw * gh];
+                BitmapData data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    int stride = Math.Abs(data.Stride);
+                    byte[] raw = new byte[stride * bmp.Height];
+                    Marshal.Copy(data.Scan0, raw, 0, raw.Length);
+                    for (int gy = 0; gy < gh; gy++)
+                    {
+                        int py = Math.Min(bmp.Height - 1, (int)((gy + 0.5) * bmp.Height / gh));
+                        int rowOff = py * stride;
+                        for (int gx = 0; gx < gw; gx++)
+                        {
+                            int px = Math.Min(bmp.Width - 1, (int)((gx + 0.5) * bmp.Width / gw));
+                            int off = rowOff + px * 4;
+                            int idx = gy * gw + gx;
+                            cellR[idx] = raw[off + 2];
+                            cellG[idx] = raw[off + 1];
+                            cellB[idx] = raw[off];
+                        }
+                    }
+                }
+                finally
+                {
+                    bmp.UnlockBits(data);
+                }
+
+                long sumR = 0, sumG = 0, sumB = 0;
+                int borderCnt = 0;
+                for (int gx = 0; gx < gw; gx++)
+                {
+                    sumR += cellR[gx] + cellR[(gh - 1) * gw + gx];
+                    sumG += cellG[gx] + cellG[(gh - 1) * gw + gx];
+                    sumB += cellB[gx] + cellB[(gh - 1) * gw + gx];
+                    borderCnt += 2;
+                }
+                int bgR = (int)(sumR / Math.Max(1, borderCnt));
+                int bgG = (int)(sumG / Math.Max(1, borderCnt));
+                int bgB = (int)(sumB / Math.Max(1, borderCnt));
+
+                bool[] fg = new bool[gw * gh];
+                for (int i = 0; i < fg.Length; i++)
+                {
+                    int diff = Math.Abs(cellR[i] - bgR) + Math.Abs(cellG[i] - bgG) + Math.Abs(cellB[i] - bgB);
+                    fg[i] = diff > 42;
+                }
+
+                bool[] seen = new bool[gw * gh];
+                int[] dx = new int[] { 1, -1, 0, 0 };
+                int[] dy = new int[] { 0, 0, 1, -1 };
+                double maxArea = bmp.Width * bmp.Height * 0.70;
+
+                for (int start = 0; start < fg.Length && marks.Count < cap; start++)
+                {
+                    if (!fg[start] || seen[start]) continue;
+                    Queue<int> q = new Queue<int>();
+                    q.Enqueue(start);
+                    seen[start] = true;
+                    int minGx = gw, maxGx = -1, minGy = gh, maxGy = -1;
+                    while (q.Count > 0)
+                    {
+                        int cur = q.Dequeue();
+                        int cy = cur / gw;
+                        int cx = cur % gw;
+                        if (cx < minGx) minGx = cx;
+                        if (cx > maxGx) maxGx = cx;
+                        if (cy < minGy) minGy = cy;
+                        if (cy > maxGy) maxGy = cy;
+                        for (int k = 0; k < 4; k++)
+                        {
+                            int nx = cx + dx[k], ny = cy + dy[k];
+                            if (nx < 0 || nx >= gw || ny < 0 || ny >= gh) continue;
+                            int nIdx = ny * gw + nx;
+                            if (fg[nIdx] && !seen[nIdx])
+                            {
+                                seen[nIdx] = true;
+                                q.Enqueue(nIdx);
+                            }
+                        }
+                    }
+
+                    int bx = originX + (int)Math.Floor((double)minGx * bmp.Width / gw);
+                    int by = originY + (int)Math.Floor((double)minGy * bmp.Height / gh);
+                    int bx2 = originX + (int)Math.Ceiling((double)(maxGx + 1) * bmp.Width / gw);
+                    int by2 = originY + (int)Math.Ceiling((double)(maxGy + 1) * bmp.Height / gh);
+                    int bw = Math.Max(1, bx2 - bx);
+                    int bh = Math.Max(1, by2 - by);
+                    if (bw < 16 || bh < 14 || (bw * (double)bh) > maxArea) continue;
+
+                    bool overlapsOcr = false;
+                    for (int m = 0; m < marks.Count; m++)
+                    {
+                        Dictionary<string, object> ex = marks[m] as Dictionary<string, object>;
+                        if (ex == null) continue;
+                        int exCx = Convert.ToInt32(ex["cx"]);
+                        int exCy = Convert.ToInt32(ex["cy"]);
+                        if (exCx >= bx && exCx <= bx + bw && exCy >= by && exCy <= by + bh)
+                        {
+                            overlapsOcr = true;
+                            break;
+                        }
+                    }
+                    if (overlapsOcr) continue;
+
+                    Dictionary<string, object> mk = new Dictionary<string, object>(StringComparer.Ordinal);
+                    mk["id"] = marks.Count + 1;
+                    mk["label"] = "region";
+                    mk["rect"] = new List<object> { bx, by, bw, bh };
+                    mk["cx"] = bx + bw / 2;
+                    mk["cy"] = by + bh / 2;
+                    mk["source"] = "visual";
+                    marks.Add(mk);
+                }
+            }
+            return marks;
+        }
+
+        public static void RenderSomOverlay(Bitmap scaledBmp, List<object> somMarks, int capW, int capH, int originX, int originY)
+        {
+            if (scaledBmp == null || somMarks == null || somMarks.Count == 0 || capW <= 0 || capH <= 0) return;
+            double sx = (double)scaledBmp.Width / capW;
+            double sy = (double)scaledBmp.Height / capH;
+
+            using (Graphics g = Graphics.FromImage(scaledBmp))
+            using (Pen ocrPen = new Pen(Color.FromArgb(255, 107, 0), 2f))
+            using (Pen visPen = new Pen(Color.FromArgb(0, 194, 255), 2f))
+            using (SolidBrush ocrBg = new SolidBrush(Color.FromArgb(220, 255, 107, 0)))
+            using (SolidBrush visBg = new SolidBrush(Color.FromArgb(220, 0, 140, 220)))
+            using (SolidBrush fg = new SolidBrush(Color.White))
+            using (Font font = new Font("Segoe UI", 8f, FontStyle.Bold))
+            {
+                for (int i = 0; i < somMarks.Count; i++)
+                {
+                    Dictionary<string, object> mk = somMarks[i] as Dictionary<string, object>;
+                    if (mk == null) continue;
+                    List<object> b = mk.ContainsKey("rect") ? (mk["rect"] as List<object>) : null;
+                    if (b == null || b.Count != 4) continue;
+
+                    int rx = (int)Math.Round((Convert.ToInt32(b[0]) - originX) * sx);
+                    int ry = (int)Math.Round((Convert.ToInt32(b[1]) - originY) * sy);
+                    int rw = Math.Max(4, (int)Math.Round(Convert.ToInt32(b[2]) * sx));
+                    int rh = Math.Max(4, (int)Math.Round(Convert.ToInt32(b[3]) * sy));
+                    bool isOcr = string.Equals(Convert.ToString(mk["source"]), "ocr", StringComparison.Ordinal);
+
+                    g.DrawRectangle(isOcr ? ocrPen : visPen, rx, ry, rw, rh);
+                    string badge = "[" + Convert.ToInt32(mk["id"]) + "]";
+                    SizeF sz = g.MeasureString(badge, font);
+                    int pw = (int)Math.Ceiling(sz.Width) + 4;
+                    int ph = (int)Math.Ceiling(sz.Height);
+                    int px = Math.Max(0, Math.Min(scaledBmp.Width - pw, rx));
+                    int py = Math.Max(0, Math.Min(scaledBmp.Height - ph, ry - ph + 2));
+                    g.FillRectangle(isOcr ? ocrBg : visBg, px, py, pw, ph);
+                    g.DrawString(badge, font, fg, px + 2, py);
+                }
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 import { createHostClient } from './host-client.mjs';
 import { createMacroStore, renderMacroSteps } from './macro-store.mjs';
+import { createAuditLogger } from './audit-log.mjs';
 import {
   ObservationStore,
   checkActionSafety,
@@ -92,6 +93,17 @@ function resolveTarget(obs, opts) {
     return { node: { name: hits[0].text, role: 'OcrText' }, screenX: hits[0].cx, screenY: hits[0].cy };
   }
 
+  if (opts.som_id != null) {
+    const marks = obs?.somMarks || [];
+    const mk = marks.find((m) => m.id === opts.som_id);
+    if (!mk) {
+      const err = new Error(`SoM mark id ${opts.som_id} not found in observation.`);
+      err.code = 'target_not_found';
+      throw err;
+    }
+    return { node: { name: mk.label || `som#${mk.id}`, role: 'SomMark' }, screenX: mk.cx, screenY: mk.cy };
+  }
+
   if (opts.x != null && opts.y != null) {
     const pt = mapCoordsToScreen(obs, opts.x, opts.y, opts.coord_space || 'image');
     return { node: null, screenX: pt.x, screenY: pt.y };
@@ -100,10 +112,11 @@ function resolveTarget(obs, opts) {
   return { node: null, screenX: undefined, screenY: undefined };
 }
 
-export function createVisionEngine({ client = null, store = null, dataDir = null } = {}) {
+export function createVisionEngine({ client = null, store = null, dataDir = null, audit = true } = {}) {
   const host = client || createHostClient();
   const observations = store || new ObservationStore();
   const macros = createMacroStore(dataDir ? { dataDir } : {});
+  const auditLog = createAuditLogger({ ...(dataDir ? { dataDir } : {}), enabled: audit !== false });
   const lastDhashByHwnd = new Map();
   const lastNodesByHwnd = new Map();
 
@@ -147,6 +160,7 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     only_interactive = false,
     with_image = 'auto',
     with_uia = 'full',
+    with_som = 'off',
     roi = null,
     max_width = 1280,
     with_ocr = false,
@@ -163,6 +177,7 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
       with_image: requestImage,
       auto_gate: with_image === 'auto',
       with_uia,
+      with_som,
       roi: Array.isArray(roi) && roi.length === 4 ? roi.map((v) => Math.round(v)) : null,
       max_width,
       with_ocr,
@@ -215,7 +230,8 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
       imageSize: effectiveImageSize,
       nodes: effectiveNodes,
       dhash: raw.dhash,
-      ocr: raw.ocr || null
+      ocr: raw.ocr || null,
+      somMarks: raw.som_marks || []
     });
 
     return {
@@ -239,6 +255,7 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
       uia_unchanged: Boolean(raw.uia_unchanged),
       uia_skipped: Boolean(raw.uia_skipped),
       ocr: raw.ocr || null,
+      som_marks: raw.som_marks || [],
       image_suppressed: suppressImage,
       image_base64: hideImage ? null : (raw.image_base64 || null),
       image_mime: hideImage ? null : (raw.image_mime || null)
@@ -372,7 +389,33 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     } catch {}
 
     observations.consume(opts.observation_id, opts.hwnd ?? obs.hwnd, currentBounds);
-    const execRes = await host.request('act', payload);
+    const t0 = Date.now();
+    let execRes;
+    try {
+      execRes = await host.request('act', payload);
+      auditLog.log({
+        event: 'act',
+        hwnd: obs.hwnd,
+        process: obs.process,
+        action: opts.action,
+        mode: payload.mode,
+        resolved_mode: execRes?.resolved_mode || payload.mode,
+        ok: true,
+        duration_ms: Date.now() - t0
+      });
+    } catch (err) {
+      auditLog.log({
+        event: 'act',
+        hwnd: obs.hwnd,
+        process: obs.process,
+        action: opts.action,
+        mode: payload.mode,
+        ok: false,
+        error_code: err.code || 'act_failed',
+        duration_ms: Date.now() - t0
+      });
+      throw err;
+    }
 
     let postObs = null;
     if (opts.observe_after) {
@@ -460,11 +503,31 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     } catch {}
     observations.consume(opts.observation_id, opts.hwnd ?? obs.hwnd, currentBounds);
 
+    const planStartMs = Date.now();
     const state = {
       currentObs: obs,
       completed: 0,
-      assertions_passed: 0
+      assertions_passed: 0,
+      retries_used: 0
     };
+    const isNonRetryable = (code) => (
+      code === 'emergency_stopped' || code === 'blocked_process' ||
+      code === 'restricted_process' || code === 'confirmation_required' ||
+      code === 'stale_observation'
+    );
+    async function runWithStepRetry(step, fn) {
+      const retryCap = Math.max(0, Math.min(5, Number(step.retry) || 0));
+      const backoffMs = Math.min(3000, Math.max(50, Number(step.backoff_ms) || 250));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await fn();
+        } catch (err) {
+          if (attempt >= retryCap || isNonRetryable(err.code)) throw err;
+          state.retries_used++;
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+    }
     const isDynamicStep = (a) => (
       a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' ||
       a === 'wait_window' || a === 'wait_ocr' || a === 'wait_pixel_color' ||
@@ -480,21 +543,23 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
         if (isDynamicStep(step.action)) {
           try {
             if (step.action === 'assert_control' || step.action === 'assert_ocr' || step.action === 'assert_pixel') {
-              const ev = await evalCondition(step, state.currentObs, opts);
-              if (ev.refreshedObs) {
-                state.currentObs = {
-                  ...ev.refreshedObs,
-                  bounds: ev.refreshedObs.bounds,
-                  clientBounds: ev.refreshedObs.client_bounds || null,
-                  imageSize: ev.refreshedObs.image_size
-                };
-              }
-              if (!ev.matched) {
-                const err = new Error(step.message || `Assertion failed (${step.action}): ${ev.detail}`);
-                err.code = 'assertion_failed';
-                err.failedIndex = i;
-                throw err;
-              }
+              await runWithStepRetry(step, async () => {
+                const ev = await evalCondition(step, state.currentObs, opts);
+                if (ev.refreshedObs) {
+                  state.currentObs = {
+                    ...ev.refreshedObs,
+                    bounds: ev.refreshedObs.bounds,
+                    clientBounds: ev.refreshedObs.client_bounds || null,
+                    imageSize: ev.refreshedObs.image_size
+                  };
+                }
+                if (!ev.matched) {
+                  const err = new Error(step.message || `Assertion failed (${step.action}): ${ev.detail}`);
+                  err.code = 'assertion_failed';
+                  err.failedIndex = i;
+                  throw err;
+                }
+              });
               state.assertions_passed++;
             } else if (step.action === 'if_control' || step.action === 'if_ocr' || step.action === 'if_pixel') {
               const ev = await evalCondition(step, state.currentObs, opts);
@@ -663,11 +728,65 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
           continue;
         }
 
-        // Collect contiguous native steps into one 1-RPC plan_batch
+        // Collect contiguous native steps (without step-level retry) into one 1-RPC plan_batch
         const segStart = i;
+        if (Number(step.retry) > 0) {
+          try {
+            await runWithStepRetry(step, async () => {
+              const st = step;
+              const payload = st.action === 'sleep'
+                ? { action: 'sleep', ms: Math.min(st.ms || 200, 5000) }
+                : await buildActPayload(state.currentObs, {
+                    ...st,
+                    coord_space: st.coord_space || opts.coord_space,
+                    mode: st.mode || opts.mode,
+                    speed: st.speed || opts.speed,
+                    px_per_step: st.px_per_step ?? opts.px_per_step,
+                    restore_cursor: st.restore_cursor ?? opts.restore_cursor,
+                    show_arrows: st.show_arrows ?? opts.show_arrows,
+                    confirm_sensitive: st.confirm_sensitive ?? opts.confirm_sensitive,
+                    allow_restricted: st.allow_restricted ?? opts.allow_restricted,
+                    reason: st.reason || opts.reason || 'plan step'
+                  });
+              if (payload.action === 'sleep') {
+                await new Promise((r) => setTimeout(r, payload.ms));
+              } else {
+                let singleHandled = false;
+                try {
+                  const batchRes = await host.request('plan_batch', {
+                    hwnd: opts.hwnd ?? state.currentObs.hwnd,
+                    mode: opts.mode || 'physical',
+                    speed: opts.speed || 'normal',
+                    px_per_step: opts.px_per_step || 0,
+                    restore_cursor: opts.restore_cursor === true,
+                    steps: [payload]
+                  }, { timeoutMs: 30000 });
+                  singleHandled = true;
+                  if (batchRes && batchRes.ok === false) {
+                    const err = new Error(batchRes.error?.message || 'Step failed');
+                    err.code = batchRes.error?.code || 'step_failed';
+                    throw err;
+                  }
+                } catch (batchErr) {
+                  if (singleHandled || (batchErr.code !== 'unknown_command' && !/Unexpected mock cmd/i.test(batchErr.message || ''))) {
+                    throw batchErr;
+                  }
+                  await host.request('act', payload);
+                }
+              }
+            });
+            state.completed++;
+            i++;
+          } catch (err) {
+            if (err.failedIndex == null) err.failedIndex = segStart;
+            throw err;
+          }
+          continue;
+        }
+
         const batchPayloads = [];
         try {
-          while (i < stepList.length && !isDynamicStep(stepList[i].action)) {
+          while (i < stepList.length && !isDynamicStep(stepList[i].action) && !(Number(stepList[i].retry) > 0)) {
             const st = stepList[i];
             if (st.action === 'sleep') {
               batchPayloads.push({ action: 'sleep', ms: Math.min(st.ms || 200, 5000) });
@@ -750,10 +869,23 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
       try {
         postObs = await observe({ hwnd: state.currentObs.hwnd, with_image: 'auto', with_uia: opts.with_uia || 'full', roi: opts.roi || null });
       } catch {}
+      auditLog.log({
+        event: 'plan',
+        hwnd: state.currentObs.hwnd,
+        process: state.currentObs.process,
+        mode: opts.mode || 'physical',
+        ok: false,
+        error_code: err.code || 'step_failed',
+        completed_steps: state.completed,
+        assertions_passed: state.assertions_passed,
+        retries_used: state.retries_used,
+        duration_ms: Date.now() - planStartMs
+      });
       return {
         ok: false,
         completed_steps: state.completed,
         assertions_passed: state.assertions_passed,
+        retries_used: state.retries_used,
         failed_step: err.failedIndex ?? 0,
         error: { code: err.code || 'step_failed', message: err.message },
         observation: postObs
@@ -769,10 +901,22 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
         roi: opts.roi || null
       });
     }
+    auditLog.log({
+      event: 'plan',
+      hwnd: state.currentObs.hwnd,
+      process: state.currentObs.process,
+      mode: opts.mode || 'physical',
+      ok: true,
+      completed_steps: state.completed,
+      assertions_passed: state.assertions_passed,
+      retries_used: state.retries_used,
+      duration_ms: Date.now() - planStartMs
+    });
     return {
       ok: true,
       completed_steps: state.completed,
       assertions_passed: state.assertions_passed,
+      retries_used: state.retries_used,
       observation: finalObs
     };
   }
@@ -884,8 +1028,8 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     return host.request('compare_reference', { hwnd, image_path, roi, grid_cols, grid_rows, top_n });
   }
 
-  async function extractTable({ hwnd = 0, index = -1, max_rows = 100, max_cols = 32 } = {}) {
-    return host.request('extract_table', { hwnd, index, max_rows, max_cols });
+  async function extractTable({ hwnd = 0, index = -1, max_rows = 100, max_cols = 32, auto_scroll = false, max_pages = 10 } = {}) {
+    return host.request('extract_table', { hwnd, index, max_rows, max_cols, auto_scroll, max_pages });
   }
 
   async function clipboardGet({ save_image_path = '' } = {}) {
@@ -947,7 +1091,15 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
   }
 
   async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000, follow_window = false, status_text = '' } = {}) {
-    return host.request('lock', { action, hwnd, region, policy, ttl_ms, follow_window, status_text });
+    const res = await host.request('lock', { action, hwnd, region, policy, ttl_ms, follow_window, status_text });
+    auditLog.log({
+      event: 'lock',
+      hwnd,
+      action,
+      ok: true,
+      blocked_events: res?.blocked_events
+    });
+    return res;
   }
 
   async function stop({ action = 'stop' } = {}) {
@@ -955,6 +1107,11 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     if (action === 'stop') {
       observations.invalidateAll();
     }
+    auditLog.log({
+      event: 'stop',
+      action,
+      ok: true
+    });
     return res;
   }
 
@@ -980,6 +1137,7 @@ export function createVisionEngine({ client = null, store = null, dataDir = null
     deleteMacro,
     runMacro,
     lockRegion,
+    getAuditLogPath: () => auditLog.getLogPath(),
     stop,
     close: () => host.close()
   };

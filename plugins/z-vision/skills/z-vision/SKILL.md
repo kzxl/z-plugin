@@ -10,16 +10,16 @@ Use `zvision_*` MCP tools to inspect and automate real Windows desktop apps with
 ## Standard Loop
 
 1. **Discover / Launch / Wait**: Call `zvision_status` and `zvision_windows` (supports `launch_exe` and polling `wait_for` + `wait_state: "open"|"closed"`).
-2. **Observe**: Call `zvision_observe(hwnd, with_image: "auto", with_uia: "full"|"diff"|"off", only_interactive: true)`. Returns DWM visible `bounds`, `client_bounds`, compact UIA controls (including `SelectionPattern` values), 64-bit `dhash`, `dirty_rect`, optional `roi` crop, and optional `with_ocr: true`.
+2. **Observe**: Call `zvision_observe(hwnd, with_image: "auto", with_uia: "full"|"diff"|"off", with_som: "off"|"auto"|"on", only_interactive: true)`. Returns DWM visible `bounds`, `client_bounds`, compact UIA controls (including `SelectionPattern` values), 64-bit `dhash`, `dirty_rect`, optional `roi` crop, `som_marks` (for non-UIA windows), and optional `with_ocr: true`.
 3. **Act, Batch, Conditional Flow, or Parallel**:
    - **Coordinate spaces (`coord_space`)**: `"screen"` (1:1 with UIA/OCR), `"window"` (`bounds`), `"client"` (`client_bounds`), `"image"` (default, scaled from `image_size`; `"move_window"` defaults to `"screen"`).
    - **Actuation modes (`mode`)**: `"auto"` (UIA semantic -> cached/probed `"pen"`/`"virtual"` via frame diff -> `"physical"` fallback), `"uia"` (`click`/`set_value`/`expand`/`collapse`/`toggle`/`select_item`/`set_range`/`scroll_into_view`), `"virtual"` (background `PostMessage`), `"pen"` (`PT_PEN`), `"touch"`, `"physical"` (`SendInput`, supports `restore_cursor`, `hover`, `modifiers`, `modifier_drag`, `file_dialog`, and Window Manager `move_window`/`snap_window`/`minimize`/`maximize`/`restore`/`close_window`).
    - **Region Lock & Progress HUD**: Set `lock_region` (`"window"|"roi"|"none"|[x,y,w,h]`) + `lock_policy` (`"soft"|"strict"`) on `act`/`plan`, or manage persistently via `zvision_stop(action="lock"|"unlock"|"status_text")`. Overlay uses `WDA_EXCLUDEFROMCAPTURE` and auto-unlocks on `Esc` or `<= 30s` TTL.
    - **Tools**:
-     - `zvision_act`: 1 guarded action (supports `template_path` visual targeting).
-     - `zvision_plan`: up to **200** steps via 1-RPC `plan_batch`, `wait_*` (`wait_control`/`wait_window`/`wait_ocr`/`wait_pixel_color`/`wait_template`/`wait_settle`), `if_control`/`if_ocr`/`if_pixel` branches, `assert_*` E2E checks, and 0-token `macro_action` (`save|run|list|delete`).
+     - `zvision_act`: 1 guarded action (supports `template_path` or `som_id` visual targeting).
+     - `zvision_plan`: up to **200** steps via 1-RPC `plan_batch`, per-step `retry`/`backoff_ms`, `wait_*` (`wait_control`/`wait_window`/`wait_ocr`/`wait_pixel_color`/`wait_template`/`wait_settle`), `if_control`/`if_ocr`/`if_pixel` branches, `assert_*` E2E checks, and 0-token `macro_action` (`save|run|list|delete`).
      - `zvision_parallel`: up to 8 concurrent `virtual`/`touch` lanes.
-     - `zvision_analyze`: `extract_table`, `clipboard_get`/`clipboard_set` (`text|image|files|clear`), multi-scale `match_template`, `sample_pixels`, `find_color_bounds`, `vectorize_image`, `compare_reference`.
+     - `zvision_analyze`: `extract_table` (`auto_scroll: true` for virtualized tables), `clipboard_get`/`clipboard_set` (`text|image|files|clear`), multi-scale `match_template`, `sample_pixels`, `find_color_bounds`, `vectorize_image`, `compare_reference`.
 4. **Verify**: Inspect returned post-action observation (`dhash`, `assertions_passed`, UIA state, or screenshot) before claiming completion.
 
 ## Safety & Token Rules

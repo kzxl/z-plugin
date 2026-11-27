@@ -418,6 +418,11 @@ namespace ZVision.Native
 
         public static Dictionary<string, object> ExtractTable(IntPtr hwnd, int index, int maxRows, int maxCols)
         {
+            return ExtractTable(hwnd, index, maxRows, maxCols, false, 10);
+        }
+
+        public static Dictionary<string, object> ExtractTable(IntPtr hwnd, int index, int maxRows, int maxCols, bool autoScroll, int maxPages)
+        {
             Dictionary<string, object> empty = new Dictionary<string, object>(StringComparer.Ordinal);
             empty["found"] = false;
             empty["headers"] = new List<object>();
@@ -425,12 +430,14 @@ namespace ZVision.Native
             empty["row_count"] = 0;
             empty["col_count"] = 0;
             empty["truncated"] = false;
+            empty["pages_scrolled"] = 0;
             if (hwnd == IntPtr.Zero) return empty;
 
             if (maxRows <= 0) maxRows = 100;
             if (maxRows > 500) maxRows = 500;
             if (maxCols <= 0) maxCols = 32;
             if (maxCols > 64) maxCols = 64;
+            int pageCap = Math.Max(1, Math.Min(25, maxPages <= 0 ? 10 : maxPages));
 
             AutomationElement target = null;
             if (index >= 0)
@@ -487,11 +494,110 @@ namespace ZVision.Native
             }
             if (target == null) return empty;
 
-            List<object> headers = new List<object>();
+            List<object> headers = ExtractTableHeaders(target, maxCols);
             List<object> rows = new List<object>();
-            int colCount = 0;
+            int colCount = headers.Count;
             bool truncated = false;
+            int pagesScrolled = 0;
 
+            if (!autoScroll)
+            {
+                int pageCols;
+                bool pageTrunc;
+                rows = ReadVisibleTableRows(target, maxRows, maxCols, headers.Count, out pageCols, out pageTrunc);
+                if (pageCols > colCount) colCount = pageCols;
+                truncated = pageTrunc;
+            }
+            else
+            {
+                HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                object scrollObj;
+                ScrollPattern scrollPat = target.TryGetCurrentPattern(ScrollPattern.Pattern, out scrollObj) ? (ScrollPattern)scrollObj : null;
+
+                for (int page = 0; page < pageCap && rows.Count < maxRows; page++)
+                {
+                    int pageCols;
+                    bool pageTrunc;
+                    List<object> pageRows = ReadVisibleTableRows(target, maxRows, maxCols, headers.Count, out pageCols, out pageTrunc);
+                    if (pageCols > colCount) colCount = pageCols;
+
+                    int added = 0;
+                    for (int r = 0; r < pageRows.Count; r++)
+                    {
+                        List<object> rowCells = pageRows[r] as List<object>;
+                        if (rowCells == null) continue;
+                        string key = JoinRowKey(rowCells);
+                        if (seen.Add(key))
+                        {
+                            if (rows.Count >= maxRows)
+                            {
+                                truncated = true;
+                                break;
+                            }
+                            rows.Add(rowCells);
+                            added++;
+                        }
+                    }
+                    if (pageTrunc) truncated = true;
+                    if (rows.Count >= maxRows || scrollPat == null || added == 0) break;
+
+                    bool canScrollDown = false;
+                    try
+                    {
+                        if (scrollPat.Current.VerticallyScrollable)
+                        {
+                            double vp = scrollPat.Current.VerticalScrollPercent;
+                            if (vp >= 0.0 && vp < 99.5) canScrollDown = true;
+                        }
+                    }
+                    catch { canScrollDown = false; }
+
+                    if (!canScrollDown) break;
+                    try
+                    {
+                        scrollPat.ScrollVertical(ScrollAmount.LargeIncrement);
+                        pagesScrolled++;
+                        Thread.Sleep(65);
+                    }
+                    catch { break; }
+                }
+            }
+
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            res["found"] = true;
+            try
+            {
+                res["control_type"] = MapControlType(target.Current.ControlType);
+                res["name"] = SafeStr(target.Current.Name);
+            }
+            catch
+            {
+                res["control_type"] = "Unknown";
+                res["name"] = "";
+            }
+            res["headers"] = headers;
+            res["rows"] = rows;
+            res["row_count"] = rows.Count;
+            res["col_count"] = colCount;
+            res["truncated"] = truncated;
+            res["pages_scrolled"] = pagesScrolled;
+            return res;
+        }
+
+        private static string JoinRowKey(List<object> rowCells)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < rowCells.Count; i++)
+            {
+                if (i > 0) sb.Append('\u001f');
+                sb.Append(Convert.ToString(rowCells[i] ?? ""));
+            }
+            return sb.ToString();
+        }
+
+        private static List<object> ExtractTableHeaders(AutomationElement target, int maxCols)
+        {
+            List<object> headers = new List<object>();
             object patObj;
             if (target.TryGetCurrentPattern(TablePattern.Pattern, out patObj))
             {
@@ -536,6 +642,16 @@ namespace ZVision.Native
                     child = tw.GetNextSibling(child);
                 }
             }
+            return headers;
+        }
+
+        private static List<object> ReadVisibleTableRows(AutomationElement target, int maxRows, int maxCols, int headerCount, out int colCount, out bool truncated)
+        {
+            List<object> rows = new List<object>();
+            colCount = headerCount;
+            truncated = false;
+            TreeWalker tw = TreeWalker.ControlViewWalker;
+            object patObj;
 
             if (target.TryGetCurrentPattern(GridPattern.Pattern, out patObj))
             {
@@ -552,7 +668,7 @@ namespace ZVision.Native
                 if (totalRows > maxRows || totalCols > maxCols) truncated = true;
                 int rLimit = Math.Min(totalRows, maxRows);
                 int cLimit = Math.Min(totalCols, maxCols);
-                colCount = Math.Max(headers.Count, cLimit);
+                colCount = Math.Max(headerCount, cLimit);
 
                 for (int r = 0; r < rLimit; r++)
                 {
@@ -625,27 +741,8 @@ namespace ZVision.Native
                     catch { }
                     child = tw.GetNextSibling(child);
                 }
-                if (headers.Count > colCount) colCount = headers.Count;
             }
-
-            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
-            res["found"] = true;
-            try
-            {
-                res["control_type"] = MapControlType(target.Current.ControlType);
-                res["name"] = SafeStr(target.Current.Name);
-            }
-            catch
-            {
-                res["control_type"] = "Unknown";
-                res["name"] = "";
-            }
-            res["headers"] = headers;
-            res["rows"] = rows;
-            res["row_count"] = rows.Count;
-            res["col_count"] = colCount;
-            res["truncated"] = truncated;
-            return res;
+            return rows;
         }
 
         public static Dictionary<string, object> AutomateFileDialog(IntPtr hwnd, string filePath, bool confirm)

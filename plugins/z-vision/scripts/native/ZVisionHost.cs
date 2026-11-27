@@ -403,6 +403,7 @@ namespace ZVision.Native
             bool withImage = JsonMini.GetBool(p, "with_image", true);
             bool autoGate = JsonMini.GetBool(p, "auto_gate", false);
             bool withOcr = JsonMini.GetBool(p, "with_ocr", false);
+            string withSom = JsonMini.GetString(p, "with_som", "off").ToLowerInvariant();
             string withUia = JsonMini.GetString(p, "with_uia", "full").ToLowerInvariant();
             int maxWidth = JsonMini.GetInt(p, "max_width", 1280);
             int settleMs = JsonMini.GetInt(p, "settle_ms", 0);
@@ -491,6 +492,8 @@ namespace ZVision.Native
             double changedPct = 0.0;
             object dirtyRect = null;
             Dictionary<string, object> ocrResult = null;
+            List<object> somMarks = null;
+            bool runSom = (withSom == "on" || withSom == "true") || (withSom == "auto" && nodeCountForGate < 3);
 
             using (Bitmap targetBmp = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, capOriginX, capOriginY, capW, capH))
             {
@@ -503,12 +506,19 @@ namespace ZVision.Native
                     dirtyRect = diff.ContainsKey("dirty_rect") ? diff["dirty_rect"] : null;
                     visualChanged = JsonMini.GetBool(diff, "visual_changed", true);
 
-                    if (withOcr)
+                    if (withOcr || runSom)
                     {
-                        ocrResult = VisionMath.RunWinRtOcr(targetBmp, ocrLang, capOriginX, capOriginY);
+                        if (withOcr || VisionMath.IsWinRtOcrAvailable())
+                        {
+                            ocrResult = VisionMath.RunWinRtOcr(targetBmp, ocrLang, capOriginX, capOriginY);
+                        }
+                    }
+                    if (runSom)
+                    {
+                        somMarks = VisionMath.BuildSomMarks(targetBmp, ocrResult, capOriginX, capOriginY, 30);
                     }
 
-                    bool suppressNow = autoGate && withImage && string.IsNullOrEmpty(savePath) && !visualChanged && (uiaSkipped || nodeCountForGate >= 5);
+                    bool suppressNow = autoGate && withImage && string.IsNullOrEmpty(savePath) && !visualChanged && (uiaSkipped || nodeCountForGate >= 5) && !runSom;
                     if (suppressNow)
                     {
                         imageSuppressed = true;
@@ -519,6 +529,10 @@ namespace ZVision.Native
                         {
                             imgW = scaled.Width;
                             imgH = scaled.Height;
+                            if (runSom && somMarks != null && somMarks.Count > 0)
+                            {
+                                VisionMath.RenderSomOverlay(scaled, somMarks, capW, capH, capOriginX, capOriginY);
+                            }
                             if (!string.IsNullOrEmpty(savePath))
                             {
                                 string dir = Path.GetDirectoryName(savePath);
@@ -560,6 +574,7 @@ namespace ZVision.Native
             if (uiaUnchanged) res["uia_unchanged"] = true;
             if (uiaSkipped) res["uia_skipped"] = true;
             if (ocrResult != null) res["ocr"] = ocrResult;
+            if (somMarks != null && somMarks.Count > 0) res["som_marks"] = somMarks;
             if (imageB64 != null)
             {
                 res["image_base64"] = imageB64;
@@ -788,7 +803,9 @@ namespace ZVision.Native
             int index = JsonMini.GetInt(p, "index", -1);
             int maxRows = JsonMini.GetInt(p, "max_rows", 100);
             int maxCols = JsonMini.GetInt(p, "max_cols", 32);
-            return UiaTree.ExtractTable(hwnd, index, maxRows, maxCols);
+            bool autoScroll = JsonMini.GetBool(p, "auto_scroll", false);
+            int maxPages = JsonMini.GetInt(p, "max_pages", 10);
+            return UiaTree.ExtractTable(hwnd, index, maxRows, maxCols, autoScroll, maxPages);
         }
 
         private static Dictionary<string, object> HandleClipboardGet(Dictionary<string, object> p)
