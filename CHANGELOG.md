@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.12.0 (2026-11-27)
+
+- **Zero-Leak Safe Credentials Guard, File-First Reports & Progressive Disclosure (`z-gate`, `z-brain`, `z-vision`, `AGENTS.md`)**:
+  - Added `R_SEC` secret-leak blocker (`detectSecretLeakCommand`) in `plugins/z-gate/scripts/git-guard.mjs` + `plugins/z-gate/skills/z-gate/references/safe-credentials.md` blocking `.env` reads, env dumps, and sensitive var echoes while allowing quiet exit-code checks (`Select-String -Quiet` / `grep -sq`) and `.env.example`/`.sample`/`.template`/`.dist`.
+  - Added `--output=<path>` (`review`, `audit` CLI) and `outputPath` (`zgate_review` MCP) file-first reporting with compact stdout/context summaries.
+  - Added `z-distill` workflow-to-skill distiller skill (`plugins/z-brain/skills/z-distill/SKILL.md` + `references/cli-skill-template.md`) and `references/diagnostics.md` troubleshooting tables for `z-brain` and `z-vision`.
+  - Slimmed always-on `plugins/*/rules/AGENTS.md` from `11,857 B` to `5,673 B` (`-52.2%`) and tightened `bench/standardize-test.mjs` budget to `<= 7,500 B`.
+- **Release Readiness, Live Manifest Parity & Cross-Platform CI (`z-gate`, `z-vision`, CI, `install.sh`)**:
+  - Synchronized `zgate_install_hook` (`z-gate`) and `zvision_analyze` (`z-vision`) into `z-plugin.manifest.json`, and updated `bench/manifest-test.mjs` to spawn every MCP server and verify 1:1 `tools/list` parity.
+  - Added `windows-latest` matrix job to `.github/workflows/ci.yml` with `ZVISION_SKIP_GUI=1` headless native `csc.exe` compilation and IPC verification in `bench/vision-test.mjs`.
+  - Upgraded `install.sh` to feature parity with `install.ps1` (Antigravity `mcp_config.json` path resolution, ZCode subagent frontmatter conversion, IDE plugin registry sync, global `mcp_config.json` deduplication, and `npm link`).
 
 - **Sovereign Desktop Vision & Precision Agent Arm (`z-vision`)**: Added `plugins/z-vision` powered by an on-the-fly C# 5 native host (`ZVisionHost.exe` via stock `.NET Framework 4.x` `csc.exe`), delivering 64-bit `dhash` suppression, cached/diff UIA (including `SelectionPattern`), stock WinRT `Windows.Media.Ocr`, Set-of-Marks (`with_som`), direct foreground ROI capture, `mode: "auto"` (`uia` -> probed/cached `pen`/`virtual` -> `physical`), Window Manager (`move_window`/`snap_window`/`#32770` `file_dialog`), native `draw_shape` vector primitives, 8-lane `zvision_parallel`, dimmed click-through `RegionLockOverlay` input-lock HUD, 200-step 1-RPC `plan_batch` with `retry`, conditional `if_*`/`assert_*`, and 0-token parameterized macros, `zvision_analyze` (auto-scroll `extract_table`, `clipboard_get`/`clipboard_set`, multi-scale `match_template`, vectorization), and redacted JSONL audit logging (`132` passing assertions).
 

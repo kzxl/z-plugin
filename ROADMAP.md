@@ -1,6 +1,6 @@
 # z-plugin Roadmap
 
-Current release: **v1.11.0+**. Every milestone below is grounded in measured repository benchmarks and test gates.
+Current release: **v1.12.0**. Every milestone below is grounded in measured repository benchmarks and test gates.
 
 ---
 
