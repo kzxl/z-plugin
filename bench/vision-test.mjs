@@ -599,6 +599,9 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
     }
     const schemaTokens = Math.round(JSON.stringify(list.result?.tools || []).length / 4);
     ok(schemaTokens < 2500, `MCP tool schema stays token-efficient (~${schemaTokens} tokens)`);
+    const stopTool = (list.result?.tools || []).find((t) => t.name === 'zvision_stop');
+    const stopActions = stopTool?.inputSchema?.properties?.action?.enum || [];
+    ok(['lock', 'unlock', 'status_text'].every((a) => stopActions.includes(a)), 'MCP zvision_stop exposes standalone lock/unlock/status_text controls');
 
     const bad = await rpc('tools/call', { name: 'zvision_nonexistent', arguments: {} });
     ok(bad.result?.isError === true, 'MCP unknown tool returns isError=true');

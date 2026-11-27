@@ -204,11 +204,17 @@ const TOOLS = [
   },
   {
     name: 'zvision_stop',
-    description: 'Trigger or reset emergency Stop and release all held keys/mouse buttons.',
+    description: 'Control emergency Stop, release held inputs, or manage RegionLockOverlay (lock/unlock/status_text).',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['stop', 'reset', 'release_inputs'], description: 'Default: stop' }
+        action: { type: 'string', enum: ['stop', 'reset', 'release_inputs', 'lock', 'unlock', 'status_text'] },
+        hwnd: { type: 'integer' },
+        region: { description: "'window'|'roi'|[x,y,w,h]" },
+        policy: { type: 'string', enum: ['soft', 'strict'] },
+        ttl_ms: { type: 'integer' },
+        follow_window: { type: 'boolean' },
+        status_text: { type: 'string' }
       }
     }
   }
@@ -352,7 +358,10 @@ async function handleTool(name, args = {}) {
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }
     case 'zvision_stop': {
-      const res = await engine.stop(args);
+      const a = args.action;
+      const res = (a === 'lock' || a === 'unlock' || a === 'status_text')
+        ? await engine.lockRegion(args)
+        : await engine.stop(args);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }
     default:
