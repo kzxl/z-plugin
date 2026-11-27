@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import cp from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -466,6 +467,25 @@ ok(emojiAudit.warnings.some(w => w.includes("AS-05")), "auditDiff detects UI emo
 const mcpServerSrc = fs.readFileSync(path.resolve(here, "../plugins/z-gate/scripts/mcp-server.mjs"), "utf8");
 ok(mcpServerSrc.includes("pathToFileURL"), "mcp-server.mjs imports and uses pathToFileURL");
 ok(!mcpServerSrc.includes("`file://${"), "mcp-server.mjs has no raw file://${...} template import");
+
+// 12. File-first --output=<path> in z-gate CLI
+const cliGitRepo = fs.mkdtempSync(path.join(os.tmpdir(), "zgate-cli-out-"));
+cp.execSync("git init", { cwd: cliGitRepo, stdio: "ignore" });
+cp.execSync('git config user.email "test@example.com" && git config user.name "Test"', { cwd: cliGitRepo, stdio: "ignore" });
+fs.writeFileSync(path.join(cliGitRepo, "Demo.cs"), "public class Demo {}\n", "utf8");
+cp.execSync("git add Demo.cs && git commit -m \"chore: init\"", { cwd: cliGitRepo, stdio: "ignore" });
+fs.writeFileSync(path.join(cliGitRepo, "Demo.cs"), "public class Demo { public int Ok() => 1; }\n", "utf8");
+cp.execSync("git add Demo.cs", { cwd: cliGitRepo, stdio: "ignore" });
+const cliOutFile = path.join(cliGitRepo, "reports", "review.md");
+const cliPath = path.resolve(here, "../plugins/z-gate/scripts/cli.mjs");
+const cliStdout = cp.execFileSync(process.execPath, [cliPath, "review", "--format=markdown", `--output=${cliOutFile}`], {
+  cwd: cliGitRepo,
+  encoding: "utf8",
+});
+ok(fs.existsSync(cliOutFile), "z-gate CLI --output writes report file on disk");
+ok(fs.readFileSync(cliOutFile, "utf8").includes("Z-Gate Code Review Report"), "written report file contains full markdown review");
+ok(cliStdout.includes("Report written to:") && !cliStdout.includes("## Summary"), "stdout prints compact summary + path without full dump");
+fs.rmSync(cliGitRepo, { recursive: true, force: true });
 
 // Cleanup
 fs.rmSync(tempRepo, { recursive: true, force: true });

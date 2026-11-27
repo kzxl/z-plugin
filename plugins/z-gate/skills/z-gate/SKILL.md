@@ -67,8 +67,13 @@ Or via MCP Tool:
 
 ---
 
-## 3. Pre-Commit Hook Invariant Blocker
+## 3. Pre-Commit & Zero-Leak Credentials Hook (`R_GIT`, `R_SEC`)
 
-The `PreToolUse` hook intercepts `git commit` and `git add`:
-- **Targeted Staging**: Warns against lazy `git add -A` / `git add .` (`R_GIT`).
-- **P0 Blocker**: Rejects commits containing critical security leaks, SQL injection, or sync-over-async deadlocks before code enters the repository.
+The `PreToolUse` hook intercepts `run_command` / `git`:
+- **Targeted Staging**: Rejects lazy `git add -A` / `git add .` (`R_GIT`).
+- **P0 Blocker**: Rejects commits with critical security leaks, SQL injection, or sync-over-async deadlocks.
+- **Zero-Leak Credentials (`R_SEC`)**: Blocks direct `.env` reads (`cat .env`, `Get-Content .env`), full environment dumps (`printenv`, `Get-ChildItem Env:`), and secret variable echoing. Read [references/safe-credentials.md](references/safe-credentials.md) for silent presence checks (`Select-String -Quiet` / `grep -sq`) and masked-input user prompts.
+
+## 4. File-First Reports (`--output` / `outputPath`)
+
+For large reviews or audits, pass `--output=<path>` (CLI) or `outputPath` (`zgate_review`) to persist the full report on disk and keep only the compact score/counts summary in context.

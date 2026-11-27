@@ -111,6 +111,40 @@ console.log("2. Antigravity PreToolUse: z-gate git-guard.mjs");
   };
   const g2 = parseJson(runHook(gitGuardScript, [], safeCmd).out, "git status");
   assert.equal(g2.decision, "allow", "git status must return decision: allow");
+
+  const secretLeakCmds = [
+    ["cat ~/.env", "cat ~/.env"],
+    ["Get-Content .env.local", "Get-Content .env.local"],
+    ["echo $OPENAI_API_KEY", "echo $OPENAI_API_KEY"],
+    ["printenv", "printenv"],
+  ];
+  for (const [idx, [label, cmdLine]] of secretLeakCmds.entries()) {
+    const res = parseJson(runHook(gitGuardScript, [], {
+      hookEventName: "PreToolUse",
+      conversationId: `conv-sec-deny-${idx}`,
+      workspacePaths: [tmp],
+      cwd: tmp,
+      toolCall: { id: `toolu_sec_d_${idx}`, name: "run_command", args: { CommandLine: cmdLine } },
+    }).out, label);
+    assert.equal(res.decision, "deny", `${label} must return decision: deny`);
+    assert.ok(res.reason.includes("R_SEC"), `${label} deny reason must cite R_SEC`);
+  }
+
+  const secretSafeCmds = [
+    ["quiet grep .env", 'grep -sq "^OPENAI_API_KEY=" ~/.env'],
+    ["Select-String -Quiet .env", 'Select-String -Path .env -Pattern "^API_KEY=" -Quiet'],
+    ["cat .env.example", "cat .env.example"],
+  ];
+  for (const [idx, [label, cmdLine]] of secretSafeCmds.entries()) {
+    const res = parseJson(runHook(gitGuardScript, [], {
+      hookEventName: "PreToolUse",
+      conversationId: `conv-sec-allow-${idx}`,
+      workspacePaths: [tmp],
+      cwd: tmp,
+      toolCall: { id: `toolu_sec_a_${idx}`, name: "run_command", args: { CommandLine: cmdLine } },
+    }).out, label);
+    assert.equal(res.decision, "allow", `${label} must return decision: allow`);
+  }
 }
 
 console.log("3. Antigravity SessionStart & PostToolUse: z-brain");

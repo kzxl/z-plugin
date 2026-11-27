@@ -71,7 +71,18 @@ assert.ok(rGitHeadingOwners.length === 1 && rGitHeadingOwners[0] === "z-gate", `
 assert.ok(rulesByPlugin["z-mind"].includes("flash_lite") && rulesByPlugin["z-mind"].includes("R_TEAM"), "z-mind/rules/AGENTS.md includes 4-tier R_TEAM routing");
 
 const totalRuleBytes = Object.values(rulesByPlugin).reduce((sum, t) => sum + Buffer.byteLength(t, "utf8"), 0);
-assert.ok(totalRuleBytes <= 12000, `Total plugins/*/rules/AGENTS.md size (${totalRuleBytes} B) stays within <= 12,000 B budget`);
+assert.ok(totalRuleBytes <= 7500, `Total plugins/*/rules/AGENTS.md size (${totalRuleBytes} B) stays within <= 7,500 B budget`);
+
+const disclosedDocs = [
+  "plugins/z-gate/skills/z-gate/references/safe-credentials.md",
+  "plugins/z-brain/skills/z-distill/SKILL.md",
+  "plugins/z-brain/skills/z-distill/references/cli-skill-template.md",
+  "plugins/z-brain/skills/z-brain/references/diagnostics.md",
+  "plugins/z-vision/skills/z-vision/references/diagnostics.md",
+];
+for (const rel of disclosedDocs) {
+  assert.ok(fs.existsSync(path.join(root, rel)), `${rel} exists on disk`);
+}
 
 const installPs1 = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
 assert.ok(installPs1.includes("ZCode") && installPs1.includes("[Read, Bash]"), "install.ps1 adapts Antigravity subagent frontmatter for ZCode compatibility");

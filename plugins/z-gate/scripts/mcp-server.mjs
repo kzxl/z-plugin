@@ -99,7 +99,8 @@ const TOOLS = [
         staged: { type: 'boolean', description: 'If true, inspects git staged diff (default: true)' },
         focus: { type: 'string', enum: ['all', 'security', 'concurrency', 'performance', 'architecture', 'ui', 'regression'], description: 'Review focus (default: all)' },
         format: { type: 'string', enum: ['markdown', 'table', 'json'], description: 'Output format (default: markdown)' },
-        commitMessage: { type: 'string', description: 'Proposed commit message to verify Conventional Commits format' }
+        commitMessage: { type: 'string', description: 'Proposed commit message to verify Conventional Commits format' },
+        outputPath: { type: 'string', description: 'Optional file path to write the full report (returns compact summary only)' }
       }
     }
   },
@@ -186,6 +187,18 @@ async function handleToolCall(name, args) {
       });
 
       const reportText = formatReviewReport(review, args.format || 'markdown');
+
+      if (args.outputPath) {
+        const outFile = path.resolve(cwd, args.outputPath);
+        fs.mkdirSync(path.dirname(outFile), { recursive: true });
+        fs.writeFileSync(outFile, reportText, 'utf8');
+        const summary = [
+          `Z-Gate Review: ${review.status} (Score: ${review.score}/100)`,
+          `Findings: P0=${review.summary.p0Count}, P1=${review.summary.p1Count}, P2=${review.summary.p2Count}, P3=${review.summary.p3Count}`,
+          `Report written to: ${outFile}`
+        ].join('\n');
+        return { content: [{ type: 'text', text: summary }] };
+      }
 
       return {
         content: [{ type: 'text', text: reportText }]

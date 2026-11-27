@@ -84,3 +84,10 @@ Prefer terminal commands over heavy web dashboards (Zero RAM bloat, zero port co
 - `z-brain timeline [--limit=10] [--project=name]`: Chronological list of project decisions and milestones.
 - `z-brain file <path>`: Gotchas, bugfixes, and past decisions attached to a file.
 - `z-brain observe "<title> | <summary>" [--project=name] [--type=decision] [--files=f1,f2]`: Record a milestone or decision.
+
+---
+
+## 4. Troubleshooting & Workflow Distillation
+
+- **Diagnostics**: Read [references/diagnostics.md](references/diagnostics.md) when hitting `SQLITE_BUSY`, wrong workspace paths, stale FTS5 results, or missing edit-observer events.
+- **Skill Distillation**: When a multi-step procedure or `>=3` compacted atoms should become a reusable tool, invoke the `z-distill` skill.

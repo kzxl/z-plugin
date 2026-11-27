@@ -9,6 +9,8 @@
  */
 
 import cp from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { findHelpers } from './lib/helper-discovery.mjs';
 import { auditDiff } from './lib/nev-auditor.mjs';
 import { reviewCode } from './lib/code-reviewer.mjs';
@@ -19,6 +21,13 @@ const [,, cmd, ...args] = process.argv;
 function getArgValue(prefix) {
   const match = args.find(a => a.startsWith(prefix));
   return match ? match.slice(prefix.length) : null;
+}
+
+function writeReportFile(outPath, content) {
+  const resolved = path.resolve(process.cwd(), outPath);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  fs.writeFileSync(resolved, content, 'utf8');
+  return resolved;
 }
 
 function printHelp() {
@@ -36,8 +45,9 @@ Commands:
                            --branch=<branch> Review diff against base branch (e.g. main)
                            --format=<type>   Output format: table (default), markdown, json
                            --focus=<pillar>  Focus: all (default), security, performance, architecture
+                           --output=<path>   Write full report to file and print compact summary
   find <query>           Scan repository helpers and utils for existing logic (R_REUSE)
-  audit [--staged]       Fast pre-commit check on LOC metrics and single-impl interfaces
+  audit [options]        Fast pre-commit check on LOC metrics and single-impl interfaces (--staged, --unstaged, --output=<path>)
   status                 Show Z-Gate operational status and rules
   help                   Show this help
 `);
@@ -52,6 +62,7 @@ async function main() {
       const branchName = getArgValue('--branch=');
       const format = getArgValue('--format=') || 'table';
       const focus = getArgValue('--focus=') || 'all';
+      const outPath = getArgValue('--output=');
 
       try {
         if (commitHash) {
@@ -83,7 +94,14 @@ async function main() {
         focus
       });
 
-      console.log(formatReviewReport(review, format));
+      const report = formatReviewReport(review, format);
+      if (outPath) {
+        const resolvedOut = writeReportFile(outPath, report);
+        console.log(`Z-Gate Review: ${review.status} (Score: ${review.score}/100) | P0:${review.summary.p0Count} P1:${review.summary.p1Count} P2:${review.summary.p2Count} P3:${review.summary.p3Count}`);
+        console.log(`Report written to: ${resolvedOut}`);
+      } else {
+        console.log(report);
+      }
 
       if (review.status === 'FAIL') {
         process.exit(1);
@@ -114,6 +132,7 @@ async function main() {
 
     case 'audit': {
       const isStaged = !args.includes('--unstaged');
+      const outPath = getArgValue('--output=');
       let diff = '';
       try {
         diff = cp.execSync(isStaged ? 'git diff --cached' : 'git diff', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
@@ -125,6 +144,14 @@ async function main() {
       }
 
       const audit = auditDiff({ diff, cwd: process.cwd() });
+      if (outPath) {
+        const resolvedOut = writeReportFile(outPath, JSON.stringify(audit, null, 2));
+        console.log(`Z-Gate Audit: ${audit.passed ? 'PASS' : 'FAIL'} (NEV: ${audit.nevScore}/100, Warnings: ${audit.warnings.length})`);
+        console.log(`Report written to: ${resolvedOut}`);
+        if (!audit.passed) process.exit(1);
+        break;
+      }
+
       console.log(`\n🛡️  Z-Gate Diff Audit Report:`);
       console.log(`  • NEV Score: ${audit.nevScore}/100 [${audit.passed ? 'PASS' : 'FAIL'}]`);
       console.log(`  • Net Change: ${audit.metrics.netChange >= 0 ? '+' : ''}${audit.metrics.netChange} LOC (+${audit.metrics.addedLines} / -${audit.metrics.deletedLines})`);
