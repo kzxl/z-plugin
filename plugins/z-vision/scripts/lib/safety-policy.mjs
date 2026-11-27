@@ -29,7 +29,7 @@ const SENSITIVE_LABEL_RE = /\b(delete|remove|send|submit|pay|purchase|buy|transf
 
 const DANGEROUS_HOTKEY_RE = /^(alt\+f4|ctrl\+shift\+del(?:ete)?|win\+[rlx]|ctrl\+alt\+del(?:ete)?)$/i;
 
-const TEXT_MUTATING_ACTIONS = new Set(['type', 'paste', 'set_value', 'key']);
+const TEXT_MUTATING_ACTIONS = new Set(['type', 'paste', 'set_value', 'clear_and_type', 'key']);
 
 const ALLOWED_PLAN_ACTIONS = new Set([
   'click',
@@ -37,14 +37,18 @@ const ALLOWED_PLAN_ACTIONS = new Set([
   'right_click',
   'move',
   'drag',
+  'batch_strokes',
   'scroll',
   'type',
+  'clear_and_type',
   'paste',
   'set_value',
   'key',
   'focus',
   'wait_settle',
   'wait_text',
+  'wait_control',
+  'refresh_uia',
   'sleep'
 ]);
 
@@ -256,12 +260,12 @@ export function validateParallelLanes(lanes, policyContext = {}) {
 }
 
 export function validatePlanSteps(steps, policyContext = {}) {
-  if (!Array.isArray(steps) || steps.length < 1 || steps.length > 50) {
+  if (!Array.isArray(steps) || steps.length < 1 || steps.length > 200) {
     return {
       valid: false,
       stepIndex: -1,
       code: 'invalid_plan',
-      message: 'Plan steps must be a non-empty array of 1..50 steps.'
+      message: 'Plan steps must be a non-empty array of 1..200 steps.'
     };
   }
 
@@ -276,7 +280,7 @@ export function validatePlanSteps(steps, policyContext = {}) {
       };
     }
 
-    if (step.action === 'wait_settle' || step.action === 'wait_text' || step.action === 'sleep') {
+    if (step.action === 'wait_settle' || step.action === 'wait_text' || step.action === 'wait_control' || step.action === 'refresh_uia' || step.action === 'sleep') {
       continue;
     }
 

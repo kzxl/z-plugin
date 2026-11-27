@@ -21,121 +21,153 @@ namespace ZVision.Native
             if (maxNodes > 300) maxNodes = 300;
             string q = string.IsNullOrEmpty(query) ? null : query.Trim();
 
-            AutomationElement root;
-            try
-            {
-                root = AutomationElement.FromHandle(hwnd);
-            }
-            catch
-            {
-                return result;
-            }
-            if (root == null) return result;
-
+            AutomationElement root = null;
             TreeWalker walker = TreeWalker.ControlViewWalker;
-            Queue<KeyValuePair<AutomationElement, int>> queue = new Queue<KeyValuePair<AutomationElement, int>>();
-            queue.Enqueue(new KeyValuePair<AutomationElement, int>(root, 0));
+            CacheRequest cacheReq = new CacheRequest();
+            cacheReq.TreeScope = TreeScope.Element;
+            cacheReq.AutomationElementMode = AutomationElementMode.Full;
+            cacheReq.Add(AutomationElement.ControlTypeProperty);
+            cacheReq.Add(AutomationElement.NameProperty);
+            cacheReq.Add(AutomationElement.AutomationIdProperty);
+            cacheReq.Add(AutomationElement.ClassNameProperty);
+            cacheReq.Add(AutomationElement.IsEnabledProperty);
+            cacheReq.Add(AutomationElement.IsOffscreenProperty);
+            cacheReq.Add(AutomationElement.IsKeyboardFocusableProperty);
+            cacheReq.Add(AutomationElement.BoundingRectangleProperty);
+            cacheReq.Add(AutomationElement.IsInvokePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsValuePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsTogglePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsSelectionItemPatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsExpandCollapsePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsScrollPatternAvailableProperty);
+            cacheReq.Add(ValuePattern.Pattern);
+            cacheReq.Add(ValuePattern.ValueProperty);
 
-            int maxVisited = 1500;
-            int visited = 0;
-
-            while (queue.Count > 0 && result.Count < maxNodes && visited < maxVisited)
+            using (cacheReq.Activate())
             {
-                KeyValuePair<AutomationElement, int> item = queue.Dequeue();
-                AutomationElement el = item.Key;
-                int depth = item.Value;
-                visited++;
-
-                AutomationElement.AutomationElementInformation cur;
                 try
                 {
-                    cur = el.Current;
+                    root = AutomationElement.FromHandle(hwnd);
                 }
                 catch
                 {
-                    continue;
+                    return result;
                 }
+                if (root == null) return result;
 
-                string role;
-                string name;
-                string aid;
-                string cls;
-                bool enabled;
-                bool offscreen;
-                bool focusable;
-                Rect r;
-                try
+                Queue<KeyValuePair<AutomationElement, int>> queue = new Queue<KeyValuePair<AutomationElement, int>>();
+                queue.Enqueue(new KeyValuePair<AutomationElement, int>(root, 0));
+
+                int maxVisited = 1500;
+                int visited = 0;
+
+                while (queue.Count > 0 && result.Count < maxNodes && visited < maxVisited)
                 {
-                    role = MapControlType(cur.ControlType);
-                    name = SafeStr(cur.Name);
-                    aid = SafeStr(cur.AutomationId);
-                    cls = SafeStr(cur.ClassName);
-                    enabled = cur.IsEnabled;
-                    offscreen = cur.IsOffscreen;
-                    focusable = cur.IsKeyboardFocusable;
-                    r = cur.BoundingRectangle;
-                }
-                catch
-                {
-                    continue;
-                }
+                    KeyValuePair<AutomationElement, int> item = queue.Dequeue();
+                    AutomationElement el = item.Key;
+                    int depth = item.Value;
+                    visited++;
 
-                bool hasRect = !r.IsEmpty && !double.IsInfinity(r.Width) && !double.IsInfinity(r.Height) && r.Width > 0 && r.Height > 0;
-                List<object> patterns = GetSupportedPatternNames(el);
-                string val = TryReadValue(el);
-
-                bool isInteractive = patterns.Count > 0 || focusable || IsInteractiveRole(role);
-                bool matchesQuery = true;
-                if (q != null)
-                {
-                    matchesQuery = ContainsIgnoreCase(name, q) ||
-                                   ContainsIgnoreCase(aid, q) ||
-                                   ContainsIgnoreCase(val, q) ||
-                                   ContainsIgnoreCase(role, q);
-                }
-
-                bool include = depth > 0 && hasRect && (!onlyInteractive || isInteractive) && matchesQuery;
-                if (include)
-                {
-                    int idx = captured.Count;
-                    captured.Add(el);
-
-                    int rx = (int)Math.Round(r.X);
-                    int ry = (int)Math.Round(r.Y);
-                    int rw = (int)Math.Round(r.Width);
-                    int rh = (int)Math.Round(r.Height);
-
-                    Dictionary<string, object> node = new Dictionary<string, object>(StringComparer.Ordinal);
-                    node["i"] = idx;
-                    node["role"] = role;
-                    node["name"] = Clip(name, 140);
-                    node["aid"] = Clip(aid, 80);
-                    node["cls"] = Clip(cls, 60);
-                    if (!string.IsNullOrEmpty(val)) node["val"] = Clip(val, 140);
-                    node["rect"] = new List<object> { rx, ry, rw, rh };
-                    node["cx"] = rx + rw / 2;
-                    node["cy"] = ry + rh / 2;
-                    node["enabled"] = enabled;
-                    node["offscreen"] = offscreen;
-                    node["focusable"] = focusable;
-                    node["patterns"] = patterns;
-                    result.Add(node);
-                }
-
-                if (depth < 14)
-                {
+                    AutomationElement.AutomationElementInformation cur;
+                    string role;
+                    string name;
+                    string aid;
+                    string cls;
+                    bool enabled;
+                    bool offscreen;
+                    bool focusable;
+                    Rect r;
+                    bool usingCached = true;
                     try
                     {
-                        AutomationElement child = walker.GetFirstChild(el);
-                        int childGuard = 0;
-                        while (child != null && childGuard < 180)
+                        cur = el.Cached;
+                        role = MapControlType(cur.ControlType);
+                        name = SafeStr(cur.Name);
+                        aid = SafeStr(cur.AutomationId);
+                        cls = SafeStr(cur.ClassName);
+                        enabled = cur.IsEnabled;
+                        offscreen = cur.IsOffscreen;
+                        focusable = cur.IsKeyboardFocusable;
+                        r = cur.BoundingRectangle;
+                    }
+                    catch
+                    {
+                        usingCached = false;
+                        try
                         {
-                            queue.Enqueue(new KeyValuePair<AutomationElement, int>(child, depth + 1));
-                            child = walker.GetNextSibling(child);
-                            childGuard++;
+                            cur = el.Current;
+                            role = MapControlType(cur.ControlType);
+                            name = SafeStr(cur.Name);
+                            aid = SafeStr(cur.AutomationId);
+                            cls = SafeStr(cur.ClassName);
+                            enabled = cur.IsEnabled;
+                            offscreen = cur.IsOffscreen;
+                            focusable = cur.IsKeyboardFocusable;
+                            r = cur.BoundingRectangle;
+                        }
+                        catch
+                        {
+                            continue;
                         }
                     }
-                    catch { }
+
+                    bool hasRect = !r.IsEmpty && !double.IsInfinity(r.Width) && !double.IsInfinity(r.Height) && r.Width > 0 && r.Height > 0;
+                    List<object> patterns = usingCached ? GetCachedPatternNames(el) : GetSupportedPatternNames(el);
+                    string val = usingCached ? TryReadCachedValue(el, patterns) : TryReadValue(el);
+
+                    bool isInteractive = patterns.Count > 0 || focusable || IsInteractiveRole(role);
+                    bool matchesQuery = true;
+                    if (q != null)
+                    {
+                        matchesQuery = ContainsIgnoreCase(name, q) ||
+                                       ContainsIgnoreCase(aid, q) ||
+                                       ContainsIgnoreCase(val, q) ||
+                                       ContainsIgnoreCase(role, q);
+                    }
+
+                    bool include = depth > 0 && hasRect && (!onlyInteractive || isInteractive) && matchesQuery;
+                    if (include)
+                    {
+                        int idx = captured.Count;
+                        captured.Add(el);
+
+                        int rx = (int)Math.Round(r.X);
+                        int ry = (int)Math.Round(r.Y);
+                        int rw = (int)Math.Round(r.Width);
+                        int rh = (int)Math.Round(r.Height);
+
+                        Dictionary<string, object> node = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node["i"] = idx;
+                        node["role"] = role;
+                        node["name"] = Clip(name, 140);
+                        node["aid"] = Clip(aid, 80);
+                        node["cls"] = Clip(cls, 60);
+                        if (!string.IsNullOrEmpty(val)) node["val"] = Clip(val, 140);
+                        node["rect"] = new List<object> { rx, ry, rw, rh };
+                        node["cx"] = rx + rw / 2;
+                        node["cy"] = ry + rh / 2;
+                        node["enabled"] = enabled;
+                        node["offscreen"] = offscreen;
+                        node["focusable"] = focusable;
+                        node["patterns"] = patterns;
+                        result.Add(node);
+                    }
+
+                    if (depth < 14)
+                    {
+                        try
+                        {
+                            AutomationElement child = walker.GetFirstChild(el);
+                            int childGuard = 0;
+                            while (child != null && childGuard < 180)
+                            {
+                                queue.Enqueue(new KeyValuePair<AutomationElement, int>(child, depth + 1));
+                                child = walker.GetNextSibling(child);
+                                childGuard++;
+                            }
+                        }
+                        catch { }
+                    }
                 }
             }
 
@@ -217,6 +249,83 @@ namespace ZVision.Native
                 error = ex.Message;
                 return false;
             }
+        }
+
+        public static string ComputeTreeHash(List<object> nodes)
+        {
+            ulong h = 14695981039346656037UL;
+            if (nodes != null)
+            {
+                for (int i = 0; i < nodes.Count; i++)
+                {
+                    Dictionary<string, object> n = nodes[i] as Dictionary<string, object>;
+                    if (n == null) continue;
+                    FnvAdd(ref h, n.ContainsKey("role") ? Convert.ToString(n["role"]) : "");
+                    FnvAdd(ref h, n.ContainsKey("name") ? Convert.ToString(n["name"]) : "");
+                    FnvAdd(ref h, n.ContainsKey("aid") ? Convert.ToString(n["aid"]) : "");
+                    FnvAdd(ref h, n.ContainsKey("val") ? Convert.ToString(n["val"]) : "");
+                    FnvAdd(ref h, n.ContainsKey("enabled") ? Convert.ToString(n["enabled"]) : "");
+                    List<object> rect = n.ContainsKey("rect") ? (n["rect"] as List<object>) : null;
+                    if (rect != null && rect.Count == 4)
+                    {
+                        for (int k = 0; k < 4; k++) FnvAdd(ref h, Convert.ToString(rect[k]));
+                    }
+                }
+            }
+            return h.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static void FnvAdd(ref ulong h, string s)
+        {
+            if (s != null)
+            {
+                for (int i = 0; i < s.Length; i++)
+                {
+                    h ^= (byte)s[i];
+                    h *= 1099511628211UL;
+                }
+            }
+            h ^= 0xFF;
+            h *= 1099511628211UL;
+        }
+
+        private static List<object> GetCachedPatternNames(AutomationElement el)
+        {
+            List<object> list = new List<object>();
+            try
+            {
+                if (IsCachedFlag(el, AutomationElement.IsInvokePatternAvailableProperty)) list.Add("Invoke");
+                if (IsCachedFlag(el, AutomationElement.IsValuePatternAvailableProperty)) list.Add("Value");
+                if (IsCachedFlag(el, AutomationElement.IsTogglePatternAvailableProperty)) list.Add("Toggle");
+                if (IsCachedFlag(el, AutomationElement.IsSelectionItemPatternAvailableProperty)) list.Add("Select");
+                if (IsCachedFlag(el, AutomationElement.IsExpandCollapsePatternAvailableProperty)) list.Add("Expand");
+                if (IsCachedFlag(el, AutomationElement.IsScrollPatternAvailableProperty)) list.Add("Scroll");
+            }
+            catch { }
+            return list;
+        }
+
+        private static bool IsCachedFlag(AutomationElement el, AutomationProperty prop)
+        {
+            object v = el.GetCachedPropertyValue(prop, true);
+            return (v is bool) && (bool)v;
+        }
+
+        private static string TryReadCachedValue(AutomationElement el, List<object> patterns)
+        {
+            bool hasVal = false;
+            for (int i = 0; i < patterns.Count; i++)
+            {
+                if (Equals(patterns[i], "Value")) { hasVal = true; break; }
+            }
+            if (!hasVal) return "";
+            try
+            {
+                object v = el.GetCachedPropertyValue(ValuePattern.ValueProperty, true);
+                if (v is string) return SafeStr((string)v);
+            }
+            catch { }
+            return "";
         }
 
         private static List<object> GetSupportedPatternNames(AutomationElement el)

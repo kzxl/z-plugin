@@ -11,9 +11,39 @@ namespace ZVision.Native
         private static bool _touchAvailable = false;
         private static readonly object TouchLock = new object();
 
+        private static bool _penInitAttempted = false;
+        private static bool _penAvailable = false;
+        private static IntPtr _penDevice = IntPtr.Zero;
+        private static readonly object PenLock = new object();
+
         public static bool IsTouchAvailable()
         {
             return EnsureTouchInitialized();
+        }
+
+        public static bool IsPenAvailable()
+        {
+            return EnsurePenInitialized();
+        }
+
+        private static bool EnsurePenInitialized()
+        {
+            lock (PenLock)
+            {
+                if (_penInitAttempted) return _penAvailable;
+                _penInitAttempted = true;
+                try
+                {
+                    _penDevice = CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_NONE);
+                    _penAvailable = (_penDevice != IntPtr.Zero);
+                }
+                catch
+                {
+                    _penDevice = IntPtr.Zero;
+                    _penAvailable = false;
+                }
+                return _penAvailable;
+            }
         }
 
         public static bool EnsureTouchInitialized()
@@ -98,6 +128,11 @@ namespace ZVision.Native
 
         public static void VirtualDrag(IntPtr rootHwnd, List<int[]> points, string button, int stepsPerSegment, int arrowId, bool showArrows)
         {
+            VirtualDrag(rootHwnd, points, button, stepsPerSegment, arrowId, showArrows, 1);
+        }
+
+        public static void VirtualDrag(IntPtr rootHwnd, List<int[]> points, string button, int stepsPerSegment, int arrowId, bool showArrows, int stepDelayMs)
+        {
             if (points == null || points.Count < 2) throw new ArgumentException("VirtualDrag requires >= 2 points");
             if (InputArm.IsEmergencyStopped) throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
 
@@ -146,7 +181,7 @@ namespace ZVision.Native
                             ArrowOverlay.ShowArrow(arrowId, sx, sy, "#" + arrowId, 1000);
                         }
                         PostMessage(target, WM_MOUSEMOVE, downKey, MakeLParam(nx, ny));
-                        Thread.Sleep(2);
+                        if (stepDelayMs > 0) Thread.Sleep(stepDelayMs);
                     }
                 }
             }
@@ -293,6 +328,86 @@ namespace ZVision.Native
             return info;
         }
 
+        public static void PenClick(int x, int y, int pressure, bool showArrows)
+        {
+            List<int[]> pts = new List<int[]>();
+            pts.Add(new int[] { x, y });
+            pts.Add(new int[] { x, y });
+            PenDrag(pts, 1, pressure, 4, showArrows);
+        }
+
+        public static void PenDrag(List<int[]> points, int stepsPerSegment, int pressure, int stepDelayMs, bool showArrows)
+        {
+            if (points == null || points.Count < 2) throw new ArgumentException("PenDrag requires >= 2 points");
+            if (!EnsurePenInitialized())
+                throw new InvalidOperationException("pen_unavailable: CreateSyntheticPointerDevice(PT_PEN) is not supported on this OS build");
+            if (InputArm.IsEmergencyStopped)
+                throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+
+            uint clampedPressure = (uint)Math.Max(0, Math.Min(1024, pressure > 0 ? pressure : 720));
+            int steps = Math.Max(1, Math.Min(40, stepsPerSegment));
+            POINTER_TYPE_INFO[] pti = new POINTER_TYPE_INFO[1];
+            bool downSent = false;
+
+            try
+            {
+                pti[0] = MakePenContact(points[0][0], points[0][1],
+                    POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT, clampedPressure);
+                if (showArrows) ArrowOverlay.ShowArrow(1, points[0][0], points[0][1], "#PEN", 1200);
+                if (!InjectSyntheticPointerInput(_penDevice, pti, 1))
+                    throw new InvalidOperationException("pen_failed: InjectSyntheticPointerInput DOWN error " + Marshal.GetLastWin32Error());
+                downSent = true;
+                if (stepDelayMs > 0) Thread.Sleep(Math.Min(6, stepDelayMs + 2));
+
+                for (int p = 1; p < points.Count; p++)
+                {
+                    int x0 = points[p - 1][0], y0 = points[p - 1][1];
+                    int x1 = points[p][0], y1 = points[p][1];
+                    for (int s = 1; s <= steps; s++)
+                    {
+                        if (InputArm.IsEmergencyStopped)
+                            throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+                        double t = (double)s / steps;
+                        int nx = (int)Math.Round(x0 + (x1 - x0) * t);
+                        int ny = (int)Math.Round(y0 + (y1 - y0) * t);
+                        pti[0] = MakePenContact(nx, ny,
+                            POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT, clampedPressure);
+                        if (showArrows) ArrowOverlay.ShowArrow(1, nx, ny, "#PEN", 1000);
+                        if (!InjectSyntheticPointerInput(_penDevice, pti, 1))
+                            throw new InvalidOperationException("pen_failed: InjectSyntheticPointerInput UPDATE error " + Marshal.GetLastWin32Error());
+                        if (stepDelayMs > 0) Thread.Sleep(stepDelayMs);
+                    }
+                }
+            }
+            finally
+            {
+                if (downSent)
+                {
+                    int[] last = points[points.Count - 1];
+                    pti[0] = MakePenContact(last[0], last[1], POINTER_FLAG_UP, 0);
+                    InjectSyntheticPointerInput(_penDevice, pti, 1);
+                }
+            }
+        }
+
+        private static POINTER_TYPE_INFO MakePenContact(int x, int y, uint flags, uint pressure)
+        {
+            POINTER_TYPE_INFO pti = new POINTER_TYPE_INFO();
+            pti.type = PT_PEN;
+            pti.penInfo.pointerInfo.pointerType = PT_PEN;
+            pti.penInfo.pointerInfo.pointerId = 1;
+            pti.penInfo.pointerInfo.pointerFlags = flags;
+            pti.penInfo.pointerInfo.ptPixelLocation.X = x;
+            pti.penInfo.pointerInfo.ptPixelLocation.Y = y;
+            pti.penInfo.penFlags = 0;
+            pti.penInfo.penMask = PEN_MASK_PRESSURE | PEN_MASK_TILT_X | PEN_MASK_TILT_Y;
+            pti.penInfo.pressure = pressure;
+            pti.penInfo.rotation = 0;
+            pti.penInfo.tiltX = 0;
+            pti.penInfo.tiltY = 0;
+            return pti;
+        }
+
         private static IntPtr MakeLParam(int low, int high)
         {
             int packed = (low & 0xFFFF) | ((high & 0xFFFF) << 16);
@@ -324,7 +439,12 @@ namespace ZVision.Native
         private const int MK_MBUTTON = 0x0010;
 
         private const uint TOUCH_FEEDBACK_NONE = 0x00000003;
+        private const uint POINTER_FEEDBACK_NONE = 0x00000003;
         private const uint PT_TOUCH = 0x00000002;
+        private const uint PT_PEN = 0x00000003;
+        private const uint PEN_MASK_PRESSURE = 0x00000001;
+        private const uint PEN_MASK_TILT_X = 0x00000004;
+        private const uint PEN_MASK_TILT_Y = 0x00000008;
         private const uint POINTER_FLAG_INRANGE = 0x00000002;
         private const uint POINTER_FLAG_INCONTACT = 0x00000004;
         private const uint POINTER_FLAG_DOWN = 0x00010000;
@@ -387,6 +507,26 @@ namespace ZVision.Native
             public uint pressure;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINTER_PEN_INFO
+        {
+            public POINTER_INFO pointerInfo;
+            public uint penFlags;
+            public uint penMask;
+            public uint pressure;
+            public uint rotation;
+            public int tiltX;
+            public int tiltY;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct POINTER_TYPE_INFO
+        {
+            [FieldOffset(0)] public uint type;
+            [FieldOffset(8)] public POINTER_TOUCH_INFO touchInfo;
+            [FieldOffset(8)] public POINTER_PEN_INFO penInfo;
+        }
+
         [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
         [DllImport("user32.dll")] private static extern IntPtr ChildWindowFromPointEx(IntPtr hwndParent, POINT pt, uint flags);
         [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
@@ -394,5 +534,7 @@ namespace ZVision.Native
         [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
         [DllImport("user32.dll", SetLastError = true)] private static extern bool InitializeTouchInjection(uint maxCount, uint dwMode);
         [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectTouchInput(uint count, [In] POINTER_TOUCH_INFO[] contacts);
+        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr CreateSyntheticPointerDevice(uint pointerType, uint maxCount, uint mode);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool InjectSyntheticPointerInput(IntPtr device, [In] POINTER_TYPE_INFO[] pointerInfo, uint count);
     }
 }

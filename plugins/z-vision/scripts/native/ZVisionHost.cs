@@ -74,9 +74,11 @@ namespace ZVision.Native
             return 0;
         }
 
+        private static readonly object UiaHashLock = new object();
+        private static readonly Dictionary<long, string> LastUiaHashByHwnd = new Dictionary<long, string>();
+
         private static object Dispatch(string cmd, Dictionary<string, object> p)
         {
-            if (cmd == "ping" || cmd == "status") return HandleStatus();
             if (cmd == "ping" || cmd == "status") return HandleStatus();
             if (cmd == "windows") return HandleWindows(p);
             if (cmd == "window_info") return HandleWindowInfo(p);
@@ -84,7 +86,12 @@ namespace ZVision.Native
             if (cmd == "observe") return HandleObserve(p);
             if (cmd == "ocr") return HandleOcr(p);
             if (cmd == "match_template") return HandleMatchTemplate(p);
+            if (cmd == "sample_pixels") return HandleSamplePixels(p);
+            if (cmd == "find_color_bounds") return HandleFindColorBounds(p);
+            if (cmd == "vectorize_image") return HandleVectorizeImage(p);
+            if (cmd == "compare_reference") return HandleCompareReference(p);
             if (cmd == "act") return HandleAct(p);
+            if (cmd == "plan_batch") return HandlePlanBatch(p);
             if (cmd == "parallel") return HandleParallel(p);
             if (cmd == "stop") return HandleStop(p);
             throw new InvalidOperationException("unknown_command: " + cmd);
@@ -101,6 +108,7 @@ namespace ZVision.Native
             res["emergency_stopped"] = InputArm.IsEmergencyStopped;
             res["virtual_mouse"] = true;
             res["touch_injection_available"] = VirtualPointer.IsTouchAvailable();
+            res["pen_injection_available"] = VirtualPointer.IsPenAvailable();
             res["cursor_pos"] = new List<object> { cx, cy };
             res["winrt_ocr_available"] = VisionMath.IsWinRtOcrAvailable();
             res["ocr_languages"] = VisionMath.GetOcrLanguages();
@@ -273,11 +281,14 @@ namespace ZVision.Native
             string query = JsonMini.GetString(p, "query", "");
             bool onlyInteractive = JsonMini.GetBool(p, "only_interactive", false);
             bool withImage = JsonMini.GetBool(p, "with_image", true);
+            bool autoGate = JsonMini.GetBool(p, "auto_gate", false);
             bool withOcr = JsonMini.GetBool(p, "with_ocr", false);
+            string withUia = JsonMini.GetString(p, "with_uia", "full").ToLowerInvariant();
             int maxWidth = JsonMini.GetInt(p, "max_width", 1280);
             int settleMs = JsonMini.GetInt(p, "settle_ms", 0);
             string ocrLang = JsonMini.GetString(p, "language", "");
             string savePath = JsonMini.GetString(p, "save_path", "");
+            List<object> roiList = JsonMini.GetList(p, "roi");
 
             if (settleMs > 0) Thread.Sleep(Math.Min(settleMs, 2000));
 
@@ -296,27 +307,95 @@ namespace ZVision.Native
             string proc = GetProcessName(pid);
             string title = GetWindowTitle(hwnd);
 
-            List<object> nodes = UiaTree.SnapshotWindow(hwnd, maxNodes, query, onlyInteractive);
+            List<object> nodes = new List<object>();
+            bool uiaSkipped = false;
+            bool uiaUnchanged = false;
+            string uiaHash = null;
+            int nodeCountForGate = 0;
+
+            if (withUia == "off" || withUia == "false" || withUia == "none")
+            {
+                uiaSkipped = true;
+            }
+            else
+            {
+                nodes = UiaTree.SnapshotWindow(hwnd, maxNodes, query, onlyInteractive);
+                nodeCountForGate = nodes.Count;
+                uiaHash = UiaTree.ComputeTreeHash(nodes);
+                if (withUia == "diff")
+                {
+                    string prevUia = null;
+                    lock (UiaHashLock)
+                    {
+                        LastUiaHashByHwnd.TryGetValue(hwnd.ToInt64(), out prevUia);
+                        LastUiaHashByHwnd[hwnd.ToInt64()] = uiaHash;
+                    }
+                    if (prevUia != null && prevUia == uiaHash)
+                    {
+                        uiaUnchanged = true;
+                        nodes = new List<object>();
+                    }
+                }
+                else
+                {
+                    lock (UiaHashLock) { LastUiaHashByHwnd[hwnd.ToInt64()] = uiaHash; }
+                }
+            }
 
             string dhashHex = "0000000000000000";
             string imageB64 = null;
             string imageMime = null;
-            int imgW = winW;
-            int imgH = winH;
+            int capOriginX = visRect.Left;
+            int capOriginY = visRect.Top;
+            int capW = winW;
+            int capH = winH;
+            string roiKey = "";
+            List<object> roiOut = null;
+
+            bool hasRoi = (roiList != null && roiList.Count == 4);
+            if (hasRoi)
+            {
+                capOriginX = Convert.ToInt32(roiList[0]);
+                capOriginY = Convert.ToInt32(roiList[1]);
+                capW = Math.Max(1, Convert.ToInt32(roiList[2]));
+                capH = Math.Max(1, Convert.ToInt32(roiList[3]));
+                roiKey = string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0},{1},{2},{3}", capOriginX, capOriginY, capW, capH);
+                roiOut = new List<object> { capOriginX, capOriginY, capW, capH };
+            }
+
+            int imgW = capW;
+            int imgH = capH;
+            bool imageSuppressed = false;
+            bool visualChanged = true;
+            int dhashDistance = 64;
+            double changedPct = 0.0;
+            object dirtyRect = null;
             Dictionary<string, object> ocrResult = null;
 
-            using (Bitmap rawBmp = CaptureVisibleWindowBitmap(hwnd, rawRect, visRect))
+            using (Bitmap targetBmp = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, capOriginX, capOriginY, capW, capH))
             {
-                if (rawBmp != null)
+                if (targetBmp != null)
                 {
-                    dhashHex = VisionMath.ToHex(VisionMath.ComputeDHash(rawBmp));
+                    Dictionary<string, object> diff = VisionMath.ComputeFrameDiff(hwnd.ToInt64(), roiKey, targetBmp, capOriginX, capOriginY);
+                    dhashHex = JsonMini.GetString(diff, "dhash", "0000000000000000");
+                    dhashDistance = JsonMini.GetInt(diff, "dhash_distance", 64);
+                    changedPct = JsonMini.GetDouble(diff, "changed_pixels_pct", 0.0);
+                    dirtyRect = diff.ContainsKey("dirty_rect") ? diff["dirty_rect"] : null;
+                    visualChanged = JsonMini.GetBool(diff, "visual_changed", true);
+
                     if (withOcr)
                     {
-                        ocrResult = VisionMath.RunWinRtOcr(rawBmp, ocrLang, visRect.Left, visRect.Top);
+                        ocrResult = VisionMath.RunWinRtOcr(targetBmp, ocrLang, capOriginX, capOriginY);
                     }
-                    if (withImage || !string.IsNullOrEmpty(savePath))
+
+                    bool suppressNow = autoGate && withImage && string.IsNullOrEmpty(savePath) && !visualChanged && (uiaSkipped || nodeCountForGate >= 5);
+                    if (suppressNow)
                     {
-                        using (Bitmap scaled = ScaleBitmapIfNeeded(rawBmp, maxWidth))
+                        imageSuppressed = true;
+                    }
+                    else if (withImage || !string.IsNullOrEmpty(savePath))
+                    {
+                        using (Bitmap scaled = ScaleBitmapIfNeeded(targetBmp, maxWidth))
                         {
                             imgW = scaled.Width;
                             imgH = scaled.Height;
@@ -337,8 +416,8 @@ namespace ZVision.Native
             }
 
             Dictionary<string, object> imgSize = new Dictionary<string, object>(StringComparer.Ordinal);
-            imgSize["w"] = withImage ? imgW : winW;
-            imgSize["h"] = withImage ? imgH : winH;
+            imgSize["w"] = (withImage && !imageSuppressed) ? imgW : capW;
+            imgSize["h"] = (withImage && !imageSuppressed) ? imgH : capH;
 
             Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
             res["hwnd"] = hwnd.ToInt64();
@@ -348,9 +427,18 @@ namespace ZVision.Native
             res["bounds"] = BoundsDict(visRect.Left, visRect.Top, winW, winH);
             res["raw_bounds"] = BoundsDict(rawRect.Left, rawRect.Top, Math.Max(1, rawRect.Right - rawRect.Left), Math.Max(1, rawRect.Bottom - rawRect.Top));
             if (hasClient) res["client_bounds"] = BoundsDict(clientRect.Left, clientRect.Top, Math.Max(0, clientRect.Right - clientRect.Left), Math.Max(0, clientRect.Bottom - clientRect.Top));
+            if (roiOut != null) res["roi"] = roiOut;
             res["image_size"] = imgSize;
             res["dhash"] = dhashHex;
+            res["dhash_distance"] = dhashDistance;
+            res["changed_pixels_pct"] = changedPct;
+            res["dirty_rect"] = dirtyRect;
+            res["visual_changed"] = visualChanged;
+            res["image_suppressed"] = imageSuppressed;
             res["nodes"] = nodes;
+            if (uiaHash != null) res["uia_hash"] = uiaHash;
+            if (uiaUnchanged) res["uia_unchanged"] = true;
+            if (uiaSkipped) res["uia_skipped"] = true;
             if (ocrResult != null) res["ocr"] = ocrResult;
             if (imageB64 != null)
             {
@@ -358,6 +446,34 @@ namespace ZVision.Native
                 res["image_mime"] = imageMime;
             }
             return res;
+        }
+
+        private static Bitmap CaptureTargetBitmap(IntPtr hwnd, RECT rawRect, RECT visRect, bool hasRoi, int roiX, int roiY, int roiW, int roiH)
+        {
+            if (!hasRoi) return CaptureVisibleWindowBitmap(hwnd, rawRect, visRect);
+
+            bool insideVis = roiX >= visRect.Left && roiY >= visRect.Top &&
+                             (roiX + roiW) <= visRect.Right && (roiY + roiH) <= visRect.Bottom;
+            if (insideVis)
+            {
+                using (Bitmap full = CaptureVisibleWindowBitmap(hwnd, rawRect, visRect))
+                {
+                    if (full != null)
+                    {
+                        int lx = Math.Max(0, Math.Min(full.Width - 1, roiX - visRect.Left));
+                        int ly = Math.Max(0, Math.Min(full.Height - 1, roiY - visRect.Top));
+                        int cw = Math.Max(1, Math.Min(roiW, full.Width - lx));
+                        int ch = Math.Max(1, Math.Min(roiH, full.Height - ly));
+                        Bitmap crop = new Bitmap(cw, ch, PixelFormat.Format32bppArgb);
+                        using (Graphics g = Graphics.FromImage(crop))
+                        {
+                            g.DrawImage(full, new Rectangle(0, 0, cw, ch), new Rectangle(lx, ly, cw, ch), GraphicsUnit.Pixel);
+                        }
+                        return crop;
+                    }
+                }
+            }
+            return CaptureScreenRect(roiX, roiY, roiW, roiH);
         }
 
         private static Dictionary<string, object> HandleOcr(Dictionary<string, object> p)
@@ -427,12 +543,121 @@ namespace ZVision.Native
             }
         }
 
+        private static Dictionary<string, object> HandleSamplePixels(Dictionary<string, object> p)
+        {
+            IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Window not found");
+
+            List<object> ptsObj = JsonMini.GetList(p, "points") ?? new List<object>();
+            List<int[]> pts = new List<int[]>();
+            for (int i = 0; i < ptsObj.Count; i++)
+            {
+                List<object> pair = ptsObj[i] as List<object>;
+                if (pair != null && pair.Count >= 2)
+                    pts.Add(new int[] { Convert.ToInt32(pair[0]), Convert.ToInt32(pair[1]) });
+            }
+
+            RECT visRect;
+            if (!GetVisibleWindowRect(hwnd, out visRect)) throw new InvalidOperationException("window_not_found: Cannot read window rect");
+            RECT rawRect;
+            if (!GetWindowRect(hwnd, out rawRect)) rawRect = visRect;
+
+            using (Bitmap bmp = CaptureVisibleWindowBitmap(hwnd, rawRect, visRect))
+            {
+                Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+                res["hwnd"] = hwnd.ToInt64();
+                res["pixels"] = VisionMath.SamplePixels(bmp, visRect.Left, visRect.Top, pts);
+                return res;
+            }
+        }
+
+        private static Dictionary<string, object> HandleFindColorBounds(Dictionary<string, object> p)
+        {
+            IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Window not found");
+
+            List<object> rgb = JsonMini.GetList(p, "target_rgb");
+            if (rgb == null || rgb.Count < 3) throw new ArgumentException("invalid_argument: target_rgb [r,g,b] is required");
+            int tr = Convert.ToInt32(rgb[0]);
+            int tg = Convert.ToInt32(rgb[1]);
+            int tb = Convert.ToInt32(rgb[2]);
+            int tol = JsonMini.GetInt(p, "tolerance", 12);
+            bool invert = JsonMini.GetBool(p, "invert", false);
+            List<object> roi = JsonMini.GetList(p, "roi");
+
+            RECT visRect;
+            if (!GetVisibleWindowRect(hwnd, out visRect)) throw new InvalidOperationException("window_not_found: Cannot read window rect");
+            RECT rawRect;
+            if (!GetWindowRect(hwnd, out rawRect)) rawRect = visRect;
+
+            bool hasRoi = (roi != null && roi.Count == 4);
+            int ox = hasRoi ? Convert.ToInt32(roi[0]) : visRect.Left;
+            int oy = hasRoi ? Convert.ToInt32(roi[1]) : visRect.Top;
+            int ow = hasRoi ? Math.Max(1, Convert.ToInt32(roi[2])) : Math.Max(1, visRect.Right - visRect.Left);
+            int oh = hasRoi ? Math.Max(1, Convert.ToInt32(roi[3])) : Math.Max(1, visRect.Bottom - visRect.Top);
+
+            using (Bitmap bmp = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, ox, oy, ow, oh))
+            {
+                return VisionMath.FindColorBounds(bmp, ox, oy, tr, tg, tb, tol, invert);
+            }
+        }
+
+        private static Dictionary<string, object> HandleVectorizeImage(Dictionary<string, object> p)
+        {
+            string imgPath = JsonMini.GetString(p, "image_path", "");
+            List<object> rect = JsonMini.GetList(p, "canvas_rect");
+            if (rect == null || rect.Count < 4) throw new ArgumentException("invalid_argument: canvas_rect [x,y,w,h] is required");
+            int cx = Convert.ToInt32(rect[0]);
+            int cy = Convert.ToInt32(rect[1]);
+            int cw = Convert.ToInt32(rect[2]);
+            int ch = Convert.ToInt32(rect[3]);
+            int palSize = JsonMini.GetInt(p, "palette_size", 9);
+            int maxStrokes = JsonMini.GetInt(p, "max_strokes", 320);
+            return VisionMath.VectorizeImage(imgPath, cx, cy, cw, ch, palSize, maxStrokes);
+        }
+
+        private static Dictionary<string, object> HandleCompareReference(Dictionary<string, object> p)
+        {
+            IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Window not found");
+
+            string imgPath = JsonMini.GetString(p, "image_path", "");
+            List<object> roi = JsonMini.GetList(p, "roi");
+            int cols = JsonMini.GetInt(p, "grid_cols", 6);
+            int rows = JsonMini.GetInt(p, "grid_rows", 4);
+            int topN = JsonMini.GetInt(p, "top_n", 6);
+
+            RECT visRect;
+            if (!GetVisibleWindowRect(hwnd, out visRect)) throw new InvalidOperationException("window_not_found: Cannot read window rect");
+            RECT rawRect;
+            if (!GetWindowRect(hwnd, out rawRect)) rawRect = visRect;
+
+            bool hasRoi = (roi != null && roi.Count == 4);
+            int ox = hasRoi ? Convert.ToInt32(roi[0]) : visRect.Left;
+            int oy = hasRoi ? Convert.ToInt32(roi[1]) : visRect.Top;
+            int ow = hasRoi ? Math.Max(1, Convert.ToInt32(roi[2])) : Math.Max(1, visRect.Right - visRect.Left);
+            int oh = hasRoi ? Math.Max(1, Convert.ToInt32(roi[3])) : Math.Max(1, visRect.Bottom - visRect.Top);
+
+            using (Bitmap bmp = CaptureTargetBitmap(hwnd, rawRect, visRect, hasRoi, ox, oy, ow, oh))
+            {
+                return VisionMath.CompareWithReference(bmp, imgPath, ox, oy, cols, rows, topN);
+            }
+        }
+
         private static Dictionary<string, object> HandleAct(Dictionary<string, object> p)
         {
-            return ExecuteActInternal(p, 1);
+            return ExecuteActInternal(p, 1, true);
         }
 
         private static Dictionary<string, object> ExecuteActInternal(Dictionary<string, object> p, int arrowId)
+        {
+            return ExecuteActInternal(p, arrowId, true);
+        }
+
+        private static Dictionary<string, object> ExecuteActInternal(Dictionary<string, object> p, int arrowId, bool manageFocusAndCursor)
         {
             if (InputArm.IsEmergencyStopped)
                 throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
@@ -440,29 +665,45 @@ namespace ZVision.Native
             IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
             string action = JsonMini.GetString(p, "action", "");
             string mode = JsonMini.GetString(p, "mode", "physical").ToLowerInvariant();
+            string speed = JsonMini.GetString(p, "speed", "normal");
+            int pxPerStep = JsonMini.GetInt(p, "px_per_step", 0);
+            int pressure = JsonMini.GetInt(p, "pressure", 720);
             int x = JsonMini.GetInt(p, "x", 0);
             int y = JsonMini.GetInt(p, "y", 0);
             int index = JsonMini.GetInt(p, "index", -1);
             bool physical = JsonMini.GetBool(p, "physical", true);
             bool restoreCursor = JsonMini.GetBool(p, "restore_cursor", false);
             bool showArrows = JsonMini.GetBool(p, "show_arrows", mode != "physical");
+            bool expectChange = JsonMini.GetBool(p, "expect_change", false);
 
             int savedCx = 0, savedCy = 0;
-            bool shouldRestore = restoreCursor && mode == "physical" && action != "move";
+            bool shouldRestore = manageFocusAndCursor && restoreCursor && mode == "physical" && action != "move";
             if (shouldRestore) InputArm.GetCursorPosition(out savedCx, out savedCy);
+
+            if (expectChange && hwnd != IntPtr.Zero && IsWindow(hwnd))
+            {
+                RECT vr0, rr0;
+                if (GetVisibleWindowRect(hwnd, out vr0))
+                {
+                    if (!GetWindowRect(hwnd, out rr0)) rr0 = vr0;
+                    using (Bitmap preBmp = CaptureVisibleWindowBitmap(hwnd, rr0, vr0))
+                    {
+                        if (preBmp != null) VisionMath.ComputeFrameDiff(hwnd.ToInt64(), "__expect__", preBmp, vr0.Left, vr0.Top);
+                    }
+                }
+            }
 
             try
             {
-                if (mode == "physical" && hwnd != IntPtr.Zero && IsWindow(hwnd) && action != "move")
+                if (manageFocusAndCursor && (mode == "physical" || mode == "pen") && hwnd != IntPtr.Zero && IsWindow(hwnd) && action != "move")
                 {
-                    FocusWindow(hwnd);
-                    Thread.Sleep(35);
+                    InputArm.EnsureForeground(hwnd, 120);
                 }
 
                 if (action == "focus")
                 {
                     if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
-                    FocusWindow(hwnd);
+                    InputArm.EnsureForeground(hwnd, 150);
                 }
                 else if (action == "click" || action == "double_click" || action == "right_click")
                 {
@@ -479,6 +720,10 @@ namespace ZVision.Native
                         if (mode == "virtual" && hwnd != IntPtr.Zero)
                         {
                             VirtualPointer.VirtualClick(hwnd, x, y, btn, clicks, arrowId, showArrows);
+                        }
+                        else if (mode == "pen")
+                        {
+                            VirtualPointer.PenClick(x, y, pressure, showArrows);
                         }
                         else if (mode == "touch")
                         {
@@ -500,16 +745,21 @@ namespace ZVision.Native
                     if (mode == "virtual" && hwnd != IntPtr.Zero)
                         VirtualPointer.VirtualMove(hwnd, x, y, arrowId, showArrows);
                     else
-                        InputArm.MoveSmooth(x, y, JsonMini.GetInt(p, "steps", 6));
+                        InputArm.MoveSmooth(x, y, JsonMini.GetInt(p, "steps", 6), InputArm.ResolveSpeedDelayMs(speed));
                 }
                 else if (action == "drag")
                 {
                     List<int[]> pts = ParseDragPoints(p);
                     string btn = JsonMini.GetString(p, "button", "left");
                     int steps = JsonMini.GetInt(p, "steps", 8);
+                    int delayMs = InputArm.ResolveSpeedDelayMs(speed);
                     if (mode == "virtual" && hwnd != IntPtr.Zero)
                     {
-                        VirtualPointer.VirtualDrag(hwnd, pts, btn, steps, arrowId, showArrows);
+                        VirtualPointer.VirtualDrag(hwnd, pts, btn, steps, arrowId, showArrows, delayMs);
+                    }
+                    else if (mode == "pen")
+                    {
+                        VirtualPointer.PenDrag(pts, steps, pressure, delayMs, showArrows);
                     }
                     else if (mode == "touch")
                     {
@@ -519,7 +769,29 @@ namespace ZVision.Native
                     }
                     else
                     {
-                        InputArm.Drag(pts, btn, steps);
+                        InputArm.Drag(pts, btn, steps, speed, pxPerStep);
+                    }
+                }
+                else if (action == "batch_strokes")
+                {
+                    List<object> strokesObj = JsonMini.GetList(p, "strokes");
+                    if (strokesObj == null || strokesObj.Count == 0)
+                        throw new ArgumentException("invalid_argument: batch_strokes requires non-empty strokes array");
+                    string btn = JsonMini.GetString(p, "button", "left");
+                    int steps = JsonMini.GetInt(p, "steps", 6);
+                    int delayMs = InputArm.ResolveSpeedDelayMs(speed);
+                    for (int si = 0; si < strokesObj.Count; si++)
+                    {
+                        if (InputArm.IsEmergencyStopped)
+                            throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+                        List<int[]> sPts = ParseStrokeList(strokesObj[si] as List<object>);
+                        if (sPts.Count < 2) continue;
+                        if (mode == "virtual" && hwnd != IntPtr.Zero)
+                            VirtualPointer.VirtualDrag(hwnd, sPts, btn, steps, arrowId, showArrows, delayMs);
+                        else if (mode == "pen")
+                            VirtualPointer.PenDrag(sPts, steps, pressure, delayMs, showArrows);
+                        else
+                            InputArm.Drag(sPts, btn, steps, speed, pxPerStep);
                     }
                 }
                 else if (action == "scroll")
@@ -550,6 +822,28 @@ namespace ZVision.Native
                         InputArm.TypeUnicode(text);
                     }
                 }
+                else if (action == "clear_and_type")
+                {
+                    string valText = JsonMini.GetString(p, "text", "");
+                    if (index >= 0 && hwnd != IntPtr.Zero)
+                    {
+                        string uiaErr;
+                        if (UiaTree.TrySemanticAction(hwnd, index, "set_value", valText, out uiaErr))
+                        {
+                            Dictionary<string, object> okRes = new Dictionary<string, object>(StringComparer.Ordinal);
+                            okRes["executed"] = true;
+                            okRes["action"] = action;
+                            okRes["semantic"] = true;
+                            return okRes;
+                        }
+                    }
+                    if (p.ContainsKey("x") && p.ContainsKey("y"))
+                    {
+                        InputArm.Click(x, y, "left", 1);
+                        Thread.Sleep(25);
+                    }
+                    InputArm.ClearAndType(valText);
+                }
                 else if (action == "paste")
                 {
                     if (p.ContainsKey("x") && p.ContainsKey("y") && JsonMini.GetBool(p, "click_first", false))
@@ -579,9 +873,7 @@ namespace ZVision.Native
                         InputArm.Click(x, y, "left", 1);
                         Thread.Sleep(25);
                     }
-                    InputArm.PressChord("ctrl+a");
-                    Thread.Sleep(15);
-                    InputArm.TypeUnicode(valText);
+                    InputArm.ClearAndType(valText);
                 }
                 else if (action == "key")
                 {
@@ -604,11 +896,144 @@ namespace ZVision.Native
                 if (shouldRestore) InputArm.RestoreCursor(savedCx, savedCy);
             }
 
+            if (expectChange && hwnd != IntPtr.Zero && IsWindow(hwnd))
+            {
+                Thread.Sleep(30);
+                RECT vr1, rr1;
+                if (GetVisibleWindowRect(hwnd, out vr1))
+                {
+                    if (!GetWindowRect(hwnd, out rr1)) rr1 = vr1;
+                    using (Bitmap postBmp = CaptureVisibleWindowBitmap(hwnd, rr1, vr1))
+                    {
+                        if (postBmp != null)
+                        {
+                            Dictionary<string, object> postDiff = VisionMath.ComputeFrameDiff(hwnd.ToInt64(), "__expect__", postBmp, vr1.Left, vr1.Top);
+                            if (!JsonMini.GetBool(postDiff, "visual_changed", true))
+                                throw new InvalidOperationException("no_visual_effect: Action produced 0 changed pixels");
+                        }
+                    }
+                }
+            }
+
             Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
             res["executed"] = true;
             res["action"] = action;
             res["mode"] = mode;
             return res;
+        }
+
+        private static Dictionary<string, object> HandlePlanBatch(Dictionary<string, object> p)
+        {
+            if (InputArm.IsEmergencyStopped)
+                throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+
+            IntPtr defaultHwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            bool restoreCursor = JsonMini.GetBool(p, "restore_cursor", false);
+            string defaultMode = JsonMini.GetString(p, "mode", "physical").ToLowerInvariant();
+            string defaultSpeed = JsonMini.GetString(p, "speed", "normal");
+            int defaultPxPerStep = JsonMini.GetInt(p, "px_per_step", 0);
+            List<object> steps = JsonMini.GetList(p, "steps");
+            if (steps == null || steps.Count == 0)
+                throw new ArgumentException("invalid_argument: plan_batch requires non-empty steps");
+
+            bool hasPhysical = false;
+            for (int i = 0; i < steps.Count; i++)
+            {
+                Dictionary<string, object> st = steps[i] as Dictionary<string, object>;
+                if (st == null) continue;
+                string sm = JsonMini.GetString(st, "mode", defaultMode).ToLowerInvariant();
+                string sa = JsonMini.GetString(st, "action", "");
+                if (sm == "physical" && sa != "sleep" && sa != "move") { hasPhysical = true; break; }
+            }
+
+            int savedCx = 0, savedCy = 0;
+            bool shouldRestore = restoreCursor && hasPhysical;
+            if (shouldRestore) InputArm.GetCursorPosition(out savedCx, out savedCy);
+
+            if (hasPhysical && defaultHwnd != IntPtr.Zero && IsWindow(defaultHwnd))
+            {
+                InputArm.EnsureForeground(defaultHwnd, 150);
+            }
+
+            int completed = 0;
+            try
+            {
+                for (int i = 0; i < steps.Count; i++)
+                {
+                    if (InputArm.IsEmergencyStopped)
+                        throw new InvalidOperationException("emergency_stopped: Esc or Stop halted input");
+
+                    Dictionary<string, object> st = steps[i] as Dictionary<string, object>;
+                    if (st == null) { completed++; continue; }
+                    string sa = JsonMini.GetString(st, "action", "");
+                    if (sa == "sleep")
+                    {
+                        Thread.Sleep(Math.Min(JsonMini.GetInt(st, "ms", 100), 5000));
+                    }
+                    else
+                    {
+                        Dictionary<string, object> execP = new Dictionary<string, object>(st, StringComparer.Ordinal);
+                        if (!execP.ContainsKey("hwnd") && defaultHwnd != IntPtr.Zero) execP["hwnd"] = defaultHwnd.ToInt64();
+                        if (!execP.ContainsKey("mode")) execP["mode"] = defaultMode;
+                        if (!execP.ContainsKey("speed")) execP["speed"] = defaultSpeed;
+                        if (!execP.ContainsKey("px_per_step") && defaultPxPerStep > 0) execP["px_per_step"] = defaultPxPerStep;
+
+                        IntPtr stepHwnd = new IntPtr(JsonMini.GetLong(execP, "hwnd", defaultHwnd.ToInt64()));
+                        string stepMode = JsonMini.GetString(execP, "mode", defaultMode).ToLowerInvariant();
+                        if ((stepMode == "physical" || stepMode == "pen") && stepHwnd != IntPtr.Zero && stepHwnd != defaultHwnd && IsWindow(stepHwnd))
+                        {
+                            InputArm.EnsureForeground(stepHwnd, 120);
+                        }
+                        ExecuteActInternal(execP, 1, false);
+                    }
+                    completed++;
+                }
+
+                Dictionary<string, object> okRes = new Dictionary<string, object>(StringComparer.Ordinal);
+                okRes["ok"] = true;
+                okRes["completed_steps"] = completed;
+                return okRes;
+            }
+            catch (Exception ex)
+            {
+                string code = "step_failed";
+                string msg = ex.Message ?? "Batch step failed";
+                int colon = msg.IndexOf(':');
+                if (colon > 0 && colon < 32 && msg.Substring(0, colon).IndexOf(' ') < 0)
+                {
+                    code = msg.Substring(0, colon);
+                    msg = msg.Substring(colon + 1).Trim();
+                }
+                Dictionary<string, object> errObj = new Dictionary<string, object>(StringComparer.Ordinal);
+                errObj["code"] = code;
+                errObj["message"] = msg;
+
+                Dictionary<string, object> failRes = new Dictionary<string, object>(StringComparer.Ordinal);
+                failRes["ok"] = false;
+                failRes["completed_steps"] = completed;
+                failRes["failed_step"] = completed;
+                failRes["error"] = errObj;
+                return failRes;
+            }
+            finally
+            {
+                if (shouldRestore) InputArm.RestoreCursor(savedCx, savedCy);
+            }
+        }
+
+        private static List<int[]> ParseStrokeList(List<object> ptsObj)
+        {
+            List<int[]> pts = new List<int[]>();
+            if (ptsObj != null)
+            {
+                for (int i = 0; i < ptsObj.Count; i++)
+                {
+                    List<object> pair = ptsObj[i] as List<object>;
+                    if (pair != null && pair.Count >= 2)
+                        pts.Add(new int[] { Convert.ToInt32(pair[0]), Convert.ToInt32(pair[1]) });
+                }
+            }
+            return pts;
         }
 
         private static List<int[]> ParseDragPoints(Dictionary<string, object> p)
@@ -781,8 +1206,7 @@ namespace ZVision.Native
 
         private static void FocusWindow(IntPtr hwnd)
         {
-            if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-            SetForegroundWindow(hwnd);
+            InputArm.EnsureForeground(hwnd, 120);
         }
 
         private static Bitmap CaptureWindowBitmap(IntPtr hwnd, int left, int top, int width, int height)

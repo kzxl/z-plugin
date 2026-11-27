@@ -18,6 +18,101 @@ namespace ZVision.Native
         private static IntPtr _hookHandle = IntPtr.Zero;
         private static HookProc _hookDelegate;
 
+        private static readonly object MetricsLock = new object();
+        private static int _vx = 0;
+        private static int _vy = 0;
+        private static int _vw = 0;
+        private static int _vh = 0;
+        private static int _metricsTick = 0;
+
+        public static void RefreshScreenMetrics()
+        {
+            lock (MetricsLock)
+            {
+                _vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                _vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                _vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+                _vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+                _metricsTick = Environment.TickCount;
+            }
+        }
+
+        private static void GetScreenMetrics(out int vx, out int vy, out int vw, out int vh)
+        {
+            int now = Environment.TickCount;
+            if (_vw <= 0 || unchecked(now - _metricsTick) > 5000)
+            {
+                RefreshScreenMetrics();
+            }
+            lock (MetricsLock)
+            {
+                vx = _vx;
+                vy = _vy;
+                vw = _vw;
+                vh = _vh;
+            }
+        }
+
+        public static int ResolveSpeedDelayMs(string speed)
+        {
+            if (string.IsNullOrEmpty(speed)) return 2;
+            string s = speed.ToLowerInvariant();
+            if (s == "instant") return 0;
+            if (s == "fast") return 1;
+            if (s == "human") return 4;
+            return 2;
+        }
+
+        public static bool EnsureForeground(IntPtr hwnd, int timeoutMs)
+        {
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return false;
+            if (GetForegroundWindow() == hwnd) return true;
+            if (IsIconic(hwnd)) ShowWindow(hwnd, 9); // SW_RESTORE
+
+            SetForegroundWindow(hwnd);
+            if (GetForegroundWindow() != hwnd)
+            {
+                IntPtr fg = GetForegroundWindow();
+                uint fgTid = fg != IntPtr.Zero ? GetWindowThreadProcessId(fg, IntPtr.Zero) : 0;
+                uint tgtTid = GetWindowThreadProcessId(hwnd, IntPtr.Zero);
+                uint curTid = GetCurrentThreadId();
+                bool attFg = false, attTgt = false;
+                try
+                {
+                    if (fgTid != 0 && fgTid != curTid) attFg = AttachThreadInput(curTid, fgTid, true);
+                    if (tgtTid != 0 && tgtTid != curTid && tgtTid != fgTid) attTgt = AttachThreadInput(curTid, tgtTid, true);
+                    BringWindowToTop(hwnd);
+                    SetForegroundWindow(hwnd);
+                }
+                finally
+                {
+                    if (attTgt) AttachThreadInput(curTid, tgtTid, false);
+                    if (attFg) AttachThreadInput(curTid, fgTid, false);
+                }
+            }
+
+            int limit = Math.Max(0, Math.Min(timeoutMs, 200));
+            int waited = 0;
+            while (waited < limit && GetForegroundWindow() != hwnd)
+            {
+                Thread.Sleep(10);
+                waited += 10;
+            }
+            return GetForegroundWindow() == hwnd;
+        }
+
+        public static void ClearAndType(string text)
+        {
+            EnsureNotStopped();
+            PressChord("home");
+            Thread.Sleep(10);
+            PressChord("shift+end");
+            Thread.Sleep(10);
+            PressChord("backspace");
+            Thread.Sleep(10);
+            TypeUnicode(text);
+        }
+
         public static bool IsEmergencyStopped
         {
             get { return Interlocked.CompareExchange(ref _emergencyStopped, 0, 0) != 0; }
@@ -147,13 +242,18 @@ namespace ZVision.Native
 
         public static void MoveSmooth(int targetX, int targetY, int steps)
         {
+            MoveSmooth(targetX, targetY, steps, 2);
+        }
+
+        public static void MoveSmooth(int targetX, int targetY, int steps, int stepDelayMs)
+        {
             EnsureNotStopped();
             if (steps < 1) steps = 1;
             if (steps > 40) steps = 40;
             POINT cur;
             if (!GetCursorPos(out cur) || steps == 1)
             {
-                MoveAbs(targetX, targetY);
+                MoveAbs(targetX, targetY, true);
                 return;
             }
             for (int i = 1; i <= steps; i++)
@@ -162,15 +262,15 @@ namespace ZVision.Native
                 double t = (double)i / steps;
                 int nx = (int)Math.Round(cur.X + (targetX - cur.X) * t);
                 int ny = (int)Math.Round(cur.Y + (targetY - cur.Y) * t);
-                MoveAbs(nx, ny);
-                if (i < steps) Thread.Sleep(4);
+                MoveAbs(nx, ny, i == steps);
+                if (stepDelayMs > 0 && i < steps) Thread.Sleep(stepDelayMs);
             }
         }
 
         public static void Click(int x, int y, string button, int clicks)
         {
             EnsureNotStopped();
-            MoveSmooth(x, y, 5);
+            MoveSmooth(x, y, 5, 1);
             string btn = string.IsNullOrEmpty(button) ? "left" : button.ToLowerInvariant();
             uint downFlag = MOUSEEVENTF_LEFTDOWN;
             uint upFlag = MOUSEEVENTF_LEFTUP;
@@ -184,14 +284,19 @@ namespace ZVision.Native
                 EnsureNotStopped();
                 lock (LedgerLock) { HeldButtons.Add(btn); }
                 SendInputs(new INPUT[] { MakeMouseInput(0, 0, downFlag, 0) });
-                Thread.Sleep(18);
+                Thread.Sleep(15);
                 SendInputs(new INPUT[] { MakeMouseInput(0, 0, upFlag, 0) });
                 lock (LedgerLock) { HeldButtons.Remove(btn); }
-                if (c + 1 < clicks) Thread.Sleep(45);
+                if (c + 1 < clicks) Thread.Sleep(40);
             }
         }
 
         public static void Drag(List<int[]> points, string button, int stepsPerSegment)
+        {
+            Drag(points, button, stepsPerSegment, "normal", 0);
+        }
+
+        public static void Drag(List<int[]> points, string button, int stepsPerSegment, string speed, int pxPerStep)
         {
             if (points == null || points.Count < 2) throw new ArgumentException("Drag requires >= 2 points");
             EnsureNotStopped();
@@ -201,17 +306,30 @@ namespace ZVision.Native
             if (btn == "right") { downFlag = MOUSEEVENTF_RIGHTDOWN; upFlag = MOUSEEVENTF_RIGHTUP; }
             else if (btn == "middle") { downFlag = MOUSEEVENTF_MIDDLEDOWN; upFlag = MOUSEEVENTF_MIDDLEUP; }
 
-            MoveSmooth(points[0][0], points[0][1], 4);
+            int delayMs = ResolveSpeedDelayMs(speed);
+            int downDelay = delayMs == 0 ? 4 : (delayMs == 1 ? 8 : 18);
+            int upDelay = delayMs == 0 ? 3 : (delayMs == 1 ? 6 : 14);
+
+            MoveSmooth(points[0][0], points[0][1], delayMs == 0 ? 1 : 3, delayMs);
             lock (LedgerLock) { HeldButtons.Add(btn); }
             try
             {
                 SendInputs(new INPUT[] { MakeMouseInput(0, 0, downFlag, 0) });
-                Thread.Sleep(25);
+                Thread.Sleep(downDelay);
                 for (int p = 1; p < points.Count; p++)
                 {
-                    MoveSmooth(points[p][0], points[p][1], stepsPerSegment);
+                    int segSteps = stepsPerSegment;
+                    if (pxPerStep > 0 || stepsPerSegment <= 0)
+                    {
+                        double dx = points[p][0] - points[p - 1][0];
+                        double dy = points[p][1] - points[p - 1][1];
+                        double dist = Math.Sqrt(dx * dx + dy * dy);
+                        int stride = pxPerStep > 0 ? Math.Max(4, pxPerStep) : (delayMs <= 1 ? 18 : 12);
+                        segSteps = Math.Max(2, Math.Min(40, (int)Math.Ceiling(dist / stride)));
+                    }
+                    MoveSmooth(points[p][0], points[p][1], segSteps, delayMs);
                 }
-                Thread.Sleep(20);
+                Thread.Sleep(upDelay);
             }
             finally
             {
@@ -338,10 +456,13 @@ namespace ZVision.Native
 
         private static void MoveAbs(int x, int y)
         {
-            int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-            int vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
-            int vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+            MoveAbs(x, y, true);
+        }
+
+        private static void MoveAbs(int x, int y, bool verifyPos)
+        {
+            int vx, vy, vw, vh;
+            GetScreenMetrics(out vx, out vy, out vw, out vh);
 
             // Win32 virtual-desktop normalized coordinate formula mapping pixel centers cleanly
             long axL = ((long)(x - vx) * 65536L + 32768L) / vw;
@@ -353,10 +474,13 @@ namespace ZVision.Native
                 MakeMouseInput(ax, ay, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, 0)
             });
 
-            POINT check;
-            if (GetCursorPos(out check) && (Math.Abs(check.X - x) > 1 || Math.Abs(check.Y - y) > 1))
+            if (verifyPos)
             {
-                SetCursorPos(x, y);
+                POINT check;
+                if (GetCursorPos(out check) && (Math.Abs(check.X - x) > 1 || Math.Abs(check.Y - y) > 1))
+                {
+                    SetCursorPos(x, y);
+                }
             }
         }
 
@@ -590,5 +714,14 @@ namespace ZVision.Native
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     }
 }

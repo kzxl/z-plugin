@@ -57,6 +57,14 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
   });
   ok(typeRes.allowed === false && typeRes.code === 'restricted_process', 'type blocked on click-only terminal');
 
+  const clearTypeRes = checkActionSafety({
+    action: 'clear_and_type',
+    processName: 'WindowsTerminal.exe',
+    text: 'whoami',
+    reason: 'Clear and type'
+  });
+  ok(clearTypeRes.allowed === false && clearTypeRes.code === 'restricted_process', 'clear_and_type blocked on click-only terminal');
+
   const keyOverride = checkActionSafety({
     action: 'key',
     processName: 'Code.exe',
@@ -219,11 +227,27 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
     [
       { action: 'click', index: 0, reason: 'Focus input' },
       { action: 'type', text: 'hello', reason: 'Enter query' },
+      { action: 'clear_and_type', text: 'world', reason: 'Replace query' },
+      { action: 'refresh_uia' },
+      { action: 'wait_control', name: 'OK' },
+      { action: 'batch_strokes', strokes: [[[10, 10], [20, 20]]], reason: 'Draw batch' },
       { action: 'wait_settle', timeout_ms: 1000 }
     ],
     { processName: 'notepad.exe' }
   );
-  ok(goodPlan.valid === true, 'Valid plan passes pre-validation');
+  ok(goodPlan.valid === true, 'Valid plan with upgraded primitives passes pre-validation');
+
+  const largePlan = validatePlanSteps(
+    new Array(150).fill({ action: 'drag', from: [10, 10], to: [20, 20], reason: 'stroke' }),
+    { processName: 'mspaint.exe' }
+  );
+  ok(largePlan.valid === true, 'Plan up to 200 steps passes pre-validation');
+
+  const overPlan = validatePlanSteps(
+    new Array(201).fill({ action: 'sleep', ms: 10 }),
+    { processName: 'mspaint.exe' }
+  );
+  ok(overPlan.valid === false, 'Plan >200 steps rejected');
 }
 
 // Parallel lanes pre-validation
@@ -381,6 +405,51 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
     ]
   });
   ok(parRes.ok === true && parRes.lanes.length === 2 && Boolean(parRes.observation), 'parallel executes multi-lane virtual strokes and returns fresh observation');
+
+  // Single-RPC plan_batch + refresh_uia mock test
+  const batchCalls = [];
+  const batchEngine = createVisionEngine({
+    client: {
+      async request(cmd, params = {}) {
+        batchCalls.push({ cmd, params });
+        if (cmd === 'window_info') return { hwnd: 4242, bounds: mockBounds };
+        if (cmd === 'observe') {
+          return {
+            hwnd: 4242,
+            process: 'demo.exe',
+            title: 'Demo App',
+            bounds: mockBounds,
+            image_size: { w: 1000, h: 700 },
+            dhash: '0000000000000000',
+            nodes: mockNodes,
+            image_base64: null
+          };
+        }
+        if (cmd === 'plan_batch') {
+          return { ok: true, completed_steps: params.steps.length };
+        }
+        throw new Error(`Unexpected cmd: ${cmd}`);
+      }
+    }
+  });
+  const obBatch = await batchEngine.observe({ hwnd: 4242, with_image: false });
+  batchCalls.length = 0;
+  const batchRes = await batchEngine.plan({
+    hwnd: 4242,
+    observation_id: obBatch.observation_id,
+    speed: 'fast',
+    with_uia: 'off',
+    steps: [
+      { action: 'click', index: 3, reason: 'Click Apply' },
+      { action: 'batch_strokes', strokes: [[[10, 10], [50, 50]], [[60, 10], [90, 50]]], reason: 'Draw 2 strokes' },
+      { action: 'sleep', ms: 10 },
+      { action: 'refresh_uia' },
+      { action: 'clear_and_type', index: 0, text: 'updated', reason: 'Set search' }
+    ]
+  });
+  const rpcNames = batchCalls.map((c) => c.cmd);
+  const batchRpcCount = rpcNames.filter((n) => n === 'plan_batch').length;
+  ok(batchRes.ok === true && batchRes.completed_steps === 5 && batchRpcCount === 2, `plan_batch batches contiguous native steps around refresh_uia (${rpcNames.join(' -> ')})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +498,7 @@ ok(hammingDistanceHex('0000000000000000', '000000000000000f') === 4, 'hammingDis
 
     const list = await rpc('tools/list', {});
     const toolNames = (list.result?.tools || []).map((t) => t.name);
-    for (const expected of ['zvision_status', 'zvision_windows', 'zvision_observe', 'zvision_act', 'zvision_plan', 'zvision_parallel', 'zvision_ocr', 'zvision_stop']) {
+    for (const expected of ['zvision_status', 'zvision_windows', 'zvision_observe', 'zvision_act', 'zvision_plan', 'zvision_parallel', 'zvision_ocr', 'zvision_analyze', 'zvision_stop']) {
       ok(toolNames.includes(expected), `MCP tools/list exposes ${expected}`);
     }
     const schemaTokens = Math.round(JSON.stringify(list.result?.tools || []).length / 4);
@@ -464,6 +533,7 @@ if (process.platform === 'win32') {
     ok(Array.isArray(st.monitors) && st.monitors.length >= 1, `Native status detected ${st.monitors.length} monitor(s)`);
     ok(st.emergency_stopped === false, 'Native status reports emergency_stopped=false initially');
     ok(st.virtual_mouse === true, 'Native status reports virtual_mouse=true');
+    ok(typeof st.pen_injection_available === 'boolean', `Native status reports pen_injection_available=${st.pen_injection_available}`);
 
     // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel test
     const psScript = [
@@ -514,6 +584,36 @@ if (process.platform === 'win32') {
     ok(Array.isArray(obs.nodes), `Native observe walked UIA tree (${obs.nodes.length} nodes)`);
     ok(typeof obs.image_base64 === 'string' && obs.image_base64.length > 100, `Native observe captured screenshot (${obs.image_base64.length} b64 chars)`);
 
+    // Verify with_uia='off', with_uia='diff', and ROI capture
+    const obsNoUia = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    ok(obsNoUia.uia_skipped === true && obsNoUia.nodes.length === 0, 'Native observe(with_uia=off) skips UIA traversal');
+
+    const obsDiff1 = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'diff' });
+    const obsDiff2 = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'diff' });
+    ok(obsDiff2.uia_unchanged === true && obsDiff2.nodes.length === obsDiff1.nodes.length, 'Native observe(with_uia=diff) omits redundant UIA wire payload while preserving cached nodes');
+
+    const cb = candidate.client_bounds;
+    const obsRoi = await engine.observe({
+      hwnd: candidate.hwnd,
+      with_image: true,
+      with_uia: 'off',
+      roi: [cb.x + 10, cb.y + 10, 200, 120]
+    });
+    ok(obsRoi.roi && obsRoi.image_size.w === 200 && obsRoi.image_size.h === 120, `Native observe(roi) captures exact cropped dimensions (${obsRoi.image_size.w}x${obsRoi.image_size.h})`);
+
+    // Verify native sample_pixels & find_color_bounds on white probe window
+    const pxRes = await engine.samplePixels({ hwnd: candidate.hwnd, points: [[cb.x + 300, cb.y + 150]] });
+    const pt0 = pxRes.pixels?.[0];
+    ok(pt0 && pt0.in_bounds === true && pt0.r > 240 && pt0.g > 240 && pt0.b > 240, `Native samplePixels reads white probe pixel (${pt0?.hex})`);
+
+    const boundsRes = await engine.findColorBounds({
+      hwnd: candidate.hwnd,
+      target_rgb: [255, 255, 255],
+      tolerance: 15,
+      roi: [cb.x, cb.y, cb.w, cb.h]
+    });
+    ok(boundsRes.found === true && boundsRes.w > 200 && boundsRes.h > 100, `Native findColorBounds locates white interior (${boundsRes.w}x${boundsRes.h})`);
+
     // Verify virtual mouse click triggers WinForms button without hijacking hardware cursor
     const btnNode = obs.nodes.find((n) => n.name === 'ApplyProbe' || n.aid === 'btnApplyProbe');
     ok(Boolean(btnNode), 'Probe UIA tree contains ApplyProbe button');
@@ -533,11 +633,59 @@ if (process.platform === 'win32') {
     ok(cursorBefore[0] === cursorAfter[0] && cursorBefore[1] === cursorAfter[1], 'Virtual click left hardware cursor untouched');
     const updatedLbl = (vClick.observation?.nodes || []).find((n) => n.name === 'CLICKED_VIRTUAL');
     ok(Boolean(updatedLbl), 'Virtual click triggered WinForms button Click event (label -> CLICKED_VIRTUAL)');
+    ok(vClick.observation?.visual_changed === true && Array.isArray(vClick.observation?.dirty_rect), 'Post-click observation detects visual_changed and dirty_rect');
+
+    // Verify native 1-RPC plan_batch with batch_strokes in virtual mode
+    const planBatchRes = await engine.plan({
+      hwnd: candidate.hwnd,
+      observation_id: vClick.observation.observation_id,
+      mode: 'virtual',
+      coord_space: 'client',
+      show_arrows: false,
+      with_uia: 'off',
+      steps: [
+        { action: 'batch_strokes', strokes: [[[200, 40], [320, 40]], [[200, 60], [320, 60]]], steps: 2, reason: 'native batch strokes' }
+      ]
+    });
+    ok(planBatchRes.ok === true && planBatchRes.completed_steps === 1, 'Native 1-RPC plan_batch with batch_strokes completed');
+
+    // Verify native vectorizeImage & compareReference using generated synthetic PNG
+    const testImgPath = path.join(tmpNativeDir, 'sample-landscape.png');
+    const psImg = [
+      'Add-Type -AssemblyName System.Drawing',
+      '$bmp = New-Object System.Drawing.Bitmap(120, 90)',
+      '$g = [System.Drawing.Graphics]::FromImage($bmp)',
+      '$g.FillRectangle([System.Drawing.Brushes]::LightSkyBlue, 0, 0, 120, 45)',
+      '$g.FillRectangle([System.Drawing.Brushes]::DarkGreen, 0, 45, 120, 45)',
+      '$g.FillEllipse([System.Drawing.Brushes]::Gold, 20, 15, 24, 24)',
+      "$bmp.Save('" + testImgPath.replace(/'/g, "''") + "', [System.Drawing.Imaging.ImageFormat]::Png)",
+      '$g.Dispose(); $bmp.Dispose()'
+    ].join('; ');
+    const { spawnSync } = await import('node:child_process');
+    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psImg], { encoding: 'utf8' });
+
+    const vecRes = await engine.vectorizeImage({
+      image_path: testImgPath,
+      canvas_rect: [cb.x + 10, cb.y + 10, 300, 200],
+      palette_size: 4,
+      max_strokes: 80
+    });
+    ok(Array.isArray(vecRes.palette) && vecRes.palette.length === 4 && vecRes.stroke_count > 0 && Array.isArray(vecRes.layers), `Native vectorizeImage produced ${vecRes.palette?.length} CIELAB colors and ${vecRes.stroke_count} strokes`);
+
+    const cmpRes = await engine.compareReference({
+      hwnd: candidate.hwnd,
+      image_path: testImgPath,
+      roi: [cb.x, cb.y, cb.w, cb.h],
+      grid_cols: 4,
+      grid_rows: 3,
+      top_n: 3
+    });
+    ok(typeof cmpRes.similarity_pct === 'number' && Array.isArray(cmpRes.high_error_tiles) && cmpRes.high_error_tiles.length === 3, `Native compareReference returned similarity=${cmpRes.similarity_pct}% and ${cmpRes.high_error_tiles?.length} top error tiles`);
 
     // Verify parallel virtual lanes
     const parNative = await engine.parallel({
       hwnd: candidate.hwnd,
-      observation_id: vClick.observation.observation_id,
+      observation_id: planBatchRes.observation.observation_id,
       mode: 'virtual',
       coord_space: 'client',
       show_arrows: false,
