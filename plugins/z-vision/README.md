@@ -2,6 +2,12 @@
 
 Sovereign Windows desktop perception and guarded precision agent arm for `z-plugin`. Zero npm dependencies and zero .NET SDK required — the native Windows host (`ZVisionHost.exe`) compiles on-the-fly from C# 5 sources via stock `.NET Framework 4.x` `csc.exe` and caches per SHA-256 content hash under `~/.z-plugin/z-vision/bin/`.
 
+## Visual Demos
+
+- **Token-Diet Observation (`dhash` + DWM bounds)**: ![Token-Diet Vision](https://raw.githubusercontent.com/kzxl/z-vision/main/assets/demo-vision-dhash.gif)
+- **Virtual Mouse (`mode: "virtual"`)**: ![Virtual Mouse](https://raw.githubusercontent.com/kzxl/z-vision/main/assets/demo-virtual-mouse.gif)
+- **Multi-Arrow Parallel (`zvision_parallel` + `ArrowOverlay.cs`)**: ![Multi-Arrow Parallel](https://raw.githubusercontent.com/kzxl/z-vision/main/assets/demo-multi-arrow-parallel.gif)
+
 ## Capabilities
 
 - **Token-Diet Observation & Launch (`zvision_windows`, `zvision_observe`)**:
