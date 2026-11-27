@@ -31,7 +31,10 @@ const TOOLS = [
         include_hidden: { type: 'boolean', description: 'Include minimized or untitled windows' },
         filter: { type: 'string', description: 'Case-insensitive title or process substring filter' },
         launch_exe: { type: 'string', description: 'Optional executable path or name to launch first' },
-        launch_args: { type: 'string', description: 'Optional launch arguments' }
+        launch_args: { type: 'string', description: 'Optional launch arguments' },
+        wait_for: { type: 'string' },
+        wait_state: { type: 'string', enum: ['open', 'closed'] },
+        timeout_ms: { type: 'integer' }
       }
     }
   },
@@ -63,7 +66,7 @@ const TOOLS = [
       properties: {
         hwnd: { type: 'integer' },
         observation_id: { type: 'string' },
-        action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'clear_and_type', 'paste', 'set_value', 'key', 'focus', 'resize'] },
+        action: { type: 'string', enum: ['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'clear_and_type', 'paste', 'set_value', 'key', 'focus', 'resize', 'expand', 'collapse', 'toggle', 'select_item', 'set_range', 'scroll_into_view', 'minimize', 'maximize', 'restore', 'move_window', 'snap_window', 'close_window', 'file_dialog'] },
         index: { type: 'integer' },
         name: { type: 'string' },
         role: { type: 'string' },
@@ -71,6 +74,10 @@ const TOOLS = [
         ocr_text: { type: 'string' },
         x: { type: 'integer' },
         y: { type: 'integer' },
+        value: { type: 'string' },
+        snap: { type: 'string', enum: ['left', 'right', 'top', 'bottom', 'center'] },
+        file_path: { type: 'string' },
+        confirm: { type: 'boolean' },
         coord_space: { type: 'string', enum: ['image', 'window', 'client', 'screen'] },
         mode: { type: 'string', enum: ['physical', 'virtual', 'pen', 'uia', 'auto'] },
         speed: { type: 'string', enum: ['instant', 'fast', 'normal', 'human'] },
@@ -161,14 +168,21 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['sample_pixels', 'find_color_bounds', 'vectorize_image', 'compare_reference'] },
+        action: { type: 'string', enum: ['sample_pixels', 'find_color_bounds', 'vectorize_image', 'compare_reference', 'extract_table', 'clipboard_get', 'clipboard_set'] },
         hwnd: { type: 'integer' },
+        index: { type: 'integer' },
+        max_rows: { type: 'integer' },
+        max_cols: { type: 'integer' },
         roi: { type: 'array', items: { type: 'integer' } },
         points: { type: 'array', items: { type: 'array', items: { type: 'integer' } } },
         target_rgb: { type: 'array', items: { type: 'integer' } },
         tolerance: { type: 'integer' },
         invert: { type: 'boolean' },
         image_path: { type: 'string' },
+        save_image_path: { type: 'string' },
+        clipboard_kind: { type: 'string', enum: ['text', 'image', 'files', 'clear'] },
+        text: { type: 'string' },
+        files: { type: 'array', items: { type: 'string' } },
         canvas_rect: { type: 'array', items: { type: 'integer' } },
         palette_size: { type: 'integer' },
         max_strokes: { type: 'integer' }
@@ -285,6 +299,9 @@ async function handleTool(name, args = {}) {
       else if (args.action === 'find_color_bounds') res = await engine.findColorBounds(args);
       else if (args.action === 'vectorize_image') res = await engine.vectorizeImage(args);
       else if (args.action === 'compare_reference') res = await engine.compareReference(args);
+      else if (args.action === 'extract_table') res = await engine.extractTable(args);
+      else if (args.action === 'clipboard_get') res = await engine.clipboardGet(args);
+      else if (args.action === 'clipboard_set') res = await engine.clipboardSet(args);
       else throw new Error(`Unsupported analyze action: ${args.action}`);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }

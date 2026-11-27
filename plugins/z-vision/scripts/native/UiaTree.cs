@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 
@@ -40,6 +42,10 @@ namespace ZVision.Native
             cacheReq.Add(AutomationElement.IsSelectionItemPatternAvailableProperty);
             cacheReq.Add(AutomationElement.IsExpandCollapsePatternAvailableProperty);
             cacheReq.Add(AutomationElement.IsScrollPatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsRangeValuePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsGridPatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsTablePatternAvailableProperty);
+            cacheReq.Add(AutomationElement.IsSelectionPatternAvailableProperty);
             cacheReq.Add(ValuePattern.Pattern);
             cacheReq.Add(ValuePattern.ValueProperty);
 
@@ -114,6 +120,10 @@ namespace ZVision.Native
                     bool hasRect = !r.IsEmpty && !double.IsInfinity(r.Width) && !double.IsInfinity(r.Height) && r.Width > 0 && r.Height > 0;
                     List<object> patterns = usingCached ? GetCachedPatternNames(el) : GetSupportedPatternNames(el);
                     string val = usingCached ? TryReadCachedValue(el, patterns) : TryReadValue(el);
+                    if (string.IsNullOrEmpty(val) && patterns.Contains("Selection"))
+                    {
+                        val = TryReadSelectionValue(el);
+                    }
 
                     bool isInteractive = patterns.Count > 0 || focusable || IsInteractiveRole(role);
                     bool matchesQuery = true;
@@ -241,6 +251,123 @@ namespace ZVision.Native
                     error = "Element lacks ScrollItemPattern";
                     return false;
                 }
+                if (action == "expand")
+                {
+                    if (el.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out patObj))
+                    {
+                        ((ExpandCollapsePattern)patObj).Expand();
+                        return true;
+                    }
+                    error = "Element lacks ExpandCollapsePattern";
+                    return false;
+                }
+                if (action == "collapse")
+                {
+                    if (el.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out patObj))
+                    {
+                        ((ExpandCollapsePattern)patObj).Collapse();
+                        return true;
+                    }
+                    error = "Element lacks ExpandCollapsePattern";
+                    return false;
+                }
+                if (action == "toggle")
+                {
+                    if (el.TryGetCurrentPattern(TogglePattern.Pattern, out patObj))
+                    {
+                        ((TogglePattern)patObj).Toggle();
+                        return true;
+                    }
+                    error = "Element lacks TogglePattern";
+                    return false;
+                }
+                if (action == "set_range")
+                {
+                    if (el.TryGetCurrentPattern(RangeValuePattern.Pattern, out patObj))
+                    {
+                        RangeValuePattern rv = (RangeValuePattern)patObj;
+                        double val;
+                        if (!double.TryParse((text ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out val))
+                        {
+                            error = "Invalid numeric range value: " + (text ?? "");
+                            return false;
+                        }
+                        double min = rv.Current.Minimum;
+                        double max = rv.Current.Maximum;
+                        if (val < min) val = min;
+                        if (val > max) val = max;
+                        rv.SetValue(val);
+                        return true;
+                    }
+                    error = "Element lacks RangeValuePattern";
+                    return false;
+                }
+                if (action == "select_item")
+                {
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        if (el.TryGetCurrentPattern(SelectionItemPattern.Pattern, out patObj))
+                        {
+                            ((SelectionItemPattern)patObj).Select();
+                            return true;
+                        }
+                        error = "Element lacks SelectionItemPattern";
+                        return false;
+                    }
+                    bool expandedHere = false;
+                    ExpandCollapsePattern expPat = null;
+                    if (el.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out patObj))
+                    {
+                        expPat = (ExpandCollapsePattern)patObj;
+                        if (expPat.Current.ExpandCollapseState == ExpandCollapseState.Collapsed)
+                        {
+                            expPat.Expand();
+                            expandedHere = true;
+                            Thread.Sleep(60);
+                        }
+                    }
+                    AutomationElement foundItem = FindDescendantByName(el, text.Trim(), 200);
+                    if (foundItem == null)
+                    {
+                        if (expandedHere && expPat != null)
+                        {
+                            try { expPat.Collapse(); } catch { }
+                        }
+                        error = "Item not found in container: " + text;
+                        return false;
+                    }
+                    bool selected = false;
+                    object subPat;
+                    if (foundItem.TryGetCurrentPattern(SelectionItemPattern.Pattern, out subPat))
+                    {
+                        ((SelectionItemPattern)subPat).Select();
+                        selected = true;
+                    }
+                    else if (foundItem.TryGetCurrentPattern(InvokePattern.Pattern, out subPat))
+                    {
+                        ((InvokePattern)subPat).Invoke();
+                        selected = true;
+                    }
+                    else
+                    {
+                        try { foundItem.SetFocus(); selected = true; } catch { }
+                    }
+                    if (expandedHere && expPat != null)
+                    {
+                        try
+                        {
+                            if (expPat.Current.ExpandCollapseState == ExpandCollapseState.Expanded)
+                                expPat.Collapse();
+                        }
+                        catch { }
+                    }
+                    if (!selected)
+                    {
+                        error = "Found item lacks Select/Invoke pattern: " + text;
+                        return false;
+                    }
+                    return true;
+                }
                 error = "Unsupported semantic action: " + action;
                 return false;
             }
@@ -249,6 +376,418 @@ namespace ZVision.Native
                 error = ex.Message;
                 return false;
             }
+        }
+
+        private static AutomationElement FindDescendantByName(AutomationElement root, string targetName, int maxVisit)
+        {
+            TreeWalker walker = TreeWalker.ControlViewWalker;
+            Queue<AutomationElement> q = new Queue<AutomationElement>();
+            AutomationElement firstChild = walker.GetFirstChild(root);
+            while (firstChild != null)
+            {
+                q.Enqueue(firstChild);
+                firstChild = walker.GetNextSibling(firstChild);
+            }
+            AutomationElement partialMatch = null;
+            int visited = 0;
+            while (q.Count > 0 && visited < maxVisit)
+            {
+                AutomationElement cur = q.Dequeue();
+                visited++;
+                string n = "";
+                try { n = cur.Current.Name ?? ""; } catch { }
+                if (string.Equals(n.Trim(), targetName, StringComparison.OrdinalIgnoreCase))
+                    return cur;
+                if (partialMatch == null && ContainsIgnoreCase(n, targetName))
+                    partialMatch = cur;
+                try
+                {
+                    AutomationElement c = walker.GetFirstChild(cur);
+                    int g = 0;
+                    while (c != null && g < 100)
+                    {
+                        q.Enqueue(c);
+                        c = walker.GetNextSibling(c);
+                        g++;
+                    }
+                }
+                catch { }
+            }
+            return partialMatch;
+        }
+
+        public static Dictionary<string, object> ExtractTable(IntPtr hwnd, int index, int maxRows, int maxCols)
+        {
+            Dictionary<string, object> empty = new Dictionary<string, object>(StringComparer.Ordinal);
+            empty["found"] = false;
+            empty["headers"] = new List<object>();
+            empty["rows"] = new List<object>();
+            empty["row_count"] = 0;
+            empty["col_count"] = 0;
+            empty["truncated"] = false;
+            if (hwnd == IntPtr.Zero) return empty;
+
+            if (maxRows <= 0) maxRows = 100;
+            if (maxRows > 500) maxRows = 500;
+            if (maxCols <= 0) maxCols = 32;
+            if (maxCols > 64) maxCols = 64;
+
+            AutomationElement target = null;
+            if (index >= 0)
+            {
+                lock (CacheLock)
+                {
+                    if (_lastHwnd == hwnd && index < _lastElements.Count)
+                        target = _lastElements[index];
+                }
+            }
+            if (target == null)
+            {
+                AutomationElement root = null;
+                try { root = AutomationElement.FromHandle(hwnd); } catch { }
+                if (root == null) return empty;
+
+                TreeWalker walker = TreeWalker.ControlViewWalker;
+                Queue<AutomationElement> q = new Queue<AutomationElement>();
+                q.Enqueue(root);
+                int visited = 0;
+                while (q.Count > 0 && visited < 600)
+                {
+                    AutomationElement cur = q.Dequeue();
+                    visited++;
+                    if (cur != root)
+                    {
+                        try
+                        {
+                            ControlType ct = cur.Current.ControlType;
+                            object pObj;
+                            if (cur.TryGetCurrentPattern(TablePattern.Pattern, out pObj) ||
+                                cur.TryGetCurrentPattern(GridPattern.Pattern, out pObj) ||
+                                ct == ControlType.Table || ct == ControlType.DataGrid || ct == ControlType.List)
+                            {
+                                target = cur;
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+                    try
+                    {
+                        AutomationElement c = walker.GetFirstChild(cur);
+                        int g = 0;
+                        while (c != null && g < 120)
+                        {
+                            q.Enqueue(c);
+                            c = walker.GetNextSibling(c);
+                            g++;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            if (target == null) return empty;
+
+            List<object> headers = new List<object>();
+            List<object> rows = new List<object>();
+            int colCount = 0;
+            bool truncated = false;
+
+            object patObj;
+            if (target.TryGetCurrentPattern(TablePattern.Pattern, out patObj))
+            {
+                try
+                {
+                    AutomationElement[] colHdrs = ((TablePattern)patObj).Current.GetColumnHeaders();
+                    if (colHdrs != null)
+                    {
+                        for (int i = 0; i < colHdrs.Length && i < maxCols; i++)
+                        {
+                            headers.Add(SafeStr(colHdrs[i].Current.Name));
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            TreeWalker tw = TreeWalker.ControlViewWalker;
+            if (headers.Count == 0)
+            {
+                AutomationElement child = tw.GetFirstChild(target);
+                while (child != null && headers.Count < maxCols)
+                {
+                    try
+                    {
+                        ControlType ct = child.Current.ControlType;
+                        string cname = SafeStr(child.Current.Name);
+                        if (ct == ControlType.Header || (ct == ControlType.Custom && string.Equals(cname, "Top Row", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            AutomationElement hc = tw.GetFirstChild(child);
+                            while (hc != null && headers.Count < maxCols)
+                            {
+                                string hname = SafeStr(hc.Current.Name);
+                                if (!string.Equals(hname, "Top Left Header Cell", StringComparison.OrdinalIgnoreCase))
+                                    headers.Add(hname);
+                                hc = tw.GetNextSibling(hc);
+                            }
+                            if (headers.Count > 0) break;
+                        }
+                    }
+                    catch { }
+                    child = tw.GetNextSibling(child);
+                }
+            }
+
+            if (target.TryGetCurrentPattern(GridPattern.Pattern, out patObj))
+            {
+                GridPattern grid = (GridPattern)patObj;
+                int totalRows = 0;
+                int totalCols = 0;
+                try
+                {
+                    totalRows = grid.Current.RowCount;
+                    totalCols = grid.Current.ColumnCount;
+                }
+                catch { }
+
+                if (totalRows > maxRows || totalCols > maxCols) truncated = true;
+                int rLimit = Math.Min(totalRows, maxRows);
+                int cLimit = Math.Min(totalCols, maxCols);
+                colCount = Math.Max(headers.Count, cLimit);
+
+                for (int r = 0; r < rLimit; r++)
+                {
+                    List<object> rowCells = new List<object>();
+                    for (int c = 0; c < cLimit; c++)
+                    {
+                        string cellText = "";
+                        try
+                        {
+                            AutomationElement item = grid.GetItem(r, c);
+                            if (item != null)
+                            {
+                                cellText = TryReadValue(item);
+                                if (string.IsNullOrEmpty(cellText)) cellText = SafeStr(item.Current.Name);
+                            }
+                        }
+                        catch { }
+                        rowCells.Add(cellText);
+                    }
+                    rows.Add(rowCells);
+                }
+            }
+            else
+            {
+                AutomationElement child = tw.GetFirstChild(target);
+                while (child != null)
+                {
+                    try
+                    {
+                        ControlType ct = child.Current.ControlType;
+                        string rname = SafeStr(child.Current.Name);
+                        bool isRow = ct == ControlType.DataItem || ct == ControlType.ListItem || ct == ControlType.TreeItem ||
+                                     (ct == ControlType.Custom && rname.StartsWith("Row", StringComparison.OrdinalIgnoreCase));
+                        if (isRow)
+                        {
+                            if (rows.Count >= maxRows)
+                            {
+                                truncated = true;
+                                break;
+                            }
+                            List<object> rowCells = new List<object>();
+                            AutomationElement cell = tw.GetFirstChild(child);
+                            while (cell != null && rowCells.Count < maxCols)
+                            {
+                                try
+                                {
+                                    ControlType cellCt = cell.Current.ControlType;
+                                    string cellName = SafeStr(cell.Current.Name);
+                                    if (cellCt == ControlType.Header || cellCt == ControlType.HeaderItem)
+                                    {
+                                        cell = tw.GetNextSibling(cell);
+                                        continue;
+                                    }
+                                    string val = TryReadValue(cell);
+                                    if (string.IsNullOrEmpty(val)) val = cellName;
+                                    rowCells.Add(val);
+                                }
+                                catch { }
+                                cell = tw.GetNextSibling(cell);
+                            }
+                            if (rowCells.Count == 0)
+                            {
+                                string v = TryReadValue(child);
+                                rowCells.Add(string.IsNullOrEmpty(v) ? rname : v);
+                            }
+                            if (rowCells.Count > colCount) colCount = rowCells.Count;
+                            rows.Add(rowCells);
+                        }
+                    }
+                    catch { }
+                    child = tw.GetNextSibling(child);
+                }
+                if (headers.Count > colCount) colCount = headers.Count;
+            }
+
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            res["found"] = true;
+            try
+            {
+                res["control_type"] = MapControlType(target.Current.ControlType);
+                res["name"] = SafeStr(target.Current.Name);
+            }
+            catch
+            {
+                res["control_type"] = "Unknown";
+                res["name"] = "";
+            }
+            res["headers"] = headers;
+            res["rows"] = rows;
+            res["row_count"] = rows.Count;
+            res["col_count"] = colCount;
+            res["truncated"] = truncated;
+            return res;
+        }
+
+        public static Dictionary<string, object> AutomateFileDialog(IntPtr hwnd, string filePath, bool confirm)
+        {
+            if (string.IsNullOrEmpty(filePath))
+                throw new ArgumentException("invalid_argument: file_path is required for file_dialog");
+
+            AutomationElement dialog = null;
+            if (hwnd != IntPtr.Zero)
+            {
+                try
+                {
+                    AutomationElement el = AutomationElement.FromHandle(hwnd);
+                    if (el != null && string.Equals(el.Current.ClassName, "#32770", StringComparison.Ordinal))
+                        dialog = el;
+                }
+                catch { }
+            }
+            if (dialog == null)
+            {
+                TreeWalker rootWalker = TreeWalker.ControlViewWalker;
+                AutomationElement child = rootWalker.GetFirstChild(AutomationElement.RootElement);
+                int g = 0;
+                while (child != null && g < 120)
+                {
+                    try
+                    {
+                        if (string.Equals(child.Current.ClassName, "#32770", StringComparison.Ordinal) && !child.Current.IsOffscreen)
+                        {
+                            dialog = child;
+                            break;
+                        }
+                    }
+                    catch { }
+                    child = rootWalker.GetNextSibling(child);
+                    g++;
+                }
+            }
+            if (dialog == null)
+                throw new InvalidOperationException("dialog_not_found: No active Windows #32770 file dialog found");
+
+            AutomationElement pathEdit = null;
+            AutomationElement confirmBtn = null;
+            TreeWalker tw = TreeWalker.ControlViewWalker;
+            Queue<AutomationElement> q = new Queue<AutomationElement>();
+            q.Enqueue(dialog);
+            int visited = 0;
+            while (q.Count > 0 && visited < 400)
+            {
+                AutomationElement cur = q.Dequeue();
+                visited++;
+                try
+                {
+                    ControlType ct = cur.Current.ControlType;
+                    string aid = cur.Current.AutomationId ?? "";
+                    string name = SafeStr(cur.Current.Name);
+                    if (ct == ControlType.Edit && (aid == "1148" || ContainsIgnoreCase(name, "File name") || ContainsIgnoreCase(name, "Tên tệp")))
+                    {
+                        if (aid == "1148" || pathEdit == null) pathEdit = cur;
+                    }
+                    else if (ct == ControlType.Button && (aid == "1" ||
+                             string.Equals(name, "Open", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(name, "Save", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(name, "Mở", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(name, "Lưu", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (aid == "1" || confirmBtn == null) confirmBtn = cur;
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    AutomationElement c = tw.GetFirstChild(cur);
+                    int cg = 0;
+                    while (c != null && cg < 80)
+                    {
+                        q.Enqueue(c);
+                        c = tw.GetNextSibling(c);
+                        cg++;
+                    }
+                }
+                catch { }
+            }
+
+            if (pathEdit == null)
+                throw new InvalidOperationException("dialog_control_missing: File name Edit box not found in dialog");
+
+            bool setOk = false;
+            try
+            {
+                object pat;
+                if (pathEdit.TryGetCurrentPattern(ValuePattern.Pattern, out pat))
+                {
+                    ((ValuePattern)pat).SetValue(filePath);
+                    setOk = true;
+                }
+            }
+            catch { }
+
+            if (!setOk)
+            {
+                try { pathEdit.SetFocus(); } catch { }
+                Thread.Sleep(30);
+                InputArm.ClearAndType(filePath);
+            }
+
+            if (confirm)
+            {
+                Thread.Sleep(40);
+                bool invoked = false;
+                if (confirmBtn != null)
+                {
+                    try
+                    {
+                        object pat;
+                        if (confirmBtn.TryGetCurrentPattern(InvokePattern.Pattern, out pat))
+                        {
+                            ((InvokePattern)pat).Invoke();
+                            invoked = true;
+                        }
+                    }
+                    catch { }
+                }
+                if (!invoked)
+                {
+                    try { pathEdit.SetFocus(); } catch { }
+                    Thread.Sleep(20);
+                    InputArm.PressChord("enter");
+                }
+            }
+
+            long dlgHwnd = 0;
+            try { dlgHwnd = dialog.Current.NativeWindowHandle; } catch { }
+
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            res["executed"] = true;
+            res["action"] = "file_dialog";
+            res["dialog_hwnd"] = dlgHwnd;
+            res["file_path"] = filePath;
+            res["confirmed"] = confirm;
+            return res;
         }
 
         public static string ComputeTreeHash(List<object> nodes)
@@ -300,6 +839,10 @@ namespace ZVision.Native
                 if (IsCachedFlag(el, AutomationElement.IsSelectionItemPatternAvailableProperty)) list.Add("Select");
                 if (IsCachedFlag(el, AutomationElement.IsExpandCollapsePatternAvailableProperty)) list.Add("Expand");
                 if (IsCachedFlag(el, AutomationElement.IsScrollPatternAvailableProperty)) list.Add("Scroll");
+                if (IsCachedFlag(el, AutomationElement.IsRangeValuePatternAvailableProperty)) list.Add("Range");
+                if (IsCachedFlag(el, AutomationElement.IsGridPatternAvailableProperty)) list.Add("Grid");
+                if (IsCachedFlag(el, AutomationElement.IsTablePatternAvailableProperty)) list.Add("Table");
+                if (IsCachedFlag(el, AutomationElement.IsSelectionPatternAvailableProperty)) list.Add("Selection");
             }
             catch { }
             return list;
@@ -344,6 +887,10 @@ namespace ZVision.Native
                     else if (pname.StartsWith("SelectionItemPattern", StringComparison.Ordinal)) list.Add("Select");
                     else if (pname.StartsWith("ExpandCollapsePattern", StringComparison.Ordinal)) list.Add("Expand");
                     else if (pname.StartsWith("ScrollPattern", StringComparison.Ordinal)) list.Add("Scroll");
+                    else if (pname.StartsWith("RangeValuePattern", StringComparison.Ordinal)) list.Add("Range");
+                    else if (pname.StartsWith("GridPattern", StringComparison.Ordinal)) list.Add("Grid");
+                    else if (pname.StartsWith("TablePattern", StringComparison.Ordinal)) list.Add("Table");
+                    else if (pname.StartsWith("SelectionPattern", StringComparison.Ordinal)) list.Add("Selection");
                 }
             }
             catch { }
@@ -358,6 +905,22 @@ namespace ZVision.Native
                 if (el.TryGetCurrentPattern(ValuePattern.Pattern, out patObj))
                 {
                     return ((ValuePattern)patObj).Current.Value ?? "";
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        private static string TryReadSelectionValue(AutomationElement el)
+        {
+            try
+            {
+                object patObj;
+                if (el.TryGetCurrentPattern(SelectionPattern.Pattern, out patObj))
+                {
+                    AutomationElement[] sel = ((SelectionPattern)patObj).Current.GetSelection();
+                    if (sel != null && sel.Length > 0 && sel[0] != null)
+                        return SafeStr(sel[0].Current.Name);
                 }
             }
             catch { }

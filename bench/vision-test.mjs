@@ -131,6 +131,35 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
     reason: 'Open run dialog'
   });
   ok(winR.allowed === false && winR.code === 'confirmation_required', 'Win+R blocked without confirmSensitive');
+
+  const closeBlocked = checkActionSafety({
+    action: 'close_window',
+    processName: 'notepad.exe',
+    reason: 'Close window'
+  });
+  ok(closeBlocked.allowed === false && closeBlocked.code === 'confirmation_required', 'close_window blocked without confirmSensitive');
+
+  const closeAllowed = checkActionSafety({
+    action: 'close_window',
+    processName: 'notepad.exe',
+    confirmSensitive: true,
+    reason: 'User confirmed closing notepad'
+  });
+  ok(closeAllowed.allowed === true, 'close_window allowed with confirmSensitive=true and reason');
+
+  const dlgTerminalBlocked = checkActionSafety({
+    action: 'file_dialog',
+    processName: 'pwsh.exe',
+    reason: 'Fill dialog'
+  });
+  ok(dlgTerminalBlocked.allowed === false && dlgTerminalBlocked.code === 'restricted_process', 'file_dialog blocked on click-only terminal');
+
+  const dlgNormalAllowed = checkActionSafety({
+    action: 'file_dialog',
+    processName: 'notepad.exe',
+    reason: 'Fill file dialog'
+  });
+  ok(dlgNormalAllowed.allowed === true, 'file_dialog allowed on normal app');
 }
 
 // ObservationStore one-use, stop invalidation, and window drift
@@ -228,6 +257,12 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
       { action: 'click', index: 0, reason: 'Focus input' },
       { action: 'type', text: 'hello', reason: 'Enter query' },
       { action: 'clear_and_type', text: 'world', reason: 'Replace query' },
+      { action: 'expand', index: 1, reason: 'Expand node' },
+      { action: 'select_item', index: 2, value: 'Beta', reason: 'Select option' },
+      { action: 'set_range', index: 3, value: '50', reason: 'Set slider' },
+      { action: 'snap_window', snap: 'left', reason: 'Snap window' },
+      { action: 'wait_window', filter: 'Open', timeout_ms: 2000 },
+      { action: 'file_dialog', file_path: 'C:\\temp\\a.png', confirm: true, reason: 'Choose file' },
       { action: 'refresh_uia' },
       { action: 'wait_control', name: 'OK' },
       { action: 'batch_strokes', strokes: [[[10, 10], [20, 20]]], reason: 'Draw batch' },
@@ -235,7 +270,7 @@ ok(classifyProcessTier('notepad.exe') === 'full', 'notepad.exe classified as ful
     ],
     { processName: 'notepad.exe' }
   );
-  ok(goodPlan.valid === true, 'Valid plan with upgraded primitives passes pre-validation');
+  ok(goodPlan.valid === true, 'Valid plan with Phase 1 + upgraded primitives passes pre-validation');
 
   const largePlan = validatePlanSteps(
     new Array(150).fill({ action: 'drag', from: [10, 10], to: [20, 20], reason: 'stroke' }),
@@ -522,12 +557,14 @@ if (process.platform === 'win32') {
   const tmpNativeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'z-vision-native-test-'));
   let client = null;
   let probeFormProc = null;
+  let priorClipRestore = null;
+  let engine = null;
   try {
     const buildInfo = ensureNativeHost({ dataDir: tmpNativeDir, force: true });
     ok(fs.existsSync(buildInfo.exePath), `Stock csc.exe compiled native host: ${path.basename(buildInfo.exePath)} (winrtOcr=${buildInfo.winrtOcr})`);
 
     client = createHostClient({ dataDir: tmpNativeDir });
-    const engine = createVisionEngine({ client });
+    engine = createVisionEngine({ client });
 
     const st = await engine.status();
     ok(Array.isArray(st.monitors) && st.monitors.length >= 1, `Native status detected ${st.monitors.length} monitor(s)`);
@@ -536,13 +573,13 @@ if (process.platform === 'win32') {
     ok(typeof st.pen_injection_available === 'boolean', `Native status reports pen_injection_available=${st.pen_injection_available}`);
     ok(st.region_lock && st.region_lock.active === false, 'Native status reports region_lock.active=false initially');
 
-    // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel test
+    // Always spawn an isolated WinForms probe window in this desktop for safe virtual click + parallel + Phase 1 tests
     const psScript = [
       'Add-Type -AssemblyName System.Windows.Forms',
       'Add-Type -AssemblyName System.Drawing',
       '$f = New-Object System.Windows.Forms.Form',
       "$f.Text = 'ZVisionProbeWindow'",
-      '$f.Width = 420; $f.Height = 260',
+      '$f.Width = 520; $f.Height = 360',
       "$f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(40, 40)",
       '$f.BackColor = [System.Drawing.Color]::White',
       '$lbl = New-Object System.Windows.Forms.Label',
@@ -554,7 +591,25 @@ if (process.platform === 'win32') {
       "$btn.Name = 'btnApplyProbe'",
       '$btn.SetBounds(20, 80, 140, 40)',
       "$btn.Add_Click({ $lbl.Text = 'CLICKED_VIRTUAL' })",
-      '$f.Controls.Add($lbl); $f.Controls.Add($btn)',
+      '$cmb = New-Object System.Windows.Forms.ComboBox',
+      "$cmb.Name = 'cmbMode'",
+      "$cmb.DropDownStyle = 'DropDownList'",
+      "[void]$cmb.Items.AddRange(@('Alpha','Beta','Gamma'))",
+      '$cmb.SelectedIndex = 0',
+      '$cmb.SetBounds(20, 130, 140, 28)',
+      '$btnDlg = New-Object System.Windows.Forms.Button',
+      "$btnDlg.Name = 'btnOpenDlg'",
+      "$btnDlg.Text = 'OpenDlg'",
+      '$btnDlg.SetBounds(20, 170, 140, 32)',
+      "$btnDlg.Add_Click({ $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'ZVisionFileDlg'; $d.Filter = 'All files (*.*)|*.*'; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $lbl.Text = 'FILE:' + [System.IO.Path]::GetFileName($d.FileName) } })",
+      '$lv = New-Object System.Windows.Forms.ListView',
+      "$lv.Name = 'lvItems'",
+      "$lv.View = 'Details'",
+      "[void]$lv.Columns.Add('Code', 90); [void]$lv.Columns.Add('Qty', 80)",
+      "$i1 = New-Object System.Windows.Forms.ListViewItem('SKU-01'); [void]$i1.SubItems.Add('10'); [void]$lv.Items.Add($i1)",
+      "$i2 = New-Object System.Windows.Forms.ListViewItem('SKU-02'); [void]$i2.SubItems.Add('25'); [void]$lv.Items.Add($i2)",
+      '$lv.SetBounds(20, 215, 220, 90)',
+      '$f.Controls.AddRange(@($lbl, $btn, $cmb, $btnDlg, $lv))',
       "$f.Add_Shown({ [Console]::Out.WriteLine('READY:' + $f.Handle.ToInt64()); [Console]::Out.Flush() })",
       '[System.Windows.Forms.Application]::Run($f)'
     ].join('\n');
@@ -760,7 +815,116 @@ if (process.platform === 'win32') {
     ok(stAfterStop.region_lock && stAfterStop.region_lock.active === false, 'Emergency stop cleared active region lock');
     const resetRes = await engine.stop({ action: 'reset' });
     ok(resetRes.emergency_stopped === false, 'Native emergency stop reset cleanly');
+
+    // Phase 1: Verify extractTable on WinForms ListView
+    const tblRes = await engine.extractTable({ hwnd: candidate.hwnd });
+    ok(tblRes.found === true && tblRes.row_count >= 2 && tblRes.headers.includes('Code') && tblRes.headers.includes('Qty'), `Native extractTable extracted headers=[${tblRes.headers.join(',')}] rows=${tblRes.row_count}`);
+    ok(JSON.stringify(tblRes.rows).includes('SKU-01') && JSON.stringify(tblRes.rows).includes('25'), 'Native extractTable captured row cell values');
+
+    // Phase 1: Verify select_item on ComboBox
+    const obsCmb = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'full' });
+    const cmbNode = obsCmb.nodes.find((n) => n.role === 'ComboBox' || n.aid === 'cmbMode');
+    ok(Boolean(cmbNode), 'Probe UIA tree contains ComboBox cmbMode');
+    const selAct = await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsCmb.observation_id,
+      action: 'select_item',
+      index: cmbNode.i,
+      value: 'Beta',
+      reason: 'Select Beta from ComboBox via UIA',
+      observe_after: true
+    });
+    const cmbAfter = (selAct.observation?.nodes || []).find((n) => n.role === 'ComboBox' || n.aid === 'cmbMode');
+    ok(selAct.ok === true && (cmbAfter?.val === 'Beta' || cmbAfter?.name === 'Beta'), `Native select_item updated ComboBox to Beta (val=${cmbAfter?.val})`);
+
+    // Phase 1: Verify Rich Clipboard (text + image) with restore
+    priorClipRestore = await engine.clipboardGet();
+    const setTxt = await engine.clipboardSet({ kind: 'text', text: 'ZVISION_CLIP_2026' });
+    const getTxt = await engine.clipboardGet();
+    ok(setTxt.ok === true && getTxt.has_text === true && getTxt.text === 'ZVISION_CLIP_2026', 'Native clipboard text roundtrip succeeded');
+    const setImg = await engine.clipboardSet({ kind: 'image', image_path: testImgPath });
+    const getImg = await engine.clipboardGet();
+    ok(setImg.ok === true && getImg.has_image === true && getImg.image_size?.[0] === 120 && getImg.image_size?.[1] === 90, `Native clipboard image roundtrip succeeded (${getImg.image_size?.join('x')})`);
+
+    // Phase 1: Verify File Dialog automator end-to-end
+    const dlgBtn = (selAct.observation?.nodes || []).find((n) => n.name === 'OpenDlg' || n.aid === 'btnOpenDlg');
+    ok(Boolean(dlgBtn), 'Probe UIA tree contains OpenDlg button');
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: selAct.observation.observation_id,
+      action: 'click',
+      mode: 'virtual',
+      show_arrows: false,
+      index: dlgBtn.i,
+      reason: 'Open Windows OpenFileDialog asynchronously via virtual click'
+    });
+    const waitDlg = await engine.windows({ wait_for: 'ZVisionFileDlg', include_hidden: false, timeout_ms: 5000 });
+    ok(waitDlg.matched === true && waitDlg.windows.length >= 1, `windows(wait_for) detected modal dialog ZVisionFileDlg in ${waitDlg.waited_ms}ms`);
+    const dlgHwnd = waitDlg.windows[0].hwnd;
+    const obsDlg = await engine.observe({ hwnd: dlgHwnd, with_image: false, with_uia: 'off' });
+    const dlgAct = await engine.act({
+      hwnd: dlgHwnd,
+      observation_id: obsDlg.observation_id,
+      action: 'file_dialog',
+      file_path: testImgPath,
+      confirm: true,
+      allow_restricted: true,
+      reason: 'Fill OpenFileDialog and confirm'
+    });
+    ok(dlgAct.ok === true, 'Native file_dialog action completed');
+    await engine.windows({ wait_for: 'ZVisionFileDlg', wait_state: 'closed', timeout_ms: 4000 });
+    const obsPostDlg = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'full' });
+    const updatedFileLbl = obsPostDlg.nodes.find((n) => (n.name || '').includes('FILE:sample-landscape.png'));
+    ok(Boolean(updatedFileLbl), 'file_dialog populated path and updated probe label to FILE:sample-landscape.png');
+
+    // Phase 1: Verify Window Manager (move_window, snap_window, minimize, restore)
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsPostDlg.observation_id,
+      action: 'move_window',
+      x: 90,
+      y: 70,
+      reason: 'Move probe window to (90,70)'
+    });
+    const wMoved = await engine.windows({ filter: 'ZVisionProbeWindow' });
+    ok(Math.abs(wMoved.windows[0].bounds.x - 90) <= 15 && Math.abs(wMoved.windows[0].bounds.y - 70) <= 15, `move_window positioned probe near (90,70) (got ${wMoved.windows[0].bounds.x},${wMoved.windows[0].bounds.y})`);
+
+    const obsSnap = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsSnap.observation_id,
+      action: 'snap_window',
+      snap: 'left',
+      reason: 'Snap probe window left half'
+    });
+    const obsMin = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsMin.observation_id,
+      action: 'minimize',
+      reason: 'Minimize probe window'
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    const wMin = await engine.windows({ include_hidden: true, filter: 'ZVisionProbeWindow' });
+    ok(wMin.windows[0].minimized === true, 'minimize flagged probe window as minimized');
+
+    const obsRes = await engine.observe({ hwnd: candidate.hwnd, with_image: false, with_uia: 'off' });
+    await engine.act({
+      hwnd: candidate.hwnd,
+      observation_id: obsRes.observation_id,
+      action: 'restore',
+      reason: 'Restore probe window'
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    const wRest = await engine.windows({ filter: 'ZVisionProbeWindow' });
+    ok(wRest.windows[0].minimized === false, 'restore unminimized probe window');
   } finally {
+    if (engine && priorClipRestore) {
+      try {
+        if (priorClipRestore.has_text) await engine.clipboardSet({ kind: 'text', text: priorClipRestore.text });
+        else await engine.clipboardSet({ kind: 'clear' });
+      } catch {}
+    }
     if (probeFormProc) {
       try { probeFormProc.kill(); } catch {}
     }

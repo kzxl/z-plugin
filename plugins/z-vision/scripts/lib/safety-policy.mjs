@@ -29,7 +29,7 @@ const SENSITIVE_LABEL_RE = /\b(delete|remove|send|submit|pay|purchase|buy|transf
 
 const DANGEROUS_HOTKEY_RE = /^(alt\+f4|ctrl\+shift\+del(?:ete)?|win\+[rlx]|ctrl\+alt\+del(?:ete)?)$/i;
 
-const TEXT_MUTATING_ACTIONS = new Set(['type', 'paste', 'set_value', 'clear_and_type', 'key']);
+const TEXT_MUTATING_ACTIONS = new Set(['type', 'paste', 'set_value', 'clear_and_type', 'key', 'file_dialog']);
 
 const ALLOWED_PLAN_ACTIONS = new Set([
   'click',
@@ -45,6 +45,21 @@ const ALLOWED_PLAN_ACTIONS = new Set([
   'set_value',
   'key',
   'focus',
+  'resize',
+  'expand',
+  'collapse',
+  'toggle',
+  'select_item',
+  'set_range',
+  'scroll_into_view',
+  'minimize',
+  'maximize',
+  'restore',
+  'move_window',
+  'snap_window',
+  'close_window',
+  'file_dialog',
+  'wait_window',
   'wait_settle',
   'wait_text',
   'wait_control',
@@ -105,14 +120,15 @@ export function checkActionSafety({
   const normKeys = String(keys || '').replace(/\s+/g, '').toLowerCase();
   const isSensitiveLabel = labelCandidate && SENSITIVE_LABEL_RE.test(labelCandidate);
   const isDangerousKey = action === 'key' && DANGEROUS_HOTKEY_RE.test(normKeys);
-  const isSensitiveAction = action === 'resize' && false;
+  const isSensitiveAction = action === 'close_window';
 
   if ((isSensitiveLabel || isDangerousKey || isSensitiveAction) && !(confirmSensitive === true && String(reason || '').trim().length > 0)) {
+    const why = isDangerousKey ? keys : (isSensitiveAction ? 'close_window' : labelCandidate);
     return {
       allowed: false,
       tier,
       code: 'confirmation_required',
-      message: `Sensitive action detected (${isDangerousKey ? keys : labelCandidate}). Re-run with confirm_sensitive=true and a clear reason after user approval.`
+      message: `Sensitive action detected (${why}). Re-run with confirm_sensitive=true and a clear reason after user approval.`
     };
   }
 

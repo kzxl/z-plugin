@@ -109,10 +109,26 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('status', {});
   }
 
-  async function windows({ include_hidden = false, filter = '', launch_exe = '', launch_args = '', timeout_ms = 8000 } = {}) {
+  async function windows({ include_hidden = false, filter = '', launch_exe = '', launch_args = '', timeout_ms = 8000, wait_for = '', wait_state = 'open' } = {}) {
     let launched = null;
     if (launch_exe) {
       launched = await host.request('launch', { exe: launch_exe, args: launch_args, timeout_ms });
+    }
+    if (wait_for) {
+      const start = Date.now();
+      const limit = Math.min(15000, Math.max(200, Number(timeout_ms) || 5000));
+      const wantClosed = String(wait_state || 'open').toLowerCase() === 'closed';
+      let lastRes = { windows: [] };
+      while (true) {
+        lastRes = await host.request('windows', { include_hidden, filter: wait_for });
+        const count = (lastRes.windows || []).length;
+        const okMatch = wantClosed ? count === 0 : count > 0;
+        if (okMatch || (Date.now() - start) >= limit) {
+          const out = { ...lastRes, matched: okMatch, waited_ms: Date.now() - start };
+          return launched ? { ...out, launched } : out;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
     }
     const res = await host.request('windows', { include_hidden, filter });
     return launched ? { ...res, launched } : res;
@@ -228,7 +244,8 @@ export function createVisionEngine({ client = null, store = null } = {}) {
   }
 
   async function buildActPayload(obs, opts) {
-    const resolved = resolveTarget(obs, opts);
+    const coordSpace = opts.coord_space || (opts.action === 'move_window' ? 'screen' : 'image');
+    const resolved = resolveTarget(obs, { ...opts, coord_space: coordSpace });
     const safety = checkActionSafety({
       action: opts.action,
       processName: obs.process,
@@ -247,7 +264,6 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     }
 
     const mode = opts.mode || (opts.physical === false ? 'uia' : 'physical');
-    const coordSpace = opts.coord_space || 'image';
 
     const payload = {
       hwnd: opts.hwnd ?? obs.hwnd,
@@ -270,6 +286,10 @@ export function createVisionEngine({ client = null, store = null } = {}) {
       height: opts.height,
       click_first: opts.click_first === true
     };
+    if (opts.value !== undefined) payload.value = opts.value;
+    if (opts.snap) payload.snap = opts.snap;
+    if (opts.file_path) payload.file_path = opts.file_path;
+    if (opts.confirm !== undefined) payload.confirm = opts.confirm !== false;
     if (opts.show_arrows != null) {
       payload.show_arrows = opts.show_arrows === true;
     }
@@ -375,14 +395,30 @@ export function createVisionEngine({ client = null, store = null } = {}) {
 
     let currentObs = obs;
     let completed = 0;
-    const isDynamicStep = (a) => a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' || a === 'refresh_uia';
+    const isDynamicStep = (a) => a === 'wait_settle' || a === 'wait_text' || a === 'wait_control' || a === 'wait_window' || a === 'refresh_uia';
 
     let i = 0;
     while (i < opts.steps.length) {
       const step = opts.steps[i];
       if (isDynamicStep(step.action)) {
         try {
-          if (step.action === 'refresh_uia') {
+          if (step.action === 'wait_window') {
+            const wRes = await windows({
+              wait_for: step.filter || step.title || step.process || '',
+              wait_state: step.wait_state || 'open',
+              include_hidden: step.include_hidden === true,
+              timeout_ms: step.timeout_ms || 5000
+            });
+            if (!wRes.matched) {
+              const err = new Error(`wait_window timed out waiting for '${step.filter || step.title || step.process || ''}'`);
+              err.code = 'wait_timeout';
+              throw err;
+            }
+            if (String(step.wait_state || 'open').toLowerCase() !== 'closed' && wRes.windows?.[0] && step.switch_to !== false) {
+              const snap = await observe({ hwnd: wRes.windows[0].hwnd, with_image: false, with_uia: 'full' });
+              currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
+            }
+          } else if (step.action === 'refresh_uia') {
             const snap = await observe({ hwnd: currentObs.hwnd, with_image: false, with_uia: 'full', query: step.query || '' });
             currentObs = { ...snap, bounds: snap.bounds, clientBounds: snap.client_bounds || null, imageSize: snap.image_size };
           } else if (step.action === 'wait_settle') {
@@ -671,6 +707,18 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     return host.request('compare_reference', { hwnd, image_path, roi, grid_cols, grid_rows, top_n });
   }
 
+  async function extractTable({ hwnd = 0, index = -1, max_rows = 100, max_cols = 32 } = {}) {
+    return host.request('extract_table', { hwnd, index, max_rows, max_cols });
+  }
+
+  async function clipboardGet({ save_image_path = '' } = {}) {
+    return host.request('clipboard_get', { save_image_path });
+  }
+
+  async function clipboardSet({ kind = 'text', clipboard_kind, text = '', image_path = '', files = [] } = {}) {
+    return host.request('clipboard_set', { kind: clipboard_kind || kind, text, image_path, files });
+  }
+
   async function lockRegion({ action = 'lock', hwnd = 0, region = null, policy = 'soft', ttl_ms = 30000 } = {}) {
     return host.request('lock', { action, hwnd, region, policy, ttl_ms });
   }
@@ -697,6 +745,9 @@ export function createVisionEngine({ client = null, store = null } = {}) {
     findColorBounds,
     vectorizeImage,
     compareReference,
+    extractTable,
+    clipboardGet,
+    clipboardSet,
     lockRegion,
     stop,
     close: () => host.close()

@@ -115,6 +115,9 @@ namespace ZVision.Native
             if (cmd == "find_color_bounds") return HandleFindColorBounds(p);
             if (cmd == "vectorize_image") return HandleVectorizeImage(p);
             if (cmd == "compare_reference") return HandleCompareReference(p);
+            if (cmd == "extract_table") return HandleExtractTable(p);
+            if (cmd == "clipboard_get") return HandleClipboardGet(p);
+            if (cmd == "clipboard_set") return HandleClipboardSet(p);
             if (cmd == "act") return HandleAct(p);
             if (cmd == "plan_batch") return HandlePlanBatch(p);
             if (cmd == "parallel") return HandleParallel(p);
@@ -756,6 +759,42 @@ namespace ZVision.Native
             }
         }
 
+        private static Dictionary<string, object> HandleExtractTable(Dictionary<string, object> p)
+        {
+            IntPtr hwnd = new IntPtr(JsonMini.GetLong(p, "hwnd", 0));
+            if (hwnd == IntPtr.Zero) hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
+                throw new InvalidOperationException("window_not_found: Invalid hwnd");
+
+            int index = JsonMini.GetInt(p, "index", -1);
+            int maxRows = JsonMini.GetInt(p, "max_rows", 100);
+            int maxCols = JsonMini.GetInt(p, "max_cols", 32);
+            return UiaTree.ExtractTable(hwnd, index, maxRows, maxCols);
+        }
+
+        private static Dictionary<string, object> HandleClipboardGet(Dictionary<string, object> p)
+        {
+            string savePath = JsonMini.GetString(p, "save_image_path", "");
+            return InputArm.ClipboardGet(savePath);
+        }
+
+        private static Dictionary<string, object> HandleClipboardSet(Dictionary<string, object> p)
+        {
+            string kind = JsonMini.GetString(p, "kind", JsonMini.GetString(p, "clipboard_kind", "text"));
+            string text = JsonMini.GetString(p, "text", "");
+            string imagePath = JsonMini.GetString(p, "image_path", "");
+            List<string> files = new List<string>();
+            List<object> rawFiles = JsonMini.GetList(p, "files");
+            if (rawFiles != null)
+            {
+                for (int i = 0; i < rawFiles.Count; i++)
+                {
+                    if (rawFiles[i] != null) files.Add(Convert.ToString(rawFiles[i]));
+                }
+            }
+            return InputArm.ClipboardSet(kind, text, imagePath, files);
+        }
+
         private static Dictionary<string, object> HandleAct(Dictionary<string, object> p)
         {
             return ExecuteActInternal(p, 1, true);
@@ -963,6 +1002,84 @@ namespace ZVision.Native
                 int ch = JsonMini.GetInt(p, "height", 600);
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, cw, ch, SWP_NOMOVE | SWP_NOZORDER);
                 return false;
+            }
+            if (action == "minimize")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                ShowWindow(hwnd, SW_MINIMIZE);
+                return false;
+            }
+            if (action == "maximize")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                ShowWindow(hwnd, SW_MAXIMIZE);
+                return false;
+            }
+            if (action == "restore")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                ShowWindow(hwnd, SW_RESTORE);
+                return false;
+            }
+            if (action == "move_window")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+                int w = JsonMini.GetInt(p, "width", 0);
+                int h = JsonMini.GetInt(p, "height", 0);
+                uint flags = (w > 0 && h > 0) ? SWP_NOZORDER : (SWP_NOSIZE | SWP_NOZORDER);
+                SetWindowPos(hwnd, IntPtr.Zero, x, y, Math.Max(0, w), Math.Max(0, h), flags);
+                return false;
+            }
+            if (action == "snap_window")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+                string snap = JsonMini.GetString(p, "snap", JsonMini.GetString(p, "value", JsonMini.GetString(p, "text", "left"))).ToLowerInvariant();
+                IntPtr hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFOEX mi = new MONITORINFOEX();
+                mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+                int wx = 0, wy = 0, ww = 1280, wh = 720;
+                if (hMon != IntPtr.Zero && GetMonitorInfo(hMon, ref mi))
+                {
+                    wx = mi.rcWork.Left;
+                    wy = mi.rcWork.Top;
+                    ww = Math.Max(100, mi.rcWork.Right - mi.rcWork.Left);
+                    wh = Math.Max(100, mi.rcWork.Bottom - mi.rcWork.Top);
+                }
+                int tx = wx, ty = wy, tw = ww / 2, th = wh;
+                if (snap == "right") { tx = wx + ww / 2; tw = ww - ww / 2; }
+                else if (snap == "top") { tx = wx; ty = wy; tw = ww; th = wh / 2; }
+                else if (snap == "bottom") { tx = wx; ty = wy + wh / 2; tw = ww; th = wh - wh / 2; }
+                else if (snap == "center") { tw = (int)(ww * 0.75); th = (int)(wh * 0.8); tx = wx + (ww - tw) / 2; ty = wy + (wh - th) / 2; }
+                SetWindowPos(hwnd, IntPtr.Zero, tx, ty, tw, th, SWP_NOZORDER);
+                return false;
+            }
+            if (action == "close_window")
+            {
+                if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) throw new InvalidOperationException("window_not_found: Invalid hwnd");
+                PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                return false;
+            }
+            if (action == "expand" || action == "collapse" || action == "toggle" ||
+                action == "select_item" || action == "set_range" || action == "scroll_into_view")
+            {
+                if (hwnd == IntPtr.Zero || index < 0)
+                    throw new ArgumentException("invalid_argument: UIA semantic action '" + action + "' requires hwnd and UIA control selector/index");
+                string semArg = (p.ContainsKey("value") && p["value"] != null)
+                    ? Convert.ToString(p["value"], System.Globalization.CultureInfo.InvariantCulture)
+                    : JsonMini.GetString(p, "text", "");
+                string uiaErr;
+                if (!UiaTree.TrySemanticAction(hwnd, index, action, semArg, out uiaErr))
+                    throw new InvalidOperationException("semantic_failed: " + uiaErr);
+                return true;
+            }
+            if (action == "file_dialog")
+            {
+                string filePath = JsonMini.GetString(p, "file_path", JsonMini.GetString(p, "text", ""));
+                bool confirm = JsonMini.GetBool(p, "confirm", true);
+                UiaTree.AutomateFileDialog(hwnd, filePath, confirm);
+                return true;
             }
             throw new ArgumentException("unsupported_action: " + action);
         }
@@ -1706,9 +1823,14 @@ namespace ZVision.Native
 
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         private const uint PW_RENDERFULLCONTENT = 0x00000002;
+        private const int SW_MAXIMIZE = 3;
+        private const int SW_MINIMIZE = 6;
         private const int SW_RESTORE = 9;
+        private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOZORDER = 0x0004;
+        private const uint WM_CLOSE = 0x0010;
+        private const uint MONITOR_DEFAULTTONEAREST = 2;
         private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
         private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
@@ -1748,7 +1870,9 @@ namespace ZVision.Native
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
         [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
         [DllImport("user32.dll")] private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+        [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
         [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+        [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
         [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
         [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);

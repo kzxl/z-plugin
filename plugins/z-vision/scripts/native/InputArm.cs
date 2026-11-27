@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -558,6 +561,126 @@ namespace ZVision.Native
             t.Start();
             t.Join(5000);
             if (staErr != null) throw staErr;
+        }
+
+        private static void RunOnSta(Action work)
+        {
+            Exception staErr = null;
+            Thread t = new Thread(delegate()
+            {
+                try { work(); }
+                catch (Exception ex) { staErr = ex; }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+            if (!t.Join(5000)) throw new TimeoutException("sta_timeout: Clipboard STA operation timed out");
+            if (staErr != null) throw staErr;
+        }
+
+        public static Dictionary<string, object> ClipboardGet(string saveImagePath)
+        {
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            res["has_text"] = false;
+            res["text"] = "";
+            res["text_length"] = 0;
+            res["has_image"] = false;
+            res["image_size"] = null;
+            res["has_files"] = false;
+            res["files"] = new List<object>();
+
+            RunOnSta(delegate()
+            {
+                if (Clipboard.ContainsText())
+                {
+                    string txt = Clipboard.GetText() ?? "";
+                    res["has_text"] = true;
+                    res["text_length"] = txt.Length;
+                    res["text"] = txt.Length > 65536 ? txt.Substring(0, 65536) : txt;
+                }
+                if (Clipboard.ContainsImage())
+                {
+                    using (Image img = Clipboard.GetImage())
+                    {
+                        if (img != null)
+                        {
+                            res["has_image"] = true;
+                            res["image_size"] = new List<object> { img.Width, img.Height };
+                            if (!string.IsNullOrEmpty(saveImagePath))
+                            {
+                                string dir = Path.GetDirectoryName(saveImagePath);
+                                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                                img.Save(saveImagePath, ImageFormat.Png);
+                                res["saved_image_path"] = saveImagePath;
+                            }
+                        }
+                    }
+                }
+                if (Clipboard.ContainsFileDropList())
+                {
+                    StringCollection sc = Clipboard.GetFileDropList();
+                    if (sc != null && sc.Count > 0)
+                    {
+                        res["has_files"] = true;
+                        List<object> list = new List<object>();
+                        for (int i = 0; i < sc.Count && i < 200; i++) list.Add(sc[i]);
+                        res["files"] = list;
+                    }
+                }
+            });
+            return res;
+        }
+
+        public static Dictionary<string, object> ClipboardSet(string kind, string text, string imagePath, List<string> files)
+        {
+            string normKind = string.IsNullOrEmpty(kind) ? "text" : kind.ToLowerInvariant();
+            Dictionary<string, object> res = new Dictionary<string, object>(StringComparer.Ordinal);
+            res["ok"] = true;
+            res["kind"] = normKind;
+
+            RunOnSta(delegate()
+            {
+                if (normKind == "clear")
+                {
+                    Clipboard.Clear();
+                    return;
+                }
+                if (normKind == "text")
+                {
+                    string val = text ?? "";
+                    if (val.Length == 0) Clipboard.Clear();
+                    else Clipboard.SetText(val);
+                    res["text_length"] = val.Length;
+                    return;
+                }
+                if (normKind == "image")
+                {
+                    if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
+                        throw new FileNotFoundException("image_not_found: Clipboard image path does not exist");
+                    using (Image src = Image.FromFile(imagePath))
+                    using (Bitmap copy = new Bitmap(src))
+                    {
+                        Clipboard.SetImage(copy);
+                        res["image_size"] = new List<object> { copy.Width, copy.Height };
+                    }
+                    return;
+                }
+                if (normKind == "files")
+                {
+                    if (files == null || files.Count == 0)
+                        throw new ArgumentException("invalid_argument: files array is required for clipboard kind=files");
+                    StringCollection sc = new StringCollection();
+                    for (int i = 0; i < files.Count; i++)
+                    {
+                        if (!string.IsNullOrEmpty(files[i])) sc.Add(files[i]);
+                    }
+                    if (sc.Count == 0) throw new ArgumentException("invalid_argument: no valid file paths provided");
+                    Clipboard.SetFileDropList(sc);
+                    res["file_count"] = sc.Count;
+                    return;
+                }
+                throw new ArgumentException("invalid_argument: Unsupported clipboard_kind: " + normKind);
+            });
+            return res;
         }
 
         private static void MoveAbs(int x, int y)
